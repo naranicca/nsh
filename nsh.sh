@@ -744,6 +744,112 @@ cpmv() {
     done
 }
 
+ncp() {
+    local op='command cp'
+    local dst= && for dst in "$@"; do :; done
+    local overwrite_all=no
+    local skip_all=no
+    local cancel=no
+    local idx=0
+    local num_thread=$(($(get_num_cpu)*2))
+    local pids=()
+    local LINE
+    set +m
+    [[ $1 == --overwrite ]] && overwrite_all=yes && shift
+    __worker() {
+        local s="$1"
+        local d="$2" && [[ -d "$d" ]] && d="$d/${s##*/}"
+        if [[ -e "$d" ]]; then
+            [[ -d "$d" ]] && return
+            [[ $skip_all == yes ]] && return
+            if [[ $overwrite_all == no ]]; then
+                #$(command diff --brief "$s" "$d" &>/dev/null) && return
+                local ssize=$(stat "$STAT_FSIZE_PARAM" "$s" 2>/dev/null)
+                local dsize=$(stat "$STAT_FSIZE_PARAM" "$d" 2>/dev/null)
+                local cmp= && $(command diff --brief "$s" "$d" &>/dev/null) && cmp=', same file'
+                while true; do
+                    echo "\"$d\" already exists ($(get_hsize $ssize) --> $(get_hsize $dsize)$cmp)"
+                    local ans="$(menu Overwrite Overwrite\ all Skip Skip\ all Rename Cancel)"
+                    case "$ans" in
+                        0) ;;
+                        1) overwrite_all=yes;;
+                        #2) return;;
+                        3) skip_all=yes && return;;
+                        4)
+                            read_string --prefix "$NSH_PROMPT New name: " --initial "${d##*/}" LINE
+                            [[ -n $LINE ]] && d="${d%/*}/$LINE" || continue
+                            ;;
+                        5) cancel=yes; return;;
+                        *)
+                            echo "$NSH_PROMPT Skipped: $d"
+                            return
+                            ;;
+                    esac
+                    [[ $ans != 4 || ! -e "$d" ]] && break
+                    echo "$NSH_PROMPT Sorry, $(print_filename "$d") also exists."
+                done
+            fi
+        fi
+        [[ -n "${pids[$idx]}" ]] && wait "${pids[$idx]}"
+        $op "$s" "$d" &
+        pids[$idx]="$!"
+        ((idx++)) && [[ $idx -ge $num_thread ]] && idx=0
+    }
+    while [ $# -gt 1 ]; do
+        [[ -z "$1" ]] && shift && continue
+        if [[ -e "$1" ]]; then
+            if [[ -d "$1" ]]; then
+                local src="$(command cd "$1"; pwd -P)"
+                local b="${src##*/}"
+                local tmp="${1%/}" && tmp="$dst/${tmp##*/}"
+                if [[ -d "$tmp" && $op == *cp ]]; then
+                    local i= && for i in {1..99999}; do
+                        if [[ ! -d "${tmp}_($i)" ]]; then
+                            echo "$NSH_PROMPT $tmp already exists. changed name --> $tmp($i)"
+                            eval "$op -r \"$1\" \"${tmp}($i)\""
+                            break
+                        fi
+                    done
+                elif [[ $op == *mv && ! -d "$dst/$b" ]]; then
+                    eval "$op \"$1\" \"$dst\""
+                else
+                    if [[ -d "$dst" ]]; then
+                        dst="$(command cd "$dst" &>/dev/null; pwd -P)"
+                    else
+                        mkdir -p "$dst"
+                        b=
+                    fi
+                    mkdir -p "$dst/$b"
+                    while read line; do
+                        [[ $line == $src ]] && continue
+                        local n="${line#$src/}"
+                        if [[ -d "$line" ]]; then
+                            mkdir -p "$dst/$b/$n"
+                        else
+                            __worker "$line" "$dst/$b/${n%/*}"
+                            [[ $cancel == yes ]] && break
+                        fi
+                    done < <(find "$src" 2>/dev/null)
+                    [[ $op == command\ mv && -e "$src" ]] && rm -rf "$src" &>/dev/null
+                fi
+            else
+                __worker "$1" "$dst"
+            fi
+        else
+            echo "$NSH_PROMPT $1: No such file or directory"
+        fi
+        [[ $cancel == yes ]] && break
+        shift
+    done
+    unset __worker
+    wait "${pids[@]}"
+    [[ $cancel == yes ]] && echo "$NSH_PROMPT Cancelled"
+    set -m
+}
+lksdjfhgsdr="$(type ncp | tail -n +2 | sed -e 's/ncp/nmv/' -e 's/command cp/command mv/')"
+eval "$lksdjfhgsdr"
+unset lksdjfhgsdr
+
 ps() {
     local pid list line header word i0 i1
     if [[ $# -gt 0 || ! -t 0 || ! -t 1 ]]; then
@@ -1675,7 +1781,7 @@ nsh_main_loop() {
     local history=() history_size=0
     local bookmarks=() bookmark_size=0
     local prefix command ret
-    local register register_mode
+    local register register_op
     local trash_path=~/.cache/nsh/trash
     local tbeg telapsed
     local i KEY NEXT_KEY
@@ -1982,7 +2088,7 @@ nsh_main_loop() {
         mkdir -p "$trash_path"
         mv "$@" "$trash_path" 2>/dev/null
         IFS=$'\n' read -d '' -a register < <(ls -d "$trash_path"/*)
-        register_mode=--mv
+        register_op=nmv
     }
 
     shopt -s nocaseglob
@@ -2108,7 +2214,7 @@ nsh_main_loop() {
                                 done
                                 unset ret[0]
                                 register=("${ret[@]}")
-                                register_mode=--cp
+                                register_op=ncp
                                 if [[ ${#register[@]} -gt 1 ]]; then
                                     echo "$NSH_PROMPT yanked ${#register[@]} files"
                                 else
@@ -2117,11 +2223,12 @@ nsh_main_loop() {
                                 echo
                             fi
                         elif [[ "${ret[0]}" == '////paste////' ]]; then
-                            if [[ -n $register_mode ]]; then
-                                cpmv $register_mode "${register[@]}" .
+                            if [[ -n $register_op ]]; then
+                                echo -ne "\e[A${prefix//?/\\b}\r\e[K"
+                                $register_op "${register[@]}" .
                                 echo
                                 register=()
-                                register_mode=
+                                register_op=
                             fi
                         elif [[ "${ret[0]}" == '////delete////' ]]; then
                             unset ret[0]
@@ -2203,7 +2310,7 @@ nsh_main_loop() {
                             break
                         elif [[ $op == Copy* ]]; then
                             register=("$name")
-                            register_mode=--cp
+                            register_op=ncp
                         elif [[ $op == Git:\ diff* ]]; then
                             echo -e "\e[A\r$(nsh_print_prompt)git diff $name\e[J"
                             git diff "$name"
