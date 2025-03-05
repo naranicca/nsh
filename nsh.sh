@@ -753,9 +753,11 @@ ncp() {
     local idx=0
     local num_thread=$(($(get_num_cpu)*2))
     local pids=()
-    local LINE
+    local LINE ans
     set +m
     [[ $1 == --overwrite ]] && overwrite_all=yes && shift
+    local STAT_FSIZE_PARAM='--printf=%s'
+    stat "$STAT_FSIZE_PARAM" . &>/dev/null || STAT_FSIZE_PARAM='-f%z'
     __worker() {
         local s="$1"
         local d="$2" && [[ -d "$d" ]] && d="$d/${s##*/}"
@@ -766,20 +768,20 @@ ncp() {
                 #$(command diff --brief "$s" "$d" &>/dev/null) && return
                 local ssize=$(stat "$STAT_FSIZE_PARAM" "$s" 2>/dev/null)
                 local dsize=$(stat "$STAT_FSIZE_PARAM" "$d" 2>/dev/null)
-                local cmp= && $(command diff --brief "$s" "$d" &>/dev/null) && cmp=', same file'
+                local cmp="($(get_hsize $ssize) --> $(get_hsize $dsize))" && $(command diff --brief "$s" "$d" &>/dev/null) && cmp='(same file)'
                 while true; do
-                    echo "\"$d\" already exists ($(get_hsize $ssize) --> $(get_hsize $dsize)$cmp)"
-                    local ans="$(menu Overwrite Overwrite\ all Skip Skip\ all Rename Cancel)"
+                    echo "$NSH_PROMPT \"$d\" already exists $cmp"
+                    ans="$(menu --color-func paint_cyan Overwrite Overwrite\ all Skip Skip\ all Rename Cancel)"
                     case "$ans" in
-                        0) ;;
-                        1) overwrite_all=yes;;
-                        #2) return;;
-                        3) skip_all=yes && return;;
-                        4)
+                        Overwrite) ;;
+                        Overwrite\ all) overwrite_all=yes;;
+                        #Skip) return;;
+                        Skip\ all) skip_all=yes && return;;
+                        Rename)
                             read_string --prefix "$NSH_PROMPT New name: " --initial "${d##*/}" LINE
                             [[ -n $LINE ]] && d="${d%/*}/$LINE" || continue
                             ;;
-                        5) cancel=yes; return;;
+                        Cancel) cancel=yes; return;;
                         *)
                             echo "$NSH_PROMPT Skipped: $d"
                             return
@@ -2121,10 +2123,15 @@ nsh_main_loop() {
         echo -e '\e[36m'
     }
 
-    mode=
+    mode=first
     while true; do
         prefix="$(nsh_print_prompt)"
-        read_command --prefix "$prefix" --initial "$command" command
+        if [[ $mode == first ]]; then
+            command=$'\e'
+            mode=
+        else
+            read_command --prefix "$prefix" --initial "$command" command
+        fi
 
         if [[ "$command" == exit || "$command" == exit\ * ]]; then
             ret="$(strip_spaces "${command#exit}")"
@@ -2235,7 +2242,7 @@ nsh_main_loop() {
                             fi
                         elif [[ "${ret[0]}" == '////paste////' ]]; then
                             if [[ -n $register_op ]]; then
-                                echo -ne "\e[A${prefix//?/\\b}\r\e[K"
+                                echo -e "\e[A${prefix//?/\\b}\r$(nsh_print_prompt)$register_op ${register[@]/#$HOME\//\~/} .\e[K"
                                 $register_op "${register[@]}" .
                                 echo
                                 register=()
