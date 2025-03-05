@@ -1006,6 +1006,12 @@ git_status()  {
                         fi
                     fi
                     filenames="$filenames;$fname"
+                elif [[ "$line" == *deleted* ]]; then
+                    fname="$(echo $line | sed 's/.*deleted:[ ]*//')"
+                    filenames="$filenames;$fname"
+                elif [[ "$line" == *renamed* ]]; then
+                    fname="${line#*-> }"
+                    filenames="$filenames;$fname"
                 fi
                 ;;
             *Your\ branch*ahead*)
@@ -2008,7 +2014,8 @@ nsh_main_loop() {
     load_bookmarks
 
     git_marker() {
-        local m tmp p
+        local m tmp p deep=0
+        [[ $1 == --deep ]] && deep=1 && shift
         name="${1%/}"
         if [[ -z $__GIT_STAT__ ]]; then
             # not a git repository
@@ -2024,13 +2031,14 @@ nsh_main_loop() {
                 echo "$m"
             fi
         elif [[ $__GIT_CHANGES__ == *?\;* ]]; then
-            if [[ "$__GIT_CHANGES__;" == *";$name;"* ]]; then
+            [[ $deep -eq 1 && -d "$name" ]] && name="$name/" || name="$name;"
+            if [[ "$__GIT_CHANGES__;" == *";$name"* ]]; then
                 echo -e '\e[0;41m '
-            elif [[ "$__GIT_CHANGES__;" == *";!!$name;"* ]]; then
+            elif [[ "$__GIT_CHANGES__;" == *";!!$name"* ]]; then
                 echo -e '\e[37;41m!'
-            elif [[ "$__GIT_CHANGES__;" == *";??$name;"* ]]; then
+            elif [[ "$__GIT_CHANGES__;" == *";??$name"* ]]; then
                 echo -e '\e[30;48;5;240m '
-            elif [[ "$__GIT_CHANGES__;" == *";++$name;"* ]]; then
+            elif [[ "$__GIT_CHANGES__;" == *";++$name"* ]]; then
                 echo -e '\e[0;42m '
             else
                 echo \ 
@@ -2148,7 +2156,10 @@ nsh_main_loop() {
                 elif [[ $mode == fetch ]]; then
                     extra_params+=(--can-select select_file)
                 fi
-                IFS=$'\n' read -d '' -a ret < <(menu "${dirs[@]}" "${files[@]}" --color-func put_filecolor --marker-func git_marker --key $'\t' 'print_selected force' --key $'\n' 'echo ////enter////; print_selected force' --key '.' 'echo "////dotglob////"' --key '~' 'echo $HOME' --key r 'echo ./' --key ':' 'echo "////////"; print_selected; quit; echo >&2' --key H 'echo ../' --key y 'echo "////yank////"; print_selected force' --key p 'echo "////paste////"' --key d 'echo "////delete////"; print_selected force' --key i 'echo "////rename////"; echo "$1"; quit' --key - 'echo "////back////"' --key m 'echo "////mark////"' --key \' 'echo "////bookmark////"' "${extra_params[@]}")
+                git_marker_deep() {
+                    git_marker --deep "$@"
+                }
+                IFS=$'\n' read -d '' -a ret < <(menu "${dirs[@]}" "${files[@]}" --color-func put_filecolor --marker-func git_marker_deep --key $'\t' 'print_selected force' --key $'\n' 'echo ////enter////; print_selected force' --key '.' 'echo "////dotglob////"' --key '~' 'echo $HOME' --key r 'echo ./' --key ':' 'echo "////////"; print_selected; quit; echo >&2' --key H 'echo ../' --key y 'echo "////yank////"; print_selected force' --key p 'echo "////paste////"' --key d 'echo "////delete////"; print_selected force' --key i 'echo "////rename////"; echo "$1"; quit' --key - 'echo "////back////"' --key m 'echo "////mark////"' --key \' 'echo "////bookmark////"' "${extra_params[@]}")
                 if [[ ${#ret[@]} -eq 0 ]]; then
                     [[ -n $mode ]] && echo -e "\e[A\e[A\r\e[J"
                     mode=
