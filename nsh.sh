@@ -247,7 +247,7 @@ menu() {
     local wcparam=-L && [[ "$(wc -L <<< "가나다" 2>/dev/null)" != 6 ]] && wcparam=-c
     local color_func marker_func initial=0
     local return_key=() return_fn=() keys
-    local avail_rows
+    local avail_rows col0
     local can_select=
     local show_footer=1
     local allow_escape=0
@@ -257,6 +257,7 @@ menu() {
     disable_echo >&2 </dev/tty
     get_terminal_size </dev/tty
     get_cursor_pos </dev/tty
+    col0=$__COL__ && [[ $col0 -gt 1 ]] && echo >&2
     max_rows=$NSH_MENU_HEIGHT
     avail_rows=$((LINES-__ROW__+1))
     can_select_all() { return 0; }
@@ -696,6 +697,7 @@ menu() {
         fi
     done
 
+    [[ $col0 -gt 1 ]] && echo -ne "\e[A\r\e[$((col0-1))C" >&2
     echo -ne '\e[0m\e[J' >&2
     show_cursor >&2
     enable_echo >&2 </dev/tty
@@ -1707,12 +1709,10 @@ read_command() {
                 echo -ne "\e[A${prefix//?/\\b}\r$prefix$cmd\e[J" >&2
                 ;;
             $'\e[B') # down
-                if [[ -z $cmd ]]; then
-                    NEXT_KEY=$'\e'
-                else
-                    cmd=
-                    cur=0
-                fi
+                local d="$(menu --raw "${bookmarks[@]/:/ $NSH_COLOR_DIR}")"
+                [[ -n "$d" ]] && d="$(strip_escape "$d")" && cd "${d#* }"
+                cmd=
+                NEXT_KEY=$'\e'
                 ;;
             $'\e[C') # right
                 if [[ $cur -lt ${#cmd} ]]; then
