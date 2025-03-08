@@ -2190,9 +2190,9 @@ nsh_main_loop() {
                             elif [[ $mode == fetch ]]; then
                                 mode=
                                 if [[ ${#ret[@]} -gt 1 ]]; then
-                                    echo -e "\e[A\r$NSH_PROMPT Fetch: ${ret[1]}...(${#ret[@]})\e[J"
+                                    echo -e "\e[A\r$NSH_PROMPT Selected: ${ret[1]}...(${#ret[@]})\e[J"
                                 else
-                                    echo -e "\e[A\r$NSH_PROMPT Fetch: ${ret[1]}\e[J"
+                                    echo -e "\e[A\r$NSH_PROMPT Selected: ${ret[1]}\e[J"
                                 fi
                                 path="$(pwd)" && cd "$pwd"
                                 op="$(menu Copy Move 'Symbolic Link' --color-func paint_cyan --no-footer)"
@@ -2202,7 +2202,7 @@ nsh_main_loop() {
                                         name="$path/${ret[$i]%/}"
                                         if [[ $op == Copy ]]; then
                                             echo "$NSH_PROMPT cp $name ."
-                                            cp "$name" .
+                                            cp -r "$name" .
                                         elif [[ $op == Move ]]; then
                                             echo "$NSH_PROMPT mv $name ."
                                             mv "$name" .
