@@ -252,6 +252,7 @@ menu() {
     local show_footer=1
     local allow_escape=0
     local search
+    local resized=0
 
     hide_cursor >&2
     disable_echo >&2 </dev/tty
@@ -530,8 +531,24 @@ menu() {
     fi
     keys="${return_key[@]}"
 
+    trap "resized=1" WINCH SIGWINCH
+
     while true; do
         KEY="$NEXT_KEY" && NEXT_KEY= && [[ -z $KEY ]] && get_key KEY </dev/tty
+        if [[ $resized -ne 0 ]]; then
+            get_terminal_size </dev/tty
+            get_cursor_pos </dev/tty
+            avail_rows=$((LINES-__ROW__+1))
+            if [[ $avail_rows -lt $max_rows ]]; then
+                max_rows=$avail_rows
+                rows=$max_rows
+                [[ $cols -gt 1 ]] && cols=$((list_size/max_rows+1))
+            fi
+            for ((i=0; i<rows; i++)); do
+                draw_line $i
+            done
+            resized=0
+        fi
         local found=0
         local key_to_match="$KEY" && [[ $KEY == $'\e' ]] && key_to_match=$'\e '
         if [[ "$keys" == *$key_to_match* ]]; then
@@ -696,6 +713,8 @@ menu() {
             esac
         fi
     done
+
+    trap - WINCH SIGWINCH
 
     [[ $col0 -gt 1 ]] && echo -ne "\e[A\r\e[$((col0-1))C" >&2
     echo -ne '\e[0m\e[J' >&2
@@ -1784,7 +1803,7 @@ __NSH_HIDE_ELAPSED_TIME__=0
 # main loop
 ############################################################################
 nsh_main_loop() {
-    local NSH_VERSION='0.2.0'
+    local NSH_VERSION='0.3.0'
     local mode pw line
     local history=() history_size=0
     local bookmarks=() bookmark_size=0
