@@ -539,10 +539,10 @@ menu() {
             get_terminal_size </dev/tty
             get_cursor_pos </dev/tty
             avail_rows=$((LINES-__ROW__+1))
-            if [[ $avail_rows -lt $max_rows ]]; then
+            if [[ $avail_rows -lt $rows ]]; then
                 max_rows=$avail_rows
                 rows=$max_rows
-                [[ $cols -gt 1 ]] && cols=$((list_size/max_rows+1))
+                [[ $cols -gt 1 ]] && cols=$((list_size/rows+1))
             fi
             for ((i=0; i<rows; i++)); do
                 draw_line $i
