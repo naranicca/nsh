@@ -1242,11 +1242,11 @@ git() {
                     elif [[ -n "$branch" ]]; then
                         line="$(menu Checkout Merge Browse Delete --color-func paint_cyan --no-footer)"
                         if [[ "$line" == Checkout ]]; then
-                            echo -ne "$NSH_PROMPT Checkout $branch. Conintue(y/n)?"
+                            echo -ne "$NSH_PROMPT Checkout $branch. Conintue(y/n)? "
                             get_key KEY && echo "$KEY"
                             [[ yY == *$KEY* ]] && run checkout "${branch#origin\/}" && break
                         elif [[ "$line" == Merge ]]; then
-                            echo -ne "$NSH_PROMPT Merge $branch. Conintue(y/n)?"
+                            echo -ne "$NSH_PROMPT Merge $branch. Conintue(y/n)? "
                             get_key KEY && echo "$KEY"
                             [[ yY == *$KEY* ]] && run merge "${branch#origin\/}" && break
                         elif [[ "$line" == Browse ]]; then
@@ -1803,7 +1803,7 @@ __NSH_HIDE_ELAPSED_TIME__=0
 # main loop
 ############################################################################
 nsh_main_loop() {
-    local NSH_VERSION='0.3.0'
+    local NSH_VERSION='0.3.1'
     local mode pw line
     local history=() history_size=0
     local bookmarks=() bookmark_size=0
