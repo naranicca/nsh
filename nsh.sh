@@ -253,6 +253,7 @@ menu() {
     local allow_escape=0
     local search
     local resized=0
+    local display=0
 
     hide_cursor >&2
     disable_echo >&2 </dev/tty
@@ -298,6 +299,9 @@ menu() {
             show_footer=0
         elif [[ $1 == --raw ]]; then
             allow_escape=1
+        elif [[ $1 == --display ]]; then
+            display=1
+            x=-1 y=-1
         else
             item="${1//\\n/}"
             [[ -n "$item" ]] && list+=("$item")
@@ -533,7 +537,7 @@ menu() {
 
     trap "resized=1" WINCH SIGWINCH
 
-    while true; do
+    while [[ $display -eq 0 ]]; do
         KEY="$NEXT_KEY" && NEXT_KEY= && [[ -z $KEY ]] && get_key KEY </dev/tty
         if [[ $resized -ne 0 ]]; then
             get_terminal_size </dev/tty
@@ -717,8 +721,12 @@ menu() {
     trap - WINCH SIGWINCH
 
     [[ $col0 -gt 1 ]] && echo -ne "\e[A\r\e[$((col0-1))C" >&2
-    echo -ne '\e[0m\e[J' >&2
-    show_cursor >&2
+    if [[ $display -eq 0 ]]; then
+        echo -ne '\e[0m\e[J' >&2
+        show_cursor >&2
+    else
+        echo -ne '\e[0m' >&2
+    fi
     enable_echo >&2 </dev/tty
     enable_line_wrapping >&2
 }
@@ -1167,7 +1175,7 @@ git() {
                 op="${op%% *}"
             else
                 files=.
-                [[ -z "$op" ]] && op="$(menu diff pull commit push revert log branch --color-func paint_cyan --no-footer)"
+                [[ -z "$op" ]] && op="$(menu diff pull commit push revert log branch fetchc --color-func paint_cyan --no-footer)"
                 [[ -z "$op" ]] && return
             fi
 
@@ -1312,6 +1320,8 @@ git() {
                         break
                     fi
                 done
+            elif [[ "$op" == fetchc ]]; then
+                run fetch
             else
                 run $op "$files"
             fi
@@ -1728,7 +1738,7 @@ read_command() {
                 echo -ne "\e[A${prefix//?/\\b}\r$prefix$cmd\e[J" >&2
                 ;;
             $'\e[B') # down
-                local d="$(menu --raw "${bookmarks[@]/:/ $NSH_COLOR_DIR}")"
+                local d="$(menu -c 1 --raw "${bookmarks[@]/:/ $NSH_COLOR_DIR}")"
                 [[ -n "$d" ]] && d="$(strip_escape "$d")" && cd "${d#* }"
                 cmd=
                 NEXT_KEY=$'\e'
@@ -1866,7 +1876,7 @@ nsh_main_loop() {
                 return
                 ;;
             bookmarks)
-                ret="$(menu --raw "${bookmarks[@]/:/ $NSH_COLOR_DIR}" -c 1)"
+                ret="$(menu -c 1 --raw "${bookmarks[@]/:/ $NSH_COLOR_DIR}" -c 1)"
                 [[ -n "$ret" ]] && cd "$(strip_escape "${ret#??}")" && NEXT_KEY=$'\e'
                 return
                 ;;
@@ -2312,7 +2322,11 @@ nsh_main_loop() {
                             nsh mark
                             echo
                         elif [[ "${ret[0]}" == '////bookmark////' ]]; then
-                            get_key KEY
+                            get_key -t 1 KEY
+                            if [[ -z $KEY ]]; then
+                                menu -c 1 --raw "${bookmarks[@]/:/ $NSH_COLOR_DIR}" --display
+                                get_key KEY
+                            fi
                             for ((i=0; i<${#bookmarks[@]}; i++)); do
                                 if [[ "${bookmarks[$i]}" == "$KEY:"* ]]; then
                                     cd "${bookmarks[$i]#??}"
