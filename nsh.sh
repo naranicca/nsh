@@ -1175,7 +1175,7 @@ git() {
                 op="${op%% *}"
             else
                 files=.
-                [[ -z "$op" ]] && op="$(menu diff pull commit push revert log branch fetchc --color-func paint_cyan --no-footer)"
+                [[ -z "$op" ]] && op="$(menu diff pull commit push revert log branch fetch --color-func paint_cyan --no-footer)"
                 [[ -z "$op" ]] && return
             fi
 
@@ -1320,7 +1320,7 @@ git() {
                         break
                     fi
                 done
-            elif [[ "$op" == fetchc ]]; then
+            elif [[ "$op" == fetch ]]; then
                 run fetch
             else
                 run $op "$files"
@@ -1909,13 +1909,24 @@ nsh_main_loop() {
                 return
                 ;;
             system)
+                local pscmd='ps aux'
                 local cpu mem cpu_activ_prev cpu_activ_cur cpu_total_prev cpu_total_cur
                 local user nice system idle iowait irq softirq steal guest
-                local line filesystem disk disk_size disk_used disk_avail
-                local process size
-                local str bs i=10 x=0 y=0 c0 c1 cps psparam pid
+                local line filesystem disk disk_size disk_used disk_avail disk_updated=0
+                local list size dirs=() files=() sizes=()
+                local str bs x=0 y=0 c0 c1 c2 cps cmd pid
+                local t=10 i
                 hide_cursor
                 disable_line_wrapping
+                ps aux --sort=-%cpu &>/dev/null && pscmd='ps aux --sort=-%cpu'
+                while read line; do
+                    if [[ -d "$line" ]]; then
+                        dirs+=("$line/")
+                    elif [[ -f "$line" ]]; then
+                        files+=("$line")
+                    fi
+                done < <(command ls -d * 2>/dev/null | sort --ignore-case --version-sort)
+                files=("${dirs[@]}" "${files[@]}")
                 while true; do
                     if [[ $y -eq 0 ]]; then
                         # cpu usage
@@ -1944,47 +1955,60 @@ nsh_main_loop() {
                             mem=$(((${mem[2]}*1000/${mem[1]}+5)/10))
                         fi
                         # disk usage
-                        if [[ $i -eq 10 ]]; then
+                        if [[ $t -eq 10 ]]; then
                             line="$(df -h . 2>/dev/null | tail -n 1)" && line="${line%%%*}"
                             IFS=\  read filesystem disk_size disk_used disk_avail disk <<< "$line"
-                            i=0
+                            t=0
                         fi
-                        i=$((i+1))
+                        t=$((t+1))
                     fi
                     # process
                     get_terminal_size && size=$(($LINES*20/100))
-                    c0=$'\e[0m' && [[ $x -eq 0 ]] && c0=$'\e[30;46m' && psparam="--sort=-%cpu"
-                    c1=$'\e[0m' && [[ $x -eq 1 ]] && c1=$'\e[30;46m' && psparam="--sort=-%mem"
+                    c0=$'\e[0m' && [[ $x -eq 0 ]] && c0=$'\e[30;46m' && cmd="$pscmd"
+                    c1=$'\e[0m' && [[ $x -eq 1 ]] && c1=$'\e[30;46m' && cmd="${pscmd/%cpu/%mem}"
+                    c2=$'\e[0m' && [[ $x -eq 2 ]] && c2=$'\e[30;46m' && cmd='echo -e "        Size  Filename"; for ((i=0; i<${#files[@]}; i++)); do printf "%10s %s\n" "${sizes[$i]}" "${files[$i]}"; done'
                     if [[ $y -eq 0 ]]; then
-                        process=()
+                        list=()
                         while IFS= read line; do
-                            process+=("$line")
-                        done < <(ps aux "$psparam" 2>/dev/null || ps aux 2>/dev/null)
+                            list+=("$line")
+                        done < <(eval "$cmd 2>/dev/null")
                     fi
 
-                    printf '\r%bCPU: %3s%% \e[0m|%b MEM: %3s%% \e[0m| DISK: %s%% (%s/%s, %s free)\e[K\n' $c0 $cpu $c1 $mem "$disk" "$disk_used" "$disk_size" "$disk_avail"
+                    printf '\r%bCPU: %3s%% \e[0m|%b MEM: %3s%% \e[0m|%b DISK: %s%% (%s/%s, %s free)\e[0m\e[J\n' $c0 $cpu $c1 $mem $c2 "$disk" "$disk_used" "$disk_size" "$disk_avail"
                     for ((i=0; i<size; i++)); do
-                        cps=$'\e[0m' && [[ $i -eq $y ]] && cps=$'\e[7m'
+                        cps=$'\e[0m  ' && [[ $i -eq $y ]] && cps=$'\e[31m> \e[92m'
                         if [[ $i -eq 0 ]]; then
-                            echo -ne "\e[30;46m${process[$i]:0:$((COLUMNS-1))}\e[K\e[0m"
+                            echo -ne "\e[30;46m\e[K${list[$i]:0:$((COLUMNS-3))}\e[K\e[0m"
                         else
-                            echo -ne "\n$cps${process[$i]:0:$((COLUMNS-1))}\e[K\e[0m"
+                            echo -ne "\n$cps${list[$i]:0:$((COLUMNS-3))}\e[K\e[0m"
                         fi
                     done
-                    bs="${process[$((size-1))]//?/\\b}"
+                    bs="${list[$((size-1))]//?/\\b}"
 
-                    get_key -t 2 KEY
+                    if [[ $x -eq 2 && $disk_updated -eq 0 ]]; then
+                        get_key -t $__eps_get_key__ KEY
+                        if [[ -z $KEY ]]; then
+                            disk_updated=1
+                            for ((i=0; i<${#files[@]}; i++)); do
+                                [[ -z ${sizes[$i]} ]] && sizes[$i]="$(du -sh "${files[$i]}" 2>/dev/null | awk '{ printf $1 }')" && disk_updated=0 && break
+                            done
+                        else
+                            get_key -t 2 KEY
+                        fi
+                    else
+                        get_key -t 2 KEY
+                    fi
                     case "$KEY" in
                         $'\e'|q)
                             [[ $y -eq 0 ]] && break
                             y=0
                             ;;
                         l|$'\e[C')
-                            x=$((x+1)) && [[ $x -ge 2 ]] && x=0
+                            x=$((x+1)) && [[ $x -ge 3 ]] && x=0
                             y=0
                             ;;
                         h|$'\e[D')
-                            x=$((x-1)) && [[ $x -lt 0 ]] && x=1
+                            x=$((x-1)) && [[ $x -lt 0 ]] && x=2
                             y=0
                             ;;
                         j|$'\e[B')
@@ -2002,8 +2026,8 @@ nsh_main_loop() {
                                     shift
                                 done
                             }
-                            i=$(search_pid_from_header ${process[0]})
-                            line=(`echo ${process[$y]}`)
+                            i=$(search_pid_from_header ${list[0]})
+                            line=(`echo ${list[$y]}`)
                             pid=${line[$i]}
                             echo -ne "\n$NSH_PROMPT Kill process $pid? (y/n) "
                             get_key KEY; echo -n "$KEY"
