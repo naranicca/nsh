@@ -254,6 +254,7 @@ menu() {
     local search
     local resized=0
     local display=0
+    local fn_footer
 
     hide_cursor >&2
     disable_echo >&2 </dev/tty
@@ -302,6 +303,9 @@ menu() {
         elif [[ $1 == --display ]]; then
             display=1
             x=-1 y=-1
+        elif [[ $1 == --fn-footer ]]; then
+            fn_footer="$2"
+            shift
         else
             item="${1//\\n/}"
             [[ -n "$item" ]] && list+=("$item")
@@ -335,6 +339,7 @@ menu() {
     fi
 
     [[ $max_rows == *% ]] && max_rows=$((LINES*${max_rows%?}/100))
+    [[ -n "$fn_footer" ]] && max_rows=$((max_rows-1)) && avail_rows=$((avail_rows-1))
     if [[ $max_rows -lt $avail_rows || # when we have plenty of empty rows below the cursor
           $avail_rows -gt 1 ]]; then   # or we don't need to add empty rows
         max_rows=$avail_rows
@@ -427,16 +432,26 @@ menu() {
         local lbs=$((lls*2+2))
         local bs="$(printf "%${lbs}s" ' ')" && bs="${bs//?/\\b}"
         local num_selected=${#selected[@]}
-        if [[ -n $search ]]; then
-            echo -ne "\e[${COLUMNS}D" >&2
-            echo -ne "\e[0;39;41m$search" >&2
-            printf "%$((COLUMNS-${#search}))s\e[0m" "[$list_size]" >&2
-        elif [[ $show_footer -ne 0 && $idx -ge 0 && $idx -lt $list_size ]]; then
-            if [[ $num_selected -gt 0 ]]; then
-                local bs2="$(printf "%$((${#num_selected}+3))s" ' ')" && bs="$bs${bs2//?/\\b}"
-                bs="$bs"$'\e[0;30;43m'"[*$num_selected]"
+        if [[ -n "$fn_footer" ]]; then
+            local nl=$'\n' && [[ $rows -lt $avail_rows ]] && nl="$(printf "%$((avail_rows-rows))s" ' ')" && nl="${nl//?/\\n}"
+            local up=$'\e[A' && [[ $rows -lt $avail_rows ]] && up=$'\e['"$((avail_rows-rows))A"
+            if [[ -n $search ]]; then
+                echo -ne "$nl\e[0;39;41m$search\e[K\e[0m$up" >&2
+            else
+                echo -ne "$nl\e[0;48;5;235m$($fn_footer "${list[$idx]}" 2>/dev/null)\e[K$up" >&2
             fi
-            printf "$bs\e[0;30;48;5;248m[%${lls}s/%${lls}s]\e[0m" $((idx+1)) $list_size >&2
+        else
+            if [[ -n $search ]]; then
+                echo -ne "\e[${COLUMNS}D" >&2
+                echo -ne "\e[0;39;41m$search" >&2
+                printf "%$((COLUMNS-${#search}))s\e[0m" "[$list_size]" >&2
+            elif [[ $show_footer -ne 0 && $idx -ge 0 && $idx -lt $list_size ]]; then
+                if [[ $num_selected -gt 0 ]]; then
+                    local bs2="$(printf "%$((${#num_selected}+3))s" ' ')" && bs="$bs${bs2//?/\\b}"
+                    bs="$bs"$'\e[0;30;43m'"[*$num_selected]"
+                fi
+                printf "$bs\e[0;30;48;5;248m[%${lls}s/%${lls}s]\e[0m" $((idx+1)) $list_size >&2
+            fi
         fi
     }
     print_selected() {
@@ -466,6 +481,7 @@ menu() {
 
     move_cursor() {
         local xpre=$x ypre=$y icolpre=$icol irowpre=$irow
+        local idx=$((irow+y+(icol+x)*rows))
         local draw=1 && [[ $1 == --no-draw ]] && draw=0 && shift
         x=$((x+$1))
         y=$((y+$2))
@@ -496,6 +512,7 @@ menu() {
         fi
 
         local newidx=$((irow+y+(icol+x)*rows))
+        [[ $newidx -eq $idx ]] && return
         if [[ -n ${list[$newidx]} ]]; then
             if [[ $draw -ne 0 ]]; then
                 if [[ $icolpre -ne $icol || irowpre -ne $irow ]]; then
@@ -2219,7 +2236,15 @@ nsh_main_loop() {
                 git_marker_deep() {
                     git_marker --deep "$@"
                 }
-                IFS=$'\n' read -d '' -a ret < <(menu "${dirs[@]}" "${files[@]}" --color-func put_filecolor --marker-func git_marker_deep --key $'\t' 'print_selected force' --key $'\n' 'echo ////enter////; print_selected force' --key '.' 'echo "////dotglob////"' --key '~' 'echo $HOME' --key r 'echo ./' --key ':' 'echo "////////"; print_selected; quit; echo >&2' --key H 'echo ../' --key y 'echo "////yank////"; print_selected force' --key p 'echo "////paste////"' --key d 'echo "////delete////"; print_selected force' --key i 'echo "////rename////"; echo "$1"; quit' --key - 'echo "////back////"' --key m 'echo "////mark////"' --key \' 'echo "////bookmark////"' "${extra_params[@]}")
+                fn_footer() {
+                    local p=-lh && [[ -d "$1" ]] && p=-ld
+                    local f="$(ls --time-style=long-iso "$p" "$1" 2>/dev/null || ls "$p" "$1" 2>/dev/null)"
+                    local i=$idx s=$list_size
+                    [[ "${list[0]}" == '../' ]] && s=$((s-1)) || i=$((i+1))
+                    f="$i/$s ${f%$1}"
+                    sed 's/\ /\ \|\ /g' <<< "$f"
+                }
+                IFS=$'\n' read -d '' -a ret < <(menu "${dirs[@]}" "${files[@]}" --color-func put_filecolor --marker-func git_marker_deep --fn-footer fn_footer --key $'\t' 'print_selected force' --key $'\n' 'echo ////enter////; print_selected force' --key '.' 'echo "////dotglob////"' --key '~' 'echo $HOME' --key r 'echo ./' --key ':' 'echo "////////"; print_selected; quit; echo >&2' --key H 'echo ../' --key y 'echo "////yank////"; print_selected force' --key p 'echo "////paste////"' --key d 'echo "////delete////"; print_selected force' --key i 'echo "////rename////"; echo "$1"; quit' --key - 'echo "////back////"' --key m 'echo "////mark////"' --key \' 'echo "////bookmark////"' "${extra_params[@]}")
                 if [[ ${#ret[@]} -eq 0 ]]; then
                     [[ -n $mode ]] && echo -e "\e[A\e[A\r\e[J"
                     mode=
