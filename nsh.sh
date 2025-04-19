@@ -433,8 +433,8 @@ menu() {
         local bs="$(printf "%${lbs}s" ' ')" && bs="${bs//?/\\b}"
         local num_selected=${#selected[@]}
         if [[ -n "$fn_footer" ]]; then
-            local nl=$'\n' && [[ $rows -lt $avail_rows ]] && nl="$(printf "%$((avail_rows-rows))s" ' ')" && nl="${nl//?/\\n}"
-            local up=$'\e[A' && [[ $rows -lt $avail_rows ]] && up=$'\e['"$((avail_rows-rows))A"
+            local nl=$'\n' && [[ $rows -lt $avail_rows ]] && nl="$(printf "%$((avail_rows-rows+1))s" ' ')" && nl="${nl//?/\\n}"
+            local up=$'\e[A' && [[ $rows -lt $avail_rows ]] && up=$'\e['"$((avail_rows-rows+1))A"
             if [[ -n $search ]]; then
                 echo -ne "$nl\e[0;39;41m$search\e[K\e[0m$up" >&2
             else
@@ -552,22 +552,28 @@ menu() {
     fi
     keys="${return_key[@]}"
 
+    update_menu_size() {
+        get_terminal_size </dev/tty
+        get_cursor_pos </dev/tty
+
+        avail_rows=$((LINES-__ROW__+1))
+        if [[ $avail_rows -ge $rows ]]; then
+            echo -ne '\e[J' >&2
+        fi
+        max_rows=$avail_rows
+        rows=$max_rows
+        [[ $cols -eq 1 ]] && max_rows=$list_size
+        for ((i=0; i<rows; i++)); do
+            draw_line $i
+        done
+    }
+
     trap "resized=1" WINCH SIGWINCH
 
     while [[ $display -eq 0 ]]; do
         KEY="$NEXT_KEY" && NEXT_KEY= && [[ -z $KEY ]] && get_key KEY </dev/tty
         if [[ $resized -ne 0 ]]; then
-            get_terminal_size </dev/tty
-            get_cursor_pos </dev/tty
-            avail_rows=$((LINES-__ROW__+1))
-            if [[ $avail_rows -lt $rows ]]; then
-                max_rows=$avail_rows
-                rows=$max_rows
-                [[ $cols -gt 1 ]] && cols=$((list_size/rows+1))
-            fi
-            for ((i=0; i<rows; i++)); do
-                draw_line $i
-            done
+            update_menu_size
             resized=0
         fi
         local found=0
@@ -662,6 +668,20 @@ menu() {
                         draw_line $y
                         [[ $y -lt $((rows-1)) ]] && echo -ne "\e[$((y+1))A" >&2
                     fi
+                    ;;
+                J)
+                    local n=$((rows+1)) && [[ -n $fn_footer ]] && n=$((n-1))
+                    if [[ $n -le $list_size ]]; then
+                        for ((i=0; i<n; i++)); do echo >&2; done
+                        echo -ne "\e[${n}A" >&2
+                        update_menu_size
+                    fi
+                    ;;
+                F)
+                    local n=$((LINES-2)) && [[ -n $fn_footer ]] && n=$((n-1))
+                    for ((i=0; i<n; i++)); do echo >&2; done
+                    echo -ne "\e[${n}A" >&2
+                    update_menu_size
                     ;;
                 $'\n'|$'\t')
                     print_selected force
@@ -1830,7 +1850,7 @@ __NSH_HIDE_ELAPSED_TIME__=0
 # main loop
 ############################################################################
 nsh_main_loop() {
-    local NSH_VERSION='0.3.1'
+    local NSH_VERSION='0.3.2'
     local mode pw line
     local history=() history_size=0
     local bookmarks=() bookmark_size=0
@@ -1983,7 +2003,7 @@ nsh_main_loop() {
                     get_terminal_size && size=$(($LINES*20/100))
                     c0=$'\e[0m' && [[ $x -eq 0 ]] && c0=$'\e[30;46m' && cmd="$pscmd"
                     c1=$'\e[0m' && [[ $x -eq 1 ]] && c1=$'\e[30;46m' && cmd="${pscmd/%cpu/%mem}"
-                    c2=$'\e[0m' && [[ $x -eq 2 ]] && c2=$'\e[30;46m' && cmd='echo -e "        Size  Filename"; for ((i=0; i<${#files[@]}; i++)); do printf "%10s %s\n" "${sizes[$i]}" "${files[$i]}"; done'
+                    c2=$'\e[0m' && [[ $x -eq 2 ]] && c2=$'\e[30;46m' && cmd='echo -e "        Size Filename"; for ((i=0; i<${#files[@]}; i++)); do printf "%10s %s\n" "${sizes[$i]}" "${files[$i]}"; done'
                     if [[ $y -eq 0 ]]; then
                         list=()
                         while IFS= read line; do
@@ -1991,7 +2011,7 @@ nsh_main_loop() {
                         done < <(eval "$cmd 2>/dev/null")
                     fi
 
-                    printf '\r%bCPU: %3s%% \e[0m|%b MEM: %3s%% \e[0m|%b DISK: %s%% (%s/%s, %s free)\e[0m\e[J\n' $c0 $cpu $c1 $mem $c2 "$disk" "$disk_used" "$disk_size" "$disk_avail"
+                    printf '\r%bCPU: %3s%% \e[0m|%b MEM: %3s%% \e[0m|%b DISK: %s%% (%s/%s, %s free)\e[0m\e[K\n' $c0 $cpu $c1 $mem $c2 "$disk" "$disk_used" "$disk_size" "$disk_avail"
                     for ((i=0; i<size; i++)); do
                         cps=$'\e[0m  ' && [[ $i -eq $y ]] && cps=$'\e[31m> \e[92m'
                         if [[ $i -eq 0 ]]; then
