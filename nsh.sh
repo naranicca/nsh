@@ -319,6 +319,7 @@ menu() {
     fi
     list_size=${#list[@]}
     [[ $list_size -eq 0 ]] && return 0
+    [[ $list_size -eq 1 ]] && NEXT_KEY=' '
     colors=() markers=() selected=()
     if [[ -n $color_func ]]; then
         for ((i=0; i<list_size; i++)); do
@@ -1547,14 +1548,8 @@ read_string() {
         KEY="$NEXT_KEY" && NEXT_KEY= && [[ -z $KEY ]] && get_key KEY
         case $KEY in
             $'\e') # ESC
-                if [[ -n $cmd ]]; then
-                    cmd="$prefix$cmd" && echo -ne "${cmd//?/$'\b'}\r$prefix\e[J" >&2
-                    cmd=
-                    cur=0
-                else
-                    cmd=
-                    break
-                fi
+                cmd=
+                break
                 ;;
             $'\04') # ctrl+D
                 echo '^C' >&2
@@ -1634,6 +1629,7 @@ read_command() {
     local pre post cand word chunk
     local iword ichunk
     local KEY
+    local tmp
 
     while true; do
         if [[ $1 == --prefix ]]; then
@@ -1711,8 +1707,19 @@ read_command() {
                 # ls abc/def/gh
                 #    ^       ^
                 #    iword   ichunk
+                tmp="$(sed 's/^[ ]*//' <<< "$cmd")"
                 if [[ -z $cmd ]]; then
                     NEXT_KEY=$'\e'
+                elif [[ $tmp != *\ * ]]; then
+                    cand="$(compgen -c "$tmp" | menu -c 1)"
+                    if [[ -n "$cand" ]]; then
+                        [[ ${#cmd} -gt ${#tmp} ]] && cand="$(printf "%$((${#cmd}-${#tmp}))s" ' ')$cand"
+                        echo -ne "${cmd//?/$'\b'}\r" >&2
+                        cmd="$cand "
+                        cur="${#cmd}"
+                        iword="$cur"
+                        echo -n "$prefix$cmd" >&2
+                    fi
                 else
                     local quote=
                     while true; do
@@ -1850,7 +1857,7 @@ __NSH_HIDE_ELAPSED_TIME__=0
 # main loop
 ############################################################################
 nsh_main_loop() {
-    local NSH_VERSION='0.3.2'
+    local NSH_VERSION='0.3.3'
     local mode pw line
     local history=() history_size=0
     local bookmarks=() bookmark_size=0
@@ -2378,9 +2385,8 @@ nsh_main_loop() {
                             mode=fetch
                             pwd="$(pwd)"
                         elif [[ "${ret[0]}" == '////rename////' ]]; then
-                            echo -n "$NSH_PROMPT rename: "
-                            read_string --initial "${ret[1]}" line
-                            [[ -n "$line" ]] && mv "${ret[1]}" "$line"
+                            read_string --prefix "$NSH_PROMPT rename: " --initial "${ret[1]}" line
+                            [[ -n "$line" ]] && mv "${ret[1]}" "$line" || echo
                         elif [[ "${ret[0]}" == '////git////' ]]; then
                             echo -e "\e[A\e[J$(nsh_print_prompt)git"
                             nsheval git
