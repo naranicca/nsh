@@ -1718,6 +1718,7 @@ read_command() {
                         cmd="$cand "
                         cur="${#cmd}"
                         iword="$cur"
+                        ichunk="$cur"
                         echo -n "$prefix$cmd" >&2
                     fi
                 else
