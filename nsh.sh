@@ -675,6 +675,7 @@ menu() {
                     if [[ $n -le $list_size ]]; then
                         for ((i=0; i<n; i++)); do echo >&2; done
                         echo -ne "\e[${n}A" >&2
+                        x=0 y=0 icol=0 irow=0
                         update_menu_size
                     fi
                     ;;
@@ -682,6 +683,7 @@ menu() {
                     local n=$((LINES-2)) && [[ -n $fn_footer ]] && n=$((n-1))
                     for ((i=0; i<n; i++)); do echo >&2; done
                     echo -ne "\e[${n}A" >&2
+                    x=0 y=0 icol=0 irow=0
                     update_menu_size
                     ;;
                 $'\n'|$'\t')
@@ -1693,6 +1695,7 @@ read_command() {
                         else
                             iword=0
                         fi
+                        ichunk=$iword
                     fi
                 fi
                 ;;
