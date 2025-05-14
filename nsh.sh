@@ -1627,7 +1627,7 @@ read_string() {
 read_command() {
     local prefix=
     local cmd=
-    local cur=0
+    local cur=
     local pre post cand word chunk
     local iword ichunk
     local KEY
@@ -1637,21 +1637,28 @@ read_command() {
         if [[ $1 == --prefix ]]; then
             prefix="$2"
             shift
-            echo -ne "\r\e[0m$prefix" >&2
         elif [[ $1 == --initial ]]; then
             cmd="$2" && cur=${#cmd}
             shift
-            echo -n "$cmd" >&2
+        elif [[ $1 == --cursor ]]; then
+            cur="$2"
+            shift
         else
             break
         fi
         shift
     done
+    echo -n $'\r\e[0m'"$prefix$cmd"$'\e[J' >&2
+    if [[ -n $cur && $cur -lt $((${#cmd}-1)) ]]; then
+        echo -n "${cmd//?/$'\b'}" >&2
+        [[ $cur -gt 0 ]] && echo -ne "\e[${cur}D" >&2
+    else
+        cur=0
+    fi
     iword=$cur && [[ "$cmd" == *\ * ]] && iword="${cmd% *} " && iword=${#iword}
     ichunk=$iword
 
     show_cursor
-    echo -ne '\e[J'
     while true; do
         pre="${cmd:0:$cur}"
         post="${cmd:$cur}"
@@ -1861,11 +1868,11 @@ __NSH_HIDE_ELAPSED_TIME__=0
 # main loop
 ############################################################################
 nsh_main_loop() {
-    local NSH_VERSION='0.3.3'
+    local NSH_VERSION='0.3.4'
     local mode pw line
     local history=() history_size=0
     local bookmarks=() bookmark_size=0
-    local prefix command ret
+    local prefix command ret cursor_param
     local register register_op
     local trash_path=~/.cache/nsh/trash
     local tbeg telapsed
@@ -2153,6 +2160,7 @@ nsh_main_loop() {
     }
     nsheval() {
         [[ $# -gt 0 ]] && command="$@"
+        command="$(sed 's/[ ]*$//' <<< "$command")"
         # save command to history
         history_size=${#history[@]}
         if [[ $history_size -eq 0 || "${history[$((history_size-1))]}" != "$command" ]]; then
@@ -2231,7 +2239,8 @@ nsh_main_loop() {
             command=$'\e'
             mode=
         else
-            read_command --prefix "$prefix" --initial "$command" command
+            read_command --prefix "$prefix" --initial "$command" $cursor_param command
+            cursor_param=
         fi
 
         if [[ "$command" == exit || "$command" == exit\ * ]]; then
@@ -2322,15 +2331,16 @@ nsh_main_loop() {
                                     done
                                     echo
                                 fi
-                            elif [[ ${#ret[@]} -eq 1 && -d "${ret[1]}" ]]; then
-                                cd "${ret[1]}"
-                                break
+                            #elif [[ ${#ret[@]} -eq 1 && -d "${ret[1]}" ]]; then
+                            #    cd "${ret[1]}"
+                            #    break
                             else
                                 for ((i=1; i<=${#ret[@]}; i++)); do
-                                    [[ -x "${ret[$i]}" ]] && ret[$i]="./${ret[$i]}"
+                                    [[ ! -d "${ret[$i]}" && -x "${ret[$i]}" ]] && ret[$i]="./${ret[$i]}"
                                     eval "[[ -e ${ret[$i]} ]] && echo" &>/dev/null || ret[$i]=\"${ret[$i]}\"
                                 done
                                 ret="$(printf '%s ' "${ret[@]}")" && ret="${ret% }"
+                                cursor_param="--cursor 0"
                                 break
                             fi
                         elif [[ "${ret[0]}" == '////yank////' ]]; then
