@@ -1605,10 +1605,14 @@ read_string() {
             $'\e[1~'|$'\e[H') # home
                 cur="$prefix$cmd" && echo -ne "${cur//?/$'\b'}\r$prefix" >&2
                 cur=0
+                iword=0
+                ichunk=0
                 ;;
             $'\e[4~'|$'\e[F') # end
                 echo -ne "\e[$((${#prefix}+${#cmd}))D$prefix$cmd" >&2
                 cur=${#cmd}
+                iword=$cur
+                ichunk=$cur
                 ;;
             [[:print:]])
                 cmd="$pre$KEY$post"
@@ -1790,12 +1794,15 @@ read_command() {
                 cmd="$(menu "${history[@]}" -c 1 --initial "$HISTSIZE" --key ' ' 'echo "$1 "' --key $'\n' 'echo "////////$1"' --key $'\177'$'\b ' 'echo "${1%?}"')"
                 [[ "$cmd" == ////////* ]] && cmd="${cmd:8:$((${#cmd}-8))}" && NEXT_KEY=$'\n'
                 cur=${#cmd}
+                iword=$cur
+                ichunk=$cur
                 echo -ne "\e[A${prefix//?/\\b}\r$prefix$cmd\e[J" >&2
                 ;;
             $'\e[B') # down
                 local d="$(menu -c 1 --raw "${bookmarks[@]/:/ $NSH_COLOR_DIR}")"
                 [[ -n "$d" ]] && d="$(strip_escape "$d")" && cd "${d#* }"
                 cmd=
+                cur=0 && iword=0 && ichunk=0
                 NEXT_KEY=$'\e'
                 ;;
             $'\e[C') # right
@@ -1817,10 +1824,14 @@ read_command() {
             $'\e[1~'|$'\e[H') # home
                 cur="$prefix$cmd" && echo -ne "${cur//?/$'\b'}\r$prefix" >&2
                 cur=0
+                iword=0
+                ichunk=0
                 ;;
             $'\e[4~'|$'\e[F') # end
                 echo -ne "\e[$((${#prefix}+${#cmd}))D$prefix$cmd" >&2
                 cur=${#cmd}
+                iword=$cur
+                ichunk=$cur
                 ;;
             $'\e[21~') # F10
                 cmd="$prefix$cmd" && echo -ne "${cmd//?/$'\b'}\r${prefix}\e[J" >&2
