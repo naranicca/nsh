@@ -318,8 +318,6 @@ menu() {
         done
     fi
     list_size=${#list[@]}
-    [[ $list_size -eq 0 ]] && return 0
-    [[ $list_size -eq 1 ]] && NEXT_KEY=' '
     colors=() markers=() selected=()
     if [[ -n $color_func ]]; then
         for ((i=0; i<list_size; i++)); do
@@ -348,7 +346,9 @@ menu() {
     [[ $list_size -le $max_rows ]] && max_cols=1
 
     disp=()
-    if [[ $list_size -lt 100 && ${max_cols:-100} -gt 1 ]]; then
+    if [[ $list_size -eq 0 ]]; then
+        cols=2 rows=1
+    elif [[ $list_size -lt 100 && ${max_cols:-100} -gt 1 ]]; then
         for ((i=0; i<list_size; i++)); do
             disp[$i]="$(wc "$wcparam" <<< "${list[$i]}")"
             [[ $wcparam == -c ]] && disp[$i]=$((${disp[$i]-1}))
@@ -571,7 +571,8 @@ menu() {
 
     trap "resized=1" WINCH SIGWINCH
 
-    while [[ $display -eq 0 ]]; do
+    [[ $list_size -eq 1 ]] && print_selected force
+    while [[ $display -eq 0 && $list_size -gt 1 ]]; do
         KEY="$NEXT_KEY" && NEXT_KEY= && [[ -z $KEY ]] && get_key KEY </dev/tty
         if [[ $resized -ne 0 ]]; then
             update_menu_size
@@ -1879,7 +1880,7 @@ __NSH_HIDE_ELAPSED_TIME__=0
 # main loop
 ############################################################################
 nsh_main_loop() {
-    local NSH_VERSION='0.3.4'
+    local NSH_VERSION='0.3.5'
     local mode pw line
     local history=() history_size=0
     local bookmarks=() bookmark_size=0
