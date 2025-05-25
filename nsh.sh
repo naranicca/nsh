@@ -571,8 +571,7 @@ menu() {
 
     trap "resized=1" WINCH SIGWINCH
 
-    [[ $list_size -eq 1 ]] && print_selected force
-    while [[ $display -eq 0 && $list_size -gt 1 ]]; do
+    while [[ $display -eq 0 ]]; do
         KEY="$NEXT_KEY" && NEXT_KEY= && [[ -z $KEY ]] && get_key KEY </dev/tty
         if [[ $resized -ne 0 ]]; then
             update_menu_size
@@ -1726,7 +1725,11 @@ read_command() {
                 if [[ -z $cmd ]]; then
                     NEXT_KEY=$'\e'
                 elif [[ $tmp != *\ * ]]; then
-                    cand="$(compgen -c "$tmp" | menu -c 1)"
+                    #cand="$(compgen -c "$tmp" | menu -c 1)"
+                    cand=(`compgen -c "$tmp" 2>/dev/null`)
+                    if [[ ${#cand[@]} -gt 1 ]]; then
+                        cand="$(menu -c 1 "${cand[@]}")"
+                    fi
                     if [[ -n "$cand" ]]; then
                         [[ ${#cmd} -gt ${#tmp} ]] && cand="$(printf "%$((${#cmd}-${#tmp}))s" ' ')$cand"
                         echo -ne "${cmd//?/$'\b'}\r" >&2
@@ -1880,7 +1883,7 @@ __NSH_HIDE_ELAPSED_TIME__=0
 # main loop
 ############################################################################
 nsh_main_loop() {
-    local NSH_VERSION='0.3.5'
+    local NSH_VERSION='0.3.6'
     local mode pw line
     local history=() history_size=0
     local bookmarks=() bookmark_size=0
