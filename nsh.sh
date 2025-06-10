@@ -1751,6 +1751,7 @@ read_command() {
                                 toggle_dotglob
                             elif [[ -n "$cand" ]]; then
                                 local enter=0 && [[ "$cand" == ////done////* ]] && enter=1 && cand="${cand:12:$((${#cand}-12))}"
+                                [[ -d "$cand" && "$cand" != */ ]] && cand="$cand/"
                                 cand="${cand/#$HOME\//\~\/}"
                                 word="${pre:$iword}"
                                 echo -ne "${word//?/\\b}$cand" >&2
@@ -1878,7 +1879,7 @@ __NSH_HIDE_ELAPSED_TIME__=0
 # main loop
 ############################################################################
 nsh_main_loop() {
-    local NSH_VERSION='0.3.7'
+    local NSH_VERSION='0.3.8'
     local mode pw line
     local history=() history_size=0
     local bookmarks=() bookmark_size=0
