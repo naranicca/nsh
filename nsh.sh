@@ -1653,12 +1653,7 @@ read_command() {
         shift
     done
     echo -n $'\r\e[0m'"$prefix$cmd"$'\e[J' >&2
-    if [[ -n $cur && $cur -lt $((${#cmd}-1)) ]]; then
-        echo -n "${cmd//?/$'\b'}" >&2
-        [[ $cur -gt 0 ]] && echo -ne "\e[${cur}D" >&2
-    else
-        cur=0
-    fi
+    [[ -n $cur && $cur -lt ${#cmd} ]] && echo -ne "\e[$((${#cmd}-cur))D" >&2
     iword=$cur && [[ "$cmd" == *\ * ]] && iword="${cmd% *} " && iword=${#iword}
     ichunk=$iword
 
@@ -1794,13 +1789,13 @@ read_command() {
                 fi
                 ;;
             $'\e[A') # up
-                echo -e "${pre//?/\\b}\r$prefix\e[J" >&2
+                echo -e "\e[$((${#prefix}+${#cmd}))D$prefix$cmd" >&2
                 cmd="$(menu "${history[@]}" -c 1 --initial "$HISTSIZE" --key ' ' 'echo "$1 "' --key $'\n' 'echo "////////$1"' --key $'\177'$'\b ' 'echo "${1%?}"')"
                 [[ "$cmd" == ////////* ]] && cmd="${cmd:8:$((${#cmd}-8))}" && NEXT_KEY=$'\n'
                 cur=${#cmd}
                 iword=$cur
                 ichunk=$cur
-                echo -ne "\e[A${prefix//?/\\b}\r$prefix$cmd\e[J" >&2
+                echo -ne "\e[A\e[$((${#prefix}+${#cmd}))D$prefix$cmd\e[J" >&2
                 ;;
             $'\e[B') # down
                 local d="$(menu -c 1 --raw "${bookmarks[@]/:/ $NSH_COLOR_DIR}")"
@@ -1883,7 +1878,7 @@ __NSH_HIDE_ELAPSED_TIME__=0
 # main loop
 ############################################################################
 nsh_main_loop() {
-    local NSH_VERSION='0.3.6'
+    local NSH_VERSION='0.3.7'
     local mode pw line
     local history=() history_size=0
     local bookmarks=() bookmark_size=0
@@ -2269,6 +2264,7 @@ nsh_main_loop() {
             local line dirs files name path ret op
             local git_color
             local i
+            echo -ne "\e[${#prefix}D\r\e[0m" >&2
             while true; do
                 IFS=$'\n' read -d '' __GIT_STAT__ git_color __GIT_CHANGES__ < <(git_status)
                 [[ -n $__GIT_STAT__ ]] && __GIT_STAT__=$' \e[30;'"$((git_color+10))m($__GIT_STAT__)"$'\e[0m'
@@ -2496,10 +2492,10 @@ nsh_main_loop() {
                     fi
                 fi
                 hide_cursor
-                echo -ne "\e[A${prefix//?/\\b}\r\e[0m" >&2
+                echo -ne "\e[A\e[${#prefix}D\r\e[0m" >&2
             done
             hide_cursor
-            echo -ne "\e[A${prefix//?/\\b}\r\e[0m" >&2
+            echo -ne "\e[A\e[${#prefix}D\r\e[0m" >&2
             [[ -n $ret ]] && command="$ret " || command=
         elif [[ -n $command ]]; then
             nsheval
