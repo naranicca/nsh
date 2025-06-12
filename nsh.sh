@@ -1949,7 +1949,7 @@ nsh_main_loop() {
                 return
                 ;;
             mark)
-                line="$NSH_PROMPT Assign a key for bookmark: "
+                local line="$NSH_PROMPT Assign a key for bookmark: "
                 echo -ne "$line"
                 while true; do
                     get_key KEY
@@ -1959,8 +1959,8 @@ nsh_main_loop() {
                             if [[ "${bookmarks[$i]}" == "$KEY:"* ]]; then
                                 echo $KEY
                                 echo -ne "$NSH_PROMPT $KEY is already assigned to ${bookmarks[$i]#??}. Overwrite? (y/n) "
-                                get_key KEY; echo "$KEY"
-                                [[ yY == *$KEY* ]] && break
+                                get_key line; echo "$line"
+                                [[ yY == *$line* ]] && break
                                 echo -ne "$NSH_PROMPT Assign another key: "
                                 KEY= && break
                             fi
