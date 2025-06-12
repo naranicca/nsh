@@ -1744,6 +1744,8 @@ read_command() {
                             echo >&2
                             IFS=$'\n' read -d '' -a cand < <(echo -e "$cand" | menu --color-func put_filecolor --can-select select_file --key '.' 'echo "%&\$#!@"' --key $'\t' 'echo "$1"' --key $'\n' 'echo "////done////$1"')
                             echo -ne "\e[A${prefix//?/\\b}${pre//?/\\b}$prefix$pre" >&2
+                        else
+                            cand=("$cand")
                         fi
                         if [[ ${#cand[@]} -le 1 ]]; then
                             cand="${cand[0]}"
@@ -1879,7 +1881,7 @@ __NSH_HIDE_ELAPSED_TIME__=0
 # main loop
 ############################################################################
 nsh_main_loop() {
-    local NSH_VERSION='0.3.8'
+    local NSH_VERSION='0.3.9'
     local mode pw line
     local history=() history_size=0
     local bookmarks=() bookmark_size=0
