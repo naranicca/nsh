@@ -395,7 +395,7 @@ menu() {
     fi
 
     draw_line() {
-        local i j c
+        local i j c end=$'\e[K'
         if [[ $1 -lt $list_size ]]; then
             for ((i=0; i<cols; i++)); do
                 idx=$((($1+irow)+(i+icol)*rows))
@@ -403,18 +403,36 @@ menu() {
                 if [[ -n ${selected[$idx]} ]]; then
                     echo -ne $'\e[0m'"${markers[$idx]}$c*\e[33;48;5;239m" >&2
                     if [[ $cols -gt 1 ]]; then
-                        echo -n "${disp[$idx]%?}"$'\e[0m' >&2
+                        if [[ -n ${markers[$idx]} ]]; then
+                            echo -n "${disp[$idx]%??}"$'\e[0m' >&2
+                        else
+                            echo -n "${disp[$idx]%?}"$'\e[0m' >&2
+                        fi
                     else
                         echo -n "${disp[$idx]}"$'\e[0m' >&2
                     fi
                 elif [[ -n ${markers[$idx]} ]]; then
                     echo -ne $'\e[0m'"${markers[$idx]}$c" >&2
-                    echo -n "${disp[$idx]}"$'\e[0m' >&2
+                    echo -n "${disp[$idx]%?}"$'\e[0m' >&2
                 else
                     echo -ne "$c" >&2
                     echo -n "${disp[$idx]}"$'\e[0m' >&2
                 fi
             done
+            if [[ $cols -gt 1 ]]; then
+                local idx_ri=$((($1+irow)+(cols+icol)*rows))
+                local len=$((COLUMNS-$cols*w))
+                if [[ $len -gt 0 && $idx_ri -lt $list_size ]]; then
+                    if [[ $len -eq 1 ]]; then
+                        echo -ne "." >&2
+                    elif [[ $len -eq 2 ]]; then
+                        echo -ne ".." >&2
+                    else
+                        echo -ne $'\e[0m'"${colors[$idx_ri]}${disp[$idx_ri]:0:$((len-2))}.." >&2
+                    fi
+                    end=
+                fi
+            fi
         fi
         if [[ $1 -eq $((rows-1)) ]]; then
             get_cursor_pos
@@ -424,7 +442,7 @@ menu() {
             echo -ne "\e[${COLUMNS}D" >&2
             [[ $rows -gt 1 ]] && echo -ne "\e[$((rows-1))A" >&2
         else
-            echo -e '\e[K' >&2
+            echo "$end" >&2
         fi
     }
     draw_footer() {
