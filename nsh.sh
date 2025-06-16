@@ -413,7 +413,11 @@ menu() {
                     fi
                 elif [[ -n ${markers[$idx]} ]]; then
                     echo -ne $'\e[0m'"${markers[$idx]}$c" >&2
-                    echo -n "${disp[$idx]%?}"$'\e[0m' >&2
+                    if [[ $cols -gt 1 ]]; then
+                        echo -n "${disp[$idx]%?}"$'\e[0m' >&2
+                    else
+                        echo -n "${disp[$idx]}"$'\e[0m' >&2
+                    fi
                 else
                     echo -ne "$c" >&2
                     echo -n "${disp[$idx]}"$'\e[0m' >&2
@@ -1899,7 +1903,7 @@ __NSH_HIDE_ELAPSED_TIME__=0
 # main loop
 ############################################################################
 nsh_main_loop() {
-    local NSH_VERSION='0.3.9'
+    local NSH_VERSION='0.3.10'
     local mode pw line
     local history=() history_size=0
     local bookmarks=() bookmark_size=0
