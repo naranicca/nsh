@@ -419,8 +419,7 @@ menu() {
                         echo -n "${disp[$idx]}"$'\e[0m' >&2
                     fi
                 else
-                    echo -ne "$c" >&2
-                    echo -n "${disp[$idx]}"$'\e[0m' >&2
+                    echo -n "$c${disp[$idx]}"$'\e[0m' >&2
                 fi
             done
             if [[ $cols -gt 1 ]]; then
@@ -432,7 +431,9 @@ menu() {
                     elif [[ $len -eq 2 ]]; then
                         echo -ne ".." >&2
                     else
-                        echo -ne $'\e[0m'"${colors[$idx_ri]}${disp[$idx_ri]:0:$((len-2))}.." >&2
+                        local d="${disp[$idx_ri]:0:$((len-2))}"
+                        [[ -n "${markers[$idx_ri]}" ]] && d="${d%?}"
+                        echo -n "${markers[$idx_ri]}"$'\e[0m'"${colors[$idx_ri]}$d.." >&2
                     fi
                     end=
                 fi
@@ -1903,7 +1904,7 @@ __NSH_HIDE_ELAPSED_TIME__=0
 # main loop
 ############################################################################
 nsh_main_loop() {
-    local NSH_VERSION='0.3.11'
+    local NSH_VERSION='0.3.12'
     local mode pw line
     local history=() history_size=0
     local bookmarks=() bookmark_size=0
