@@ -1903,7 +1903,7 @@ __NSH_HIDE_ELAPSED_TIME__=0
 # main loop
 ############################################################################
 nsh_main_loop() {
-    local NSH_VERSION='0.3.10'
+    local NSH_VERSION='0.3.11'
     local mode pw line
     local history=() history_size=0
     local bookmarks=() bookmark_size=0
@@ -2449,15 +2449,16 @@ nsh_main_loop() {
                         elif [[ "${ret[0]}" == '////bookmark////' ]]; then
                             get_key -t 1 KEY
                             if [[ -z $KEY ]]; then
-                                menu -c 1 --raw "${bookmarks[@]/:/ $NSH_COLOR_DIR}" --display
-                                get_key KEY
+                                KEY="$(menu -c 1 --raw "${bookmarks[@]/:/ $NSH_COLOR_DIR}")"
+                                [[ -n "$KEY" ]] && KEY="${KEY#*$NSH_COLOR_DIR}" && cd "$KEY"
+                            else
+                                for ((i=0; i<${#bookmarks[@]}; i++)); do
+                                    if [[ "${bookmarks[$i]}" == "$KEY:"* ]]; then
+                                        cd "${bookmarks[$i]#??}"
+                                        break
+                                    fi
+                                done
                             fi
-                            for ((i=0; i<${#bookmarks[@]}; i++)); do
-                                if [[ "${bookmarks[$i]}" == "$KEY:"* ]]; then
-                                    cd "${bookmarks[$i]#??}"
-                                    break
-                                fi
-                            done
                         else
                             [[ "${ret[0]}" == '////////' ]] && unset ret[0]
                             [[ ${#ret[@]} -gt 0 ]] && ret="$(printf '"%s" ' "${ret[@]}")" && ret="${ret% }"
