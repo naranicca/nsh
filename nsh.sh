@@ -1742,7 +1742,7 @@ read_command() {
                 tmp="$(sed 's/^[ ]*//' <<< "$cmd")"
                 if [[ -z $cmd ]]; then
                     NEXT_KEY=$'\e'
-                elif [[ $tmp != *\ * ]]; then
+                elif [[ $tmp != *\ * && "$tmp" != './'* && "$tmp" != '../'* && "$tmp" != /* ]]; then
                     #cand="$(compgen -c "$tmp" | menu -c 1)"
                     cand=(`compgen -c "$tmp" 2>/dev/null`)
                     if [[ ${#cand[@]} -gt 1 ]]; then
@@ -1904,7 +1904,7 @@ __NSH_HIDE_ELAPSED_TIME__=0
 # main loop
 ############################################################################
 nsh_main_loop() {
-    local NSH_VERSION='0.3.12'
+    local NSH_VERSION='0.3.13'
     local mode pw line
     local history=() history_size=0
     local bookmarks=() bookmark_size=0
