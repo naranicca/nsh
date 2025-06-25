@@ -626,9 +626,9 @@ menu() {
         if [[ $found -eq 0 ]]; then
             case $KEY in
                 l|$'\e[C')
-                    x_old=$x
+                    x_old=$((x+icol))
                     move_cursor 1 0
-                    if [[ $cols -gt 1 && $x -eq $x_old ]]; then
+                    if [[ $cols -gt 1 && $((x+icol)) -eq $x_old ]]; then
                         if [[ $((irow+rows+(icol+x)*rows)) -lt $list_size ]]; then
                             for ((i=0; i<rows; i++)); do
                                 move_cursor --no-draw 0 1
@@ -1904,7 +1904,7 @@ __NSH_HIDE_ELAPSED_TIME__=0
 # main loop
 ############################################################################
 nsh_main_loop() {
-    local NSH_VERSION='0.3.13'
+    local NSH_VERSION='0.3.14'
     local mode pw line
     local history=() history_size=0
     local bookmarks=() bookmark_size=0
