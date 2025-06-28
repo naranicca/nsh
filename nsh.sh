@@ -1853,7 +1853,8 @@ read_command() {
                 ichunk=0
                 ;;
             $'\e[4~'|$'\e[F') # end
-                echo -ne "\e[$((${#prefix}+${#cmd}))D$prefix$cmd" >&2
+                cur="$prefix$cmd" && echo -ne "${cur//?/$'\b'}\r$prefix" >&2
+                echo -n "$cmd" >&2
                 cur=${#cmd}
                 iword=$cur
                 ichunk=$cur
@@ -1904,7 +1905,7 @@ __NSH_HIDE_ELAPSED_TIME__=0
 # main loop
 ############################################################################
 nsh_main_loop() {
-    local NSH_VERSION='0.3.14'
+    local NSH_VERSION='0.3.15'
     local mode pw line
     local history=() history_size=0
     local bookmarks=() bookmark_size=0
