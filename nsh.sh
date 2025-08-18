@@ -1905,7 +1905,7 @@ __NSH_HIDE_ELAPSED_TIME__=0
 # main loop
 ############################################################################
 nsh_main_loop() {
-    local NSH_VERSION='0.3.15'
+    local NSH_VERSION='0.3.16'
     local mode pw line
     local history=() history_size=0
     local bookmarks=() bookmark_size=0
@@ -1984,9 +1984,12 @@ nsh_main_loop() {
                                 echo $KEY
                                 echo -ne "$NSH_PROMPT $KEY is already assigned to ${bookmarks[$i]#??}. Overwrite? (y/n) "
                                 get_key line; echo "$line"
-                                [[ yY == *$line* ]] && break
-                                echo -ne "$NSH_PROMPT Assign another key: "
-                                KEY= && break
+                                if [[ yY == *$line* ]]; then
+                                    bookmarks[$i]="$KEY:$PWD"
+                                else
+                                    echo -ne "$NSH_PROMPT Assign another key: "
+                                    KEY= && break
+                                fi
                             fi
                         done
                         if [[ -n $KEY ]]; then
