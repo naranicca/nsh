@@ -1974,6 +1974,7 @@ nsh_main_loop() {
                 ;;
             mark)
                 local line="$NSH_PROMPT Assign a key for bookmark: "
+                local dir
                 echo -ne "$line"
                 while true; do
                     get_key KEY
@@ -1982,21 +1983,26 @@ nsh_main_loop() {
                         for ((i=0; i<${#bookmarks[@]}; i++)); do
                             if [[ "${bookmarks[$i]}" == "$KEY:"* ]]; then
                                 echo $KEY
-                                echo -ne "$NSH_PROMPT $KEY is already assigned to ${bookmarks[$i]#??}. Overwrite? (y/n) "
+                                dir="${bookmarks[$i]#??}"
+                                echo -e "$NSH_PROMPT $KEY is already assigned to $NSH_COLOR_DIR$dir\e[0m"
+                                echo -ne "    Replace with $NSH_COLOR_DIR$PWD\e[0m? (y/n) "
                                 get_key line; echo "$line"
                                 if [[ yY == *$line* ]]; then
                                     bookmarks[$i]="$KEY:$PWD"
+                                    save_bookmarks
                                 else
                                     echo -ne "$NSH_PROMPT Assign another key: "
-                                    KEY= && break
+                                    KEY=
+                                    dir=
                                 fi
+                                break
                             fi
                         done
                         if [[ -n $KEY ]]; then
                             load_bookmarks
                             echo -e "${line//?/\\b}\r\e[0m$NSH_PROMPT Press \e[7m'$KEY\e[0m in explorer to jump to $(dirs +0)"
-                            bookmarks+=("$KEY:$PWD")
-                            printf '%s\n' "${bookmarks[@]}" > ~/.config/nsh/bookmarks
+                            [[ -z "$dir" ]] && bookmarks+=("$KEY:$PWD")
+                            save_bookmarks
                             break
                         fi
                     fi
@@ -2157,6 +2163,9 @@ nsh_main_loop() {
     }
     config load
     # load bookmarks
+    save_bookmarks() {
+        printf '%s\n' "${bookmarks[@]}" > ~/.config/nsh/bookmarks
+    }
     load_bookmarks() {
         touch ~/.config/nsh/bookmarks
         IFS=$'\n' read -d "" -ra bookmarks < <(cat ~/.config/nsh/bookmarks | sort)
