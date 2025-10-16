@@ -374,10 +374,9 @@ menu() {
     fi
     w=$((COLUMNS/cols))
     [[ $cols -gt 1 && $rows -lt $avail_rows ]] && rows=$avail_rows
-    [[ ${#markers[@]} -gt 0 ]] && w=$((w-2))
     if [[ $cols -gt 1 ]]; then
         for ((i=0; i<list_size; i++)); do
-            trail="$(printf "%$((w-${disp[$i]}))s" ' ')"
+            trail="$(printf "%$((w-${disp[$i]}+$__WRAP_OPTION_SUPPORTED__))s" ' ')"
             item="${list[$i]}" && [[ $allow_escape -eq 0 ]] && item="${item//[^[:print:]]/^[}"
             disp[$i]="$item$trail"
         done
@@ -595,6 +594,7 @@ menu() {
     trap "resized=1" WINCH SIGWINCH
 
     while [[ $display -eq 0 ]]; do
+        [[ -z $NEXT_KEY ]] && get_key -t 0.1 NEXT_KEY
         KEY="$NEXT_KEY" && NEXT_KEY= && [[ -z $KEY ]] && get_key KEY </dev/tty
         if [[ $resized -ne 0 ]]; then
             update_menu_size
