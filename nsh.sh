@@ -10,7 +10,7 @@ NSH_PROMPT_PREFIX='echo nsh' # this could be a string, a variable, or even a fun
 NSH_PROMPT=$'\e[31m>\e[33m>\e[32m>\e[0m'
 
 # default editor
-NSH_DEFAULT_EDITOR=vi
+EDITOR=vi
 
 # colors
 NSH_COLOR_TXT=$'\e[37m'
@@ -372,7 +372,7 @@ menu() {
         max_rows=$rows
         max_cols=$(((list_size+rows-1)/rows))
     fi
-    w=$((COLUMNS/cols))
+    [[ $w -eq 0 || $((w*cols)) -gt $COLUMNS ]] && w=$((COLUMNS/cols))
     [[ $cols -gt 1 && $rows -lt $avail_rows ]] && rows=$avail_rows
     if [[ $cols -gt 1 ]]; then
         for ((i=0; i<list_size; i++)); do
@@ -426,13 +426,13 @@ menu() {
                 local len=$((COLUMNS-$cols*w))
                 if [[ $len -gt 0 && $idx_ri -lt $list_size ]]; then
                     if [[ $len -eq 1 ]]; then
-                        echo -ne "." >&2
+                        echo -ne ">" >&2
                     elif [[ $len -eq 2 ]]; then
-                        echo -ne ".." >&2
+                        echo -ne " >" >&2
                     else
-                        local d="${disp[$idx_ri]:0:$((len-2))}"
+                        local d="${disp[$idx_ri]:0:$((len-1))}"
                         [[ -n "${markers[$idx_ri]}" ]] && d="${d%?}"
-                        echo -n "${markers[$idx_ri]}"$'\e[0m'"${colors[$idx_ri]}$d.." >&2
+                        echo -n "${markers[$idx_ri]}"$'\e[0m'"${colors[$idx_ri]}$d>" >&2
                     fi
                     end=
                 fi
@@ -1124,7 +1124,8 @@ git_status()  {
                 str="run 'git rebase --continue'"
                 ;;
             @@@ERROR@@@)
-                return
+                str='???'
+                color=90
                 ;;
         esac
     done < <(LANGUAGE=en_US.UTF-8 command git status 2>&1 || echo @@@ERROR@@@)
@@ -1181,7 +1182,7 @@ git() {
                 done <<< "${__GIT_CHANGES__//;/$'\n'}"
                 file="$(menu "${files[@]}" --color-func put_filecolor --marker-func git_marker)"
                 [[ -z "$file" ]] && skip_resolve=1 && break
-                $NSH_DEFAULT_EDITOR "$file"
+                $EDITOR "$file"
                 if [[ $(grep -c '^<\+ HEAD' "$file" 2>/dev/null) -eq 0 ]]; then
                     echo -n "$NSH_PROMPT $file was resolved. Stage the file? (y/n) "
                     get_key KEY; echo "$KEY"
@@ -1905,7 +1906,7 @@ __NSH_HIDE_ELAPSED_TIME__=0
 # main loop
 ############################################################################
 nsh_main_loop() {
-    local NSH_VERSION='0.3.16'
+    local NSH_VERSION='0.3.17'
     local mode pw line
     local history=() history_size=0
     local bookmarks=() bookmark_size=0
@@ -2157,7 +2158,7 @@ nsh_main_loop() {
         elif [[ $1 == default ]]; then
             echo "$NSH_DEFAULT_CONFIG" > $config_file
         else
-            $NSH_DEFAULT_EDITOR "$config_file"
+            $EDITOR "$config_file"
         fi
         source "$config_file"
     }
@@ -2489,7 +2490,7 @@ nsh_main_loop() {
                         [[ $__GIT_CHANGES__ == *\;\?\?"$name"\;* ]] && line+=("Git: add $name")
                         local op="$(menu "${line[@]}" --color-func paint_cyan --no-footer)"
                         if [[ $op == Edit* ]]; then
-                            $NSH_DEFAULT_EDITOR "$name"
+                            $EDITOR "$name"
                         elif [[ $op == Run* ]]; then
                             [[ -x "$name" ]] && name="./$name"
                             eval "[[ -e $name ]] && echo" &>/dev/null || name=\"$name\"
