@@ -349,12 +349,20 @@ menu() {
     if [[ $list_size -eq 0 ]]; then
         cols=2 rows=1
     elif [[ $list_size -lt 100 && ${max_cols:-100} -gt 1 ]]; then
-        for ((i=0; i<list_size; i++)); do
-            disp[$i]="$(wc "$wcparam" <<< "${list[$i]}")"
-            [[ $wcparam == -c ]] && disp[$i]=$((${disp[$i]-1}))
-            len="$((${disp[$i]}+3))"
-            [[ $len -gt $w ]] && w=$len
-        done
+        if [[ "${list[@]}" =~ ^[a-zA-Z0-9_.,-]+$ ]]; then
+            for ((i=0; i<list_size; i++)); do
+                disp[$i]="${#list[$i]}"
+                len="$((${disp[$i]}+3))"
+                [[ $len -gt $w ]] && w=$len
+            done
+        else
+            for ((i=0; i<list_size; i++)); do
+                disp[$i]="$(wc "$wcparam" <<< "${list[$i]}")"
+                [[ $wcparam == -c ]] && disp[$i]=$((${disp[$i]-1}))
+                len="$((${disp[$i]}+3))"
+                [[ $len -gt $w ]] && w=$len
+            done
+        fi
         cols=$((COLUMNS/w))
         [[ -n $max_cols && $cols -gt $max_cols ]] && cols=$max_cols
         [[ $cols -lt 1 ]] && cols=1
@@ -425,15 +433,11 @@ menu() {
                 local idx_ri=$((($1+irow)+(cols+icol)*rows))
                 local len=$((COLUMNS-$cols*w))
                 if [[ $len -gt 0 && $idx_ri -lt $list_size ]]; then
-                    if [[ $len -eq 1 ]]; then
-                        echo -ne ">" >&2
-                    elif [[ $len -eq 2 ]]; then
-                        echo -ne " >" >&2
-                    else
-                        local d="${disp[$idx_ri]:0:$((len-1))}"
-                        [[ -n "${markers[$idx_ri]}" ]] && d="${d%?}"
-                        echo -n "${markers[$idx_ri]}"$'\e[0m'"${colors[$idx_ri]}$d>" >&2
-                    fi
+                    local s="${disp[$idx_ri]:0:$len}"
+                    [[ -n "${markers[$idx_ri]}" ]] && s="${s%?}"
+                    local le="${s%?}"
+                    local ri="${s: -1}"
+                    echo -n "${markers[$idx_ri]}"$'\e[0m'"${colors[$idx_ri]}$le"$'\e[2m'"$ri"$'\e[0m' >&2
                     end=
                 fi
             fi
