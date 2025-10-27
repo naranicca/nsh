@@ -584,11 +584,14 @@ menu() {
         get_cursor_pos </dev/tty
 
         avail_rows=$((LINES-__ROW__+1))
+        [[ -n "$fn_footer" ]] && avail_rows=$((avail_rows-1))
         if [[ $avail_rows -ge $rows ]]; then
             echo -ne '\e[J' >&2
         fi
         max_rows=$avail_rows
         rows=$max_rows
+        cols=$((COLUMNS/w))
+        [[ $cols -gt $max_cols ]] && max_cols=$cols
         [[ $cols -eq 1 ]] && max_rows=$list_size
         for ((i=0; i<rows; i++)); do
             draw_line $i
@@ -601,6 +604,7 @@ menu() {
         [[ -z $NEXT_KEY ]] && get_key -t 0.1 NEXT_KEY
         KEY="$NEXT_KEY" && NEXT_KEY= && [[ -z $KEY ]] && get_key KEY </dev/tty
         if [[ $resized -ne 0 ]]; then
+            x=0 y=0 icol=0 irow=0
             update_menu_size
             resized=0
         fi
@@ -1910,7 +1914,7 @@ __NSH_HIDE_ELAPSED_TIME__=0
 # main loop
 ############################################################################
 nsh_main_loop() {
-    local NSH_VERSION='0.3.17'
+    local NSH_VERSION='0.3.18'
     local mode pw line
     local history=() history_size=0
     local bookmarks=() bookmark_size=0
@@ -2479,9 +2483,41 @@ nsh_main_loop() {
                                 done
                             fi
                         else
+                            compress() {
+                                local output="$1.tar.gz"
+                                [[ $1 == -o ]] && output="$2" && shift 2
+                                case "$output" in
+                                    *.zip) zip -r "$output" "$@" ;;
+                                    *.tar.gz|*.tgz) tar -cvzf "$output" "$@" ;;
+                                    *.tar.bz2|*.tbz2) tar -cvjf "$output" "$@" ;;
+                                    *.tar.xz|*.txz) tar -cvJf "$output" "$@" ;;
+                                    *.tar) tar -cvf "$output" "$@" ;;
+                                    *.bz2) bzip2 "$@" ;;
+                                    *.gz) gzip "$@" ;;
+                                    *.Z) command compress "$@" ;;
+                                    *.rar) rar a "$output" "$@" ;;
+                                    *.7z) 7z a "$output" "$@" ;;
+                                    *)
+                                        echo "$NSH_PROMPT Unsupported archive format"
+                                        return 1
+                                        ;;
+                                esac
+                            }
                             [[ "${ret[0]}" == '////////' ]] && unset ret[0]
-                            [[ ${#ret[@]} -gt 0 ]] && ret="$(printf '"%s" ' "${ret[@]}")" && ret="${ret% }"
-                            break
+                            #[[ ${#ret[@]} -gt 0 ]] && ret="$(printf '"%s" ' "${ret[@]}")" && ret="${ret% }"
+                            local op="$(menu -c 1 "Compress ${#ret[@]} files" "Copy ${#ret[@]} files" "Trash ${#ret[@]} files" --color-func paint_cyan --no-footer)"
+                            if [[ "$op" == Compress* ]]; then
+                                read_string --prefix "$NSH_PROMPT Archive name: " --initial "${ret[0]}.tar.gz" LINE
+                                [[ -n "$LINE" ]] && nsheval compress -o "$LINE" "${ret[@]}" && echo
+                            elif [[ "$op" == Copy* ]]; then
+                                for ((i=0; i<${#ret[@]}; i++)); do
+                                    ret[$i]="$(pwd)/${ret[$i]}"
+                                done
+                                register=("${ret[@]}")
+                                register_op=ncp
+                            elif [[ "$op" == Trash* ]]; then
+                                trash "${ret[@]}"
+                            fi
                         fi
                     fi
                 else
@@ -2489,11 +2525,34 @@ nsh_main_loop() {
                     if [[ -d "$name" ]]; then
                         cd "$name"
                     else
-                        line=("Edit $name" "Run $name" "Copy $name")
+                        decompress_command() {
+                            case "$1" in
+                                *.zip) echo "unzip \"$1\"" ;;
+                                *.tar.gz|*.tgz) echo "tar -xvzf \"$1\"" ;;
+                                *.tar.bz2|*.tbz2) echo "tar -xvjf \"$1\"" ;;
+                                *.tar.xz|*.txz) echo "tar -xvJf \"$1\"" ;;
+                                *.tar) echo "tar -xvf \"$1\"" ;;
+                                *.bz2) echo "bunzip2 \"$1\"" ;;
+                                *.gz) echo "gunzip \"$1\"" ;;
+                                *.Z) echo "uncompress \"$1\"" ;;
+                                *.rar) echo "unrar x \"$1\"" ;;
+                                *.7z) echo "7z x \"$1\"" ;;
+                            esac
+                        }
+                        if [[ -n "$(decompress_command "$name")" ]]; then
+                            line=("Decompress $name")
+                        else
+                            line=("Edit $name" "Run $name")
+                        fi
+                        line+=("Copy $name" "Trash $name")
                         [[ $__GIT_CHANGES__ =~ \;[!]*"$name"\; ]] && line+=("Git: diff $name" "Git: stage $name" "Git: commit $name" "Git: revert $name" "Git...")
                         [[ $__GIT_CHANGES__ == *\;\?\?"$name"\;* ]] && line+=("Git: add $name")
                         local op="$(menu "${line[@]}" --color-func paint_cyan --no-footer)"
-                        if [[ $op == Edit* ]]; then
+                        if [[ $op == Decompress* ]]; then
+                            echo -e "\e[A\r$(nsh_print_prompt)$unzip_cmd\e[J"
+                            nsheval "$(decompress_command "$name")"
+                            echo
+                        elif [[ $op == Edit* ]]; then
                             $EDITOR "$name"
                         elif [[ $op == Run* ]]; then
                             [[ -x "$name" ]] && name="./$name"
@@ -2505,8 +2564,10 @@ nsh_main_loop() {
                             fi
                             break
                         elif [[ $op == Copy* ]]; then
-                            register=("$name")
+                            register=("$(pwd)/$name")
                             register_op=ncp
+                        elif [[ $op == Trash* ]]; then
+                            trash "$name"
                         elif [[ $op == Git:\ diff* ]]; then
                             echo -e "\e[A\r$(nsh_print_prompt)git diff $name\e[J"
                             git diff "$name"
