@@ -702,7 +702,7 @@ menu() {
                     fi
                     ;;
                 J)
-                    local n=$((rows+1)) && [[ -n $fn_footer ]] && n=$((n-1))
+                    local n=$((rows+1))
                     if [[ $n -le $list_size ]]; then
                         for ((i=0; i<n; i++)); do echo >&2; done
                         echo -ne "\e[${n}A" >&2
@@ -711,7 +711,7 @@ menu() {
                     fi
                     ;;
                 F)
-                    local n=$((LINES-2)) && [[ -n $fn_footer ]] && n=$((n-1))
+                    local n=$((LINES-2))
                     for ((i=0; i<n; i++)); do echo >&2; done
                     echo -ne "\e[${n}A" >&2
                     x=0 y=0 icol=0 irow=0
@@ -1914,7 +1914,7 @@ __NSH_HIDE_ELAPSED_TIME__=0
 # main loop
 ############################################################################
 nsh_main_loop() {
-    local NSH_VERSION='0.3.18'
+    local NSH_VERSION='0.3.19'
     local mode pw line
     local history=() history_size=0
     local bookmarks=() bookmark_size=0
@@ -2482,6 +2482,10 @@ nsh_main_loop() {
                                     fi
                                 done
                             fi
+                        elif [[ "${ret[0]}" == '////////' ]]; then
+                            unset ret[0]
+                            [[ ${#ret[@]} -gt 0 ]] && ret="$(printf '"%s" ' "${ret[@]}")" && ret="${ret% }"
+                            break
                         else
                             compress() {
                                 local output="$1.tar.gz"
