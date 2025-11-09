@@ -255,6 +255,7 @@ menu() {
     local resized=0
     local display=0
     local fn_footer
+    local polling=0
 
     hide_cursor >&2
     disable_echo >&2 </dev/tty
@@ -313,9 +314,14 @@ menu() {
         shift
     done
     if [[ $(pipe_context) == \>* ]]; then
-        while IFS= read line; do
+        while IFS= read -t 1 line; do
             [[ -n $line ]] && list+=("$line")
         done
+        if [[ -z "$line" ]]; then
+            max_cols=1
+            polling=1
+            [[ ${#list[@]} -eq 0 ]] && list+=("...") && polling=2
+        fi
     fi
     list_size=${#list[@]}
     colors=() markers=() selected=()
@@ -366,6 +372,7 @@ menu() {
         cols=$((COLUMNS/w))
         [[ -n $max_cols && $cols -gt $max_cols ]] && cols=$max_cols
         [[ $cols -lt 1 ]] && cols=1
+        [[ $cols -eq 1 ]] && disp=()
     else
         # too many items to calculate the width of each item
         cols=1
@@ -388,22 +395,33 @@ menu() {
             item="${list[$i]}" && [[ $allow_escape -eq 0 ]] && item="${item//[^[:print:]]/^[}"
             disp[$i]="$item$trail"
         done
-    else
-        if [[ $__WRAP_OPTION_SUPPORTED__ -eq 0 ]]; then
-            for ((i=0; i<list_size; i++)); do
-                item="${list[$i]}" && [[ $allow_escape -eq 0 ]] && item="${item//[^[:print:]]/^[}"
-                disp[$i]="${item:0:$((w-1))}"
-            done
-        elif [[ $allow_escape -eq 0 ]]; then
-            disp=("${list[@]//[^[:print:]]/^[}")
-        else
-            disp=("${list[@]}")
-        fi
+    #else
+    #    if [[ $__WRAP_OPTION_SUPPORTED__ -eq 0 ]]; then
+    #        for ((i=0; i<list_size; i++)); do
+    #            item="${list[$i]}" && [[ $allow_escape -eq 0 ]] && item="${item//[^[:print:]]/^[}"
+    #            disp[$i]="${item:0:$((w-1))}"
+    #        done
+    #    elif [[ $allow_escape -eq 0 ]]; then
+    #        disp=("${list[@]//[^[:print:]]/^[}")
+    #    else
+    #        disp=("${list[@]}")
+    #    fi
     fi
 
     draw_line() {
         local i j c end=$'\e[K'
         if [[ $1 -lt $list_size ]]; then
+            if [[ $cols -eq 1 && -z "${disp[$(($1+irow))]}" ]]; then
+                idx=$(($1+irow))
+                if [[ $__WRAP_OPTION_SUPPORTED__ -eq 0 ]]; then
+                    item="${list[$idx]}" && [[ $allow_escape -eq 0 ]] && item="${item//[^[:print:]]/^[}"
+                    disp[$idx]="${item:0:$((w-1))}"
+                elif [[ $allow_escape -eq 0 ]]; then
+                    disp[$idx]="${list[$idx]//[^[:print:]]/^[}"
+                else
+                    disp[$idx]="${list[$idx]}"
+                fi
+            fi
             for ((i=0; i<cols; i++)); do
                 idx=$((($1+irow)+(i+icol)*rows))
                 c=$'\e[0m'"${colors[$idx]}" && [[ $x == $i && $y == $1 ]] && c=$'\e[0;7m'"${colors[$idx]}"
@@ -601,7 +619,31 @@ menu() {
     trap "resized=1" WINCH SIGWINCH
 
     while [[ $display -eq 0 ]]; do
-        [[ -z $NEXT_KEY ]] && get_key -t 0.1 NEXT_KEY
+        [[ -z $NEXT_KEY ]] && get_key -t $__eps_get_key__ NEXT_KEY </dev/tty
+        if [[ $polling -ne 0 && -z $NEXT_KEY ]]; then
+            IFS= read -t $__eps_get_key__ line
+            if [[ $? -eq 0 ]]; then
+                [[ $polling -eq 2 ]] && list=() && disp=() && polling=1
+                i="${#list[@]}"
+                [[ -n $line ]] && list+=("$line")
+                [[ -n $color_func ]] && colors+=("$($color_func "$line" "$i")")
+                if [[ -n $marker_func ]]; then
+                    markers[$i]="$($marker_func "$line")"
+                    if [[ ${#markers[$i]} -eq 1 ]]; then
+                        for ((j=0; j<i; j++)); do
+                            markers[$j]=' '
+                        done
+                    fi
+                fi
+                list_size=${#list[@]}
+                max_rows=$avail_rows
+                rows="$list_size" && [[ $rows -gt $max_rows ]] && rows=$max_rows
+                for ((i=0; i<rows; i++)); do
+                    draw_line $i
+                done
+            fi
+            continue
+        fi
         KEY="$NEXT_KEY" && NEXT_KEY= && [[ -z $KEY ]] && get_key KEY </dev/tty
         if [[ $resized -ne 0 ]]; then
             x=0 y=0 icol=0 irow=0
@@ -1076,7 +1118,7 @@ git_status()  {
     local staged=0
     while read line; do
         case "$line" in
-            *not\ a\ git*|*Not\ a\ git*|*Untracked*)
+            *not\ a\ git*|*Not\ a\ git*)
                 break
                 ;;
             *On\ branch*|*HEAD\ detached\ at*)
@@ -1131,15 +1173,28 @@ git_status()  {
             *all\ conflicts*fixed*git\ rebase\ --continue*)
                 str="run 'git rebase --continue'"
                 ;;
+            Untracked\ files:*)
+                while read line; do
+                    [[ -z "$line" ]] && break
+                    if [[ -e "$line" && "$line" != */?* ]]; then
+                        if [[ "$line" == './' ]]; then
+                            for line in *; do
+                                [[ -d "$line" ]] && line="$line/"
+                                filenames="$filenames;??$line"
+                            done
+                        else
+                            filenames="$filenames;??$line"
+                        fi
+                    fi
+                done
+                ;;
             @@@ERROR@@@)
                 str='???'
                 color=90
+                break
                 ;;
         esac
-    done < <(LANGUAGE=en_US.UTF-8 command git status 2>&1 || echo @@@ERROR@@@)
-    while read line; do
-        filenames="$filenames;??$line"
-    done < <(command git ls-files --others --exclude-standard 2>/dev/null | awk -F / '{print $1}' | uniq)
+    done < <(LANGUAGE=en_US.UTF-8 command git status -unormal 2>&1 || echo @@@ERROR@@@)
     if [[ -n $str ]]; then
         echo "$str"
         echo "$color"
@@ -1914,7 +1969,7 @@ __NSH_HIDE_ELAPSED_TIME__=0
 # main loop
 ############################################################################
 nsh_main_loop() {
-    local NSH_VERSION='0.3.19'
+    local NSH_VERSION='0.3.20'
     local mode pw line
     local history=() history_size=0
     local bookmarks=() bookmark_size=0
@@ -2189,10 +2244,11 @@ nsh_main_loop() {
             # not a git repository
             if [[ -d "$name" && -d "$name/.git" ]]; then
                 m=$'\e[42m '
-                if ! (command cd "$name"; command git diff --quiet 2>/dev/null); then
+                #if ! (command cd "$name"; command git diff --quiet 2>/dev/null); then
+                if [[ -n "$(command cd "$name"; command git status --porcelain -uno 2>/dev/null)" ]]; then
                     m=$'\e[41m '
                 else
-                    tmp="$(command cd "$name"; LANGUAGE=en_US.UTF-8 command git status -sb | head -n 1)"
+                    tmp="$(command cd "$name"; LANGUAGE=en_US.UTF-8 command git status -sb 2>/dev/null | head -n 1)"
                     p='\[(ahead|behind) [0-9]+\]$'
                     [[ "$tmp" =~ $p ]] && m=$'\e[43m '
                 fi
