@@ -288,6 +288,7 @@ menu() {
                 can_select="$2"
             else
                 eval "TEMPSELFUNC() { $2; }" >&2
+                can_select=TEMPSELFUNC
             fi
             shift
         elif [[ $1 == --marker-func ]]; then
@@ -506,7 +507,9 @@ menu() {
                 [[ -n ${selected[$i]} ]] && echo "${list[$i]}"
             done
         elif [[ $1 == force ]]; then
-            echo "${list[$idx]}"
+            if [[ -z "$can_select" ]] || "$can_select" $idx "${list[$idx]}"; then
+                echo "${list[$idx]}"
+            fi
         fi
     }
     quit() {
@@ -2399,7 +2402,7 @@ nsh_main_loop() {
                     f="$i/$s ${f%$1}"
                     sed 's/\ /\ \|\ /g' <<< "$f"
                 }
-                IFS=$'\n' read -d '' -a ret < <(menu "${dirs[@]}" "${files[@]}" --color-func put_filecolor --marker-func git_marker_deep --fn-footer fn_footer --key $'\t' 'print_selected force' --key $'\n' 'echo ////enter////; print_selected force' --key '.' 'echo "////dotglob////"' --key '~' 'echo $HOME' --key r 'echo ./' --key ':' 'echo "////////"; print_selected; quit; echo >&2' --key H 'echo ../' --key y 'echo "////yank////"; print_selected force' --key p 'echo "////paste////"' --key d 'echo "////delete////"; print_selected force' --key i 'echo "////rename////"; echo "$1"; quit' --key - 'echo "////back////"' --key m 'echo "////mark////"' --key \' 'echo "////bookmark////"' "${extra_params[@]}")
+                IFS=$'\n' read -d '' -a ret < <(menu "${dirs[@]}" "${files[@]}" --color-func put_filecolor --marker-func git_marker_deep --fn-footer fn_footer --key $'\t' 'print_selected force' --key $'\n' 'echo ////enter////; print_selected force' --key '.' 'echo "////dotglob////"' --key '~' 'echo $HOME' --key r 'echo ./' --key ':' 'echo "////////"; print_selected; quit; echo >&2' --key H 'echo ../' --key y 'echo "////yank////"; get_key KEY; [[ $KEY == y ]] && print_selected force' --key p 'echo "////paste////"' --key d 'echo "////delete////"; print_selected force' --key $'\e[12~'$'\eOQ'i 'echo "////rename////"; echo "$1"; quit' --key - 'echo "////back////"' --key m 'echo "////mark////"' --key \' 'echo "////bookmark////"' "${extra_params[@]}")
                 if [[ ${#ret[@]} -eq 0 ]]; then
                     [[ -n $mode ]] && echo -e "\e[A\e[A\r\e[J"
                     mode=
