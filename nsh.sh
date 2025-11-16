@@ -315,9 +315,15 @@ menu() {
         shift
     done
     if [[ $(pipe_context) == \>* ]]; then
-        while IFS= read -t 1 line; do
+        if false; then
+            while IFS= read -t $__eps_get_key__ line; do
+                [[ -n $line ]] && list+=("$line")
+            done
+        else
+            IFS= read -t $__eps_get_key__ line
             [[ -n $line ]] && list+=("$line")
-        done
+            line=
+        fi
         if [[ -z "$line" ]]; then
             max_cols=1
             polling=1
@@ -626,10 +632,10 @@ menu() {
         if [[ $polling -ne 0 && -z $NEXT_KEY ]]; then
             IFS= read -t $__eps_get_key__ line
             if [[ $? -eq 0 ]]; then
-                [[ $polling -eq 2 ]] && list=() && disp=() && polling=1
+                [[ $polling -eq 2 ]] && list=() && disp=() && colors=() && markers=() && polling=1
                 i="${#list[@]}"
                 [[ -n $line ]] && list+=("$line")
-                [[ -n $color_func ]] && colors+=("$($color_func "$line" "$i")")
+                [[ -n $color_func ]] && colors[$i]="$($color_func "$line" "$i")"
                 if [[ -n $marker_func ]]; then
                     markers[$i]="$($marker_func "$line")"
                     if [[ ${#markers[$i]} -eq 1 ]]; then
@@ -639,8 +645,8 @@ menu() {
                     fi
                 fi
                 list_size=${#list[@]}
-                max_rows=$avail_rows
-                rows="$list_size" && [[ $rows -gt $max_rows ]] && rows=$max_rows
+                rows=$((avail_rows-1)) && [[ $rows -lt 1 ]] && rows=1
+                max_rows=$list_size
                 for ((i=0; i<rows; i++)); do
                     draw_line $i
                 done
@@ -763,6 +769,7 @@ menu() {
                     update_menu_size
                     ;;
                 $'\n'|$'\t')
+                    echo -ne '\e[J' >&2
                     print_selected force
                     break
                     ;;
@@ -1718,6 +1725,12 @@ read_string() {
     printf -v "${1:-cmd}" "%s" "$cmd"
 }
 
+search() {
+    local word="$(fuzzy_word "$1")"
+    local opt=-iname && LC_ALL=C bash -c "[[ $word =~ [A-Z] ]] && echo" &>/dev/null && opt=-name
+    find . $opt "$word" \( -type d -printf '%p/\n' , ! -type d -print \) 2>/dev/null | sed 's/^\.\///'
+}
+
 read_command() {
     local prefix=
     local cmd=
@@ -1725,7 +1738,7 @@ read_command() {
     local pre post cand word chunk
     local iword ichunk
     local KEY
-    local tmp
+    local tmp res
 
     while true; do
         if [[ $1 == --prefix ]]; then
@@ -1800,6 +1813,19 @@ read_command() {
                     post="${post#?}"
                     echo -n "$post "$'\b'"${post//?/$'\b'}"
                     cmd="$pre$post"
+                fi
+                ;;
+            $'\06') # ctrl+F
+                word="${pre:$iword}"
+                IFS=$'\n' read -d '' -a res < <(search "$word" | menu -c 1 --select --color-func put_filecolor)
+                if [[ ${#res[@]} -gt 0 ]]; then
+                    res="$(printf '"%s" ' "${res[@]}")"
+                    echo -ne "${word//?/\\b}$res$post${post//?/\\b}" >&2
+                    pre="${pre:0:$iword}$res"
+                    cmd="$pre$post"
+                    cur=${#pre}
+                    ichunk=$cur
+                    iword=$cur
                 fi
                 ;;
             $'\t') # tab completion
@@ -2368,23 +2394,33 @@ nsh_main_loop() {
             return "${ret:-0}"
         elif [[ "$command" == $'\e' ]]; then
             # explorer
+            local working_dir=
             local line dirs files name path ret op
+            local refresh=1
             local git_color
             local i
             echo -ne "\e[${#prefix}D\r\e[0m" >&2
             while true; do
-                IFS=$'\n' read -d '' __GIT_STAT__ git_color __GIT_CHANGES__ < <(git_status)
-                [[ -n $__GIT_STAT__ ]] && __GIT_STAT__=$' \e[30;'"$((git_color+10))m($__GIT_STAT__)"$'\e[0m'
-                draw_titlebar
-                dirs=() files=()
-                [[ "$(pwd)" != / ]] && dirs+=("../")
-                while IFS= read line; do
-                    if [[ -d "$line" ]]; then
-                        dirs+=("$line/")
-                    else
-                        files+=("$line")
-                    fi
-                done < <(command ls -d * 2>/dev/null | sort --ignore-case --version-sort)
+                if [[ $mode != searching ]]; then
+                    IFS=$'\n' read -d '' __GIT_STAT__ git_color __GIT_CHANGES__ < <(git_status)
+                    [[ -n $__GIT_STAT__ ]] && __GIT_STAT__=$' \e[30;'"$((git_color+10))m($__GIT_STAT__)"$'\e[0m'
+                    draw_titlebar
+                else
+                    echo
+                fi
+                path="$(pwd)"
+                if [[ $refresh -ne 0 || "$path" != "$working_dir" ]]; then
+                    working_dir="$path"
+                    dirs=() files=()
+                    [[ "$(pwd)" != / ]] && dirs+=("../")
+                    while IFS= read line; do
+                        if [[ -d "$line" ]]; then
+                            dirs+=("$line/")
+                        else
+                            files+=("$line")
+                        fi
+                    done < <(command ls -d * 2>/dev/null | sort --ignore-case --version-sort)
+                fi
                 local extra_params=()
                 if [[ -z $mode ]]; then
                     extra_params+=(--key a 'echo ////add////' --key P 'echo ////fetch////' --can-select select_file --key $'\07' 'echo "////git////"' --key $'\e[21~' 'echo "////menu////"')
@@ -2402,11 +2438,14 @@ nsh_main_loop() {
                     f="$i/$s ${f%$1}"
                     sed 's/\ /\ \|\ /g' <<< "$f"
                 }
-                IFS=$'\n' read -d '' -a ret < <(menu "${dirs[@]}" "${files[@]}" --color-func put_filecolor --marker-func git_marker_deep --fn-footer fn_footer --key $'\t' 'print_selected force' --key $'\n' 'echo ////enter////; print_selected force' --key '.' 'echo "////dotglob////"' --key '~' 'echo $HOME' --key r 'echo ./' --key ':' 'echo "////////"; print_selected; quit; echo >&2' --key H 'echo ../' --key y 'echo "////yank////"; get_key KEY; [[ $KEY == y ]] && print_selected force' --key p 'echo "////paste////"' --key d 'echo "////delete////"; print_selected force' --key $'\e[12~'$'\eOQ'i 'echo "////rename////"; echo "$1"; quit' --key - 'echo "////back////"' --key m 'echo "////mark////"' --key \' 'echo "////bookmark////"' "${extra_params[@]}")
+                IFS=$'\n' read -d '' -a ret < <(menu "${dirs[@]}" "${files[@]}" --color-func put_filecolor --marker-func git_marker_deep --fn-footer fn_footer --key $'\t' 'print_selected force' --key $'\n' 'echo ////enter////; print_selected force' --key '.' 'echo "////dotglob////"' --key '~' 'echo $HOME' --key r 'echo ./' --key ':' 'echo "////////"; print_selected; quit; echo >&2' --key H 'echo ../' --key y 'echo "////yank////"; get_key KEY; [[ $KEY == y ]] && print_selected force' --key p 'echo "////paste////"' --key d 'echo "////delete////"; print_selected force' --key $'\e[12~'$'\eOQ'i 'echo "////rename////"; echo "$1"; quit' --key - 'echo "////back////"' --key m 'echo "////mark////"' --key \' 'echo "////bookmark////"' --key $'\06' 'echo "////search////"' "${extra_params[@]}")
+                refresh=1
                 if [[ ${#ret[@]} -eq 0 ]]; then
                     [[ -n $mode ]] && echo -e "\e[A\e[A\r\e[J"
+                    if [[ $mode != searching ]]; then
+                        break
+                    fi
                     mode=
-                    break
                 elif [[ ${#ret[@]} -gt 1 || "${ret[0]}" == '////'* ]]; then
                     if [[ "${ret[0]}" == '////dotglob////' ]]; then
                         toggle_dotglob
@@ -2414,6 +2453,15 @@ nsh_main_loop() {
                     elif [[ "${ret[0]}" == '////menu////' ]]; then
                         nsh menu
                         echo -e "\e[A"
+                    elif [[ "${ret[0]}" == '////search////' ]]; then
+                        echo -ne "$NSH_PROMPT Search: \e[J"
+                        read_string line
+                        if [[ -n "$line" ]]; then
+                            dirs=() files=()
+                            IFS=$'\n' read -d '' -a files < <(search "$line")
+                        fi
+                        refresh=0
+                        mode=searching
                     else
                         if [[ "${ret[0]}" == '////enter////' ]]; then # enter key
                             unset ret[0]
@@ -2477,6 +2525,7 @@ nsh_main_loop() {
                                 fi
                                 echo
                             fi
+                            refresh=0
                         elif [[ "${ret[0]}" == '////paste////' ]]; then
                             if [[ -n $register_op ]]; then
                                 echo -e "\e[A${prefix//?/\\b}\r$(nsh_print_prompt)$register_op ${register[@]/#$HOME\//\~/} .\e[K"
@@ -2526,9 +2575,11 @@ nsh_main_loop() {
                         elif [[ "${ret[0]}" == '////back////' ]]; then
                             cd - &>/dev/null
                         elif [[ "${ret[0]}" == '////mark////' ]]; then
+                            refresh=0
                             nsh mark
                             echo
                         elif [[ "${ret[0]}" == '////bookmark////' ]]; then
+                            refresh=0
                             get_key -t 1 KEY
                             if [[ -z $KEY ]]; then
                                 KEY="$(menu -c 1 --raw "${bookmarks[@]/:/ $NSH_COLOR_DIR}")"
@@ -2657,6 +2708,7 @@ nsh_main_loop() {
                             echo
                         else
                             ret=
+                            refresh=0
                         fi
                     fi
                 fi
