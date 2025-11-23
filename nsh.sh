@@ -202,7 +202,7 @@ get_key() {
     printf -v "${1:-_key}" "%s" "$_key"
     return $__ret
 }
-__eps_get_key__=0.1
+__eps_get_key__=0.2
 read -sn 1 -t $__eps_get_key__ _key &>/dev/null
 [[ $? -ne 142 ]] && __eps_get_key__=1
 
@@ -645,7 +645,7 @@ menu() {
                     fi
                 fi
                 list_size=${#list[@]}
-                rows=$((avail_rows-1)) && [[ $rows -lt 1 ]] && rows=1
+                rows=$avail_rows && [[ $rows -lt 1 ]] && rows=1
                 max_rows=$list_size
                 for ((i=0; i<rows; i++)); do
                     draw_line $i
@@ -1056,7 +1056,7 @@ get_hsize() {
     fi
 }
 
-disk() {
+disk_old() {
     __NSH_HIDE_ELAPSED_TIME__=1
     disable_line_wrapping
     local cur="$PWD"
@@ -1120,6 +1120,34 @@ disk() {
     done
     cd "$cur"
     enable_line_wrapping
+}
+
+disk() {
+    df -h .
+    local stat_param='--printf=%s'
+    stat "$stat_param" . &>/dev/null || stat_param='-f%z'
+
+    local line dirs=() files=() ret
+    while read line; do
+        if [[ -d "$line" ]]; then
+            dirs+=("$line/")
+        elif [[ -f "$line" ]]; then
+            files+=("$line")
+        fi
+    done < <(command ls -d * 2>/dev/null | sort --ignore-case --version-sort)
+    list=("${dirs[@]}" "${files[@]}")
+
+    ret="$(for line in "${list[@]}"; do
+        if [[ -d "$line" ]]; then
+            size=$(du -sk "$line" 2>/dev/null | cut -f 1)
+            size=$((size*1024))
+        else
+            size=$(stat "$stat_param" "$line" 2>/dev/null)
+            [[ -z $size ]] && size=0
+        fi
+        size="$(sed ':a;s/\B[0-9]\{3\}\>/,&/;ta' <<< "$size")"
+        printf "%15s %s\n" "$size" "$(put_filecolor "$line")$line"$'\e[0m'
+    done | menu --raw)"
 }
 
 git_status()  {
@@ -2352,6 +2380,334 @@ nsh_main_loop() {
         IFS=$'\n' read -d '' -a register < <(ls -d "$trash_path"/*)
         register_op=nmv
     }
+    __EXPLORER_RET__=
+    explorer() {
+        local working_dir=
+        local mode line dirs files name path ret op
+        local refresh=1
+        local git_color
+        local i
+        draw_titlebar() {
+            prefix= && [[ -n $mode ]] && prefix="\e[0;30;45mSelect"
+            echo -e "\r$prefix$(nsh_print_prompt)\e[J"
+        }
+        while true; do
+            if [[ $mode != searching ]]; then
+                IFS=$'\n' read -d '' __GIT_STAT__ git_color __GIT_CHANGES__ < <(git_status)
+                [[ -n $__GIT_STAT__ ]] && __GIT_STAT__=$' \e[30;'"$((git_color+10))m($__GIT_STAT__)"$'\e[0m'
+                draw_titlebar
+            else
+                echo
+            fi
+            path="$(pwd)"
+            if [[ $refresh -ne 0 || "$path" != "$working_dir" ]]; then
+                working_dir="$path"
+                dirs=() files=()
+                [[ "$(pwd)" != / ]] && dirs+=("../")
+                while IFS= read line; do
+                    if [[ -d "$line" ]]; then
+                        dirs+=("$line/")
+                    else
+                        files+=("$line")
+                    fi
+                done < <(command ls -d * 2>/dev/null | sort --ignore-case --version-sort)
+            fi
+            local extra_params=()
+            if [[ -z $mode ]]; then
+                extra_params+=(--key a 'echo ////add////' --key P 'echo ////fetch////' --can-select select_file --key $'\07' 'echo "////git////"' --key $'\e[21~' 'echo "////menu////"')
+            elif [[ $mode == fetch ]]; then
+                extra_params+=(--can-select select_file)
+            fi
+            git_marker_deep() {
+                git_marker --deep "$@"
+            }
+            fn_footer() {
+                local p=-lh && [[ -d "$1" ]] && p=-ld
+                local f="$(ls --time-style=long-iso "$p" "$1" 2>/dev/null || ls "$p" "$1" 2>/dev/null)"
+                local i=$idx s=$list_size
+                [[ "${list[0]}" == '../' ]] && s=$((s-1)) || i=$((i+1))
+                f="$i/$s ${f%$1}"
+                sed 's/\ /\ \|\ /g' <<< "$f"
+            }
+            IFS=$'\n' read -d '' -a ret < <(menu "${dirs[@]}" "${files[@]}" --color-func put_filecolor --marker-func git_marker_deep --fn-footer fn_footer --key $'\t' 'print_selected force' --key $'\n' 'echo ////enter////; print_selected force' --key '.' 'echo "////dotglob////"' --key '~' 'echo $HOME' --key r 'echo ./' --key ':' 'echo "////////"; print_selected; quit; echo >&2' --key H 'echo ../' --key y 'echo "////yank////"; get_key KEY; [[ $KEY == y ]] && print_selected force' --key p 'echo "////paste////"' --key d 'echo "////delete////"; print_selected force' --key $'\e[12~'$'\eOQ'i 'echo "////rename////"; echo "$1"; quit' --key - 'echo "////back////"' --key m 'echo "////mark////"' --key \' 'echo "////bookmark////"' --key $'\06' 'echo "////search////"' "${extra_params[@]}")
+            refresh=1
+            if [[ ${#ret[@]} -eq 0 ]]; then
+                [[ -n $mode ]] && echo -e "\e[A\e[A\r\e[J"
+                if [[ $mode != searching ]]; then
+                    break
+                fi
+                mode=
+            elif [[ ${#ret[@]} -gt 1 || "${ret[0]}" == '////'* ]]; then
+                if [[ "${ret[0]}" == '////dotglob////' ]]; then
+                    toggle_dotglob
+                    ret=
+                elif [[ "${ret[0]}" == '////menu////' ]]; then
+                    nsh menu
+                    echo -e "\e[A"
+                elif [[ "${ret[0]}" == '////search////' ]]; then
+                    echo -ne "$NSH_PROMPT Search: \e[J"
+                    read_string line
+                    if [[ -n "$line" ]]; then
+                        dirs=() files=()
+                        IFS=$'\n' read -d '' -a files < <(search "$line")
+                    fi
+                    refresh=0
+                    mode=searching
+                else
+                    if [[ "${ret[0]}" == '////enter////' ]]; then # enter key
+                        unset ret[0]
+                        if [[ $mode == add ]]; then
+                            mode=
+                            path="$(pwd)/${ret[1]%/}"
+                            cd "$pwd"
+                            echo -e "\e[A\e[A\e[0m\r$(nsh_print_prompt) ln -s $path ${path##*/}"
+                            command ln -s "$path" "${path##*/}"
+                        elif [[ $mode == fetch ]]; then
+                            mode=
+                            if [[ ${#ret[@]} -gt 1 ]]; then
+                                echo -e "\e[A\r$NSH_PROMPT Selected: ${ret[1]}...(${#ret[@]})\e[J"
+                            else
+                                echo -e "\e[A\r$NSH_PROMPT Selected: ${ret[1]}\e[J"
+                            fi
+                            path="$(pwd)" && cd "$pwd"
+                            op="$(menu Copy Move 'Symbolic Link' --color-func paint_cyan --no-footer)"
+                            if [[ -n "$op" ]]; then
+                                echo -ne '\e[A'
+                                for ((i=1; i<=${#ret[@]}; i++)); do
+                                    name="$path/${ret[$i]%/}"
+                                    if [[ $op == Copy ]]; then
+                                        echo "$NSH_PROMPT cp $name ."
+                                        cp -r "$name" .
+                                    elif [[ $op == Move ]]; then
+                                        echo "$NSH_PROMPT mv $name ."
+                                        mv "$name" .
+                                    elif [[ $op == 'Symbolic Link' ]]; then
+                                        echo "$NSH_PROMPT ln -s $name ${name##*/}"
+                                        ln -s "$name" "${name##*/}"
+                                    fi
+                                done
+                                echo
+                            fi
+                        #elif [[ ${#ret[@]} -eq 1 && -d "${ret[1]}" ]]; then
+                        #    cd "${ret[1]}"
+                        #    break
+                        else
+                            for ((i=1; i<=${#ret[@]}; i++)); do
+                                [[ ! -d "${ret[$i]}" && -x "${ret[$i]}" ]] && ret[$i]="./${ret[$i]}"
+                                eval "[[ -e ${ret[$i]} ]] && echo" &>/dev/null || ret[$i]=\"${ret[$i]}\"
+                            done
+                            ret="$(printf '%s ' "${ret[@]}")" && ret="${ret% }"
+                            cursor_param="--cursor 0"
+                            break
+                        fi
+                    elif [[ "${ret[0]}" == '////yank////' ]]; then
+                        if [[ ${#ret[@]} -gt 1 ]]; then
+                            local d="$(pwd)" && [[ $d == / ]] && d=
+                            for ((i=1; i<${#ret[@]}; i++)); do
+                                ret[$i]="$d/${ret[$i]}"
+                            done
+                            unset ret[0]
+                            register=("${ret[@]}")
+                            register_op=ncp
+                            if [[ ${#register[@]} -gt 1 ]]; then
+                                echo "$NSH_PROMPT yanked ${#register[@]} files"
+                            else
+                                echo "$NSH_PROMPT yanked: ${register[0]/#$d\//}"
+                            fi
+                            echo
+                        fi
+                        refresh=0
+                    elif [[ "${ret[0]}" == '////paste////' ]]; then
+                        if [[ -n $register_op ]]; then
+                            echo -e "\e[A${prefix//?/\\b}\r$(nsh_print_prompt)$register_op ${register[@]/#$HOME\//\~/} .\e[K"
+                            $register_op "${register[@]}" .
+                            echo
+                            register=()
+                            register_op=
+                        fi
+                    elif [[ "${ret[0]}" == '////delete////' ]]; then
+                        unset ret[0]
+                        line="${#ret[@]} files" && [[ ${#ret[@]} -eq 1 ]] && line="${ret[1]}"
+                        echo -ne "\e[A\e[0;37;41m\e[KDelete $line? (yd/n)\e[0m " >&2
+                        get_key KEY
+                        draw_titlebar
+                        [[ yYd == *$KEY* ]] && trash "${ret[@]}"
+                    elif [[ "${ret[0]}" == '////add////' ]]; then
+                        echo "$NSH_PROMPT Add:"
+                        line=(Directory File) && [[ $mode != add ]] && line+=('Symbolic Link')
+                        ret="$(menu "${line[@]}" --key d 'echo Directory' --key f 'echo File' --color-func paint_cyan --no-footer)"
+                        if [[ $ret == Directory ]]; then
+                            echo -ne "\e[A$NSH_PROMPT Add a directory: "
+                            read_string name
+                            [[ -n "$name" ]] && mkdir -p "$name"
+                        elif [[ $ret == File ]]; then
+                            echo -ne "\e[A$NSH_PROMPT Add a file: "
+                            read_string name
+                            [[ -n "$name" ]] && touch "$name"
+                        elif [[ $ret == Symbolic\ Link ]]; then
+                            echo -e "\e[A\e[A$NSH_PROMPT Adding a symbolic link of: \e[J"
+                            echo
+                            mode=add
+                            pwd="$(pwd)"
+                        else
+                            echo -ne '\e[A'
+                        fi
+                    elif [[ "${ret[0]}" == '////fetch////' ]]; then
+                        echo -e "\e[A$(nsh_print_prompt)fetch\n"
+                        mode=fetch
+                        pwd="$(pwd)"
+                    elif [[ "${ret[0]}" == '////rename////' ]]; then
+                        read_string --prefix "$NSH_PROMPT rename: " --initial "${ret[1]}" line
+                        [[ -n "$line" ]] && mv "${ret[1]}" "$line" || echo
+                    elif [[ "${ret[0]}" == '////git////' ]]; then
+                        echo -e "\e[A\e[J$(nsh_print_prompt)git"
+                        nsheval git
+                        echo
+                    elif [[ "${ret[0]}" == '////back////' ]]; then
+                        cd - &>/dev/null
+                    elif [[ "${ret[0]}" == '////mark////' ]]; then
+                        refresh=0
+                        nsh mark
+                        echo
+                    elif [[ "${ret[0]}" == '////bookmark////' ]]; then
+                        refresh=0
+                        get_key -t 1 KEY
+                        if [[ -z $KEY ]]; then
+                            KEY="$(menu -c 1 --raw "${bookmarks[@]/:/ $NSH_COLOR_DIR}")"
+                            [[ -n "$KEY" ]] && KEY="${KEY#*$NSH_COLOR_DIR}" && cd "$KEY"
+                        else
+                            for ((i=0; i<${#bookmarks[@]}; i++)); do
+                                if [[ "${bookmarks[$i]}" == "$KEY:"* ]]; then
+                                    cd "${bookmarks[$i]#??}"
+                                    break
+                                fi
+                            done
+                        fi
+                    elif [[ "${ret[0]}" == '////////' ]]; then
+                        unset ret[0]
+                        [[ ${#ret[@]} -gt 0 ]] && ret="$(printf '"%s" ' "${ret[@]}")" && ret="${ret% }"
+                        break
+                    else
+                        compress() {
+                            local output="$1.tar.gz"
+                            [[ $1 == -o ]] && output="$2" && shift 2
+                            case "$output" in
+                                *.zip) zip -r "$output" "$@" ;;
+                                *.tar.gz|*.tgz) tar -cvzf "$output" "$@" ;;
+                                *.tar.bz2|*.tbz2) tar -cvjf "$output" "$@" ;;
+                                *.tar.xz|*.txz) tar -cvJf "$output" "$@" ;;
+                                *.tar) tar -cvf "$output" "$@" ;;
+                                *.bz2) bzip2 "$@" ;;
+                                *.gz) gzip "$@" ;;
+                                *.Z) command compress "$@" ;;
+                                *.rar) rar a "$output" "$@" ;;
+                                *.7z) 7z a "$output" "$@" ;;
+                                *)
+                                    echo "$NSH_PROMPT Unsupported archive format"
+                                    return 1
+                                    ;;
+                            esac
+                        }
+                        [[ "${ret[0]}" == '////////' ]] && unset ret[0]
+                        #[[ ${#ret[@]} -gt 0 ]] && ret="$(printf '"%s" ' "${ret[@]}")" && ret="${ret% }"
+                        local op="$(menu -c 1 "Compress ${#ret[@]} files" "Copy ${#ret[@]} files" "Trash ${#ret[@]} files" --color-func paint_cyan --no-footer)"
+                        if [[ "$op" == Compress* ]]; then
+                            read_string --prefix "$NSH_PROMPT Archive name: " --initial "${ret[0]}.tar.gz" LINE
+                            [[ -n "$LINE" ]] && nsheval compress -o "$LINE" "${ret[@]}" && echo
+                        elif [[ "$op" == Copy* ]]; then
+                            for ((i=0; i<${#ret[@]}; i++)); do
+                                ret[$i]="$(pwd)/${ret[$i]}"
+                            done
+                            register=("${ret[@]}")
+                            register_op=ncp
+                        elif [[ "$op" == Trash* ]]; then
+                            trash "${ret[@]}"
+                        fi
+                    fi
+                fi
+            else
+                name="$(strip_escape "$ret")"
+                if [[ -d "$name" ]]; then
+                    cd "$name"
+                else
+                    decompress_command() {
+                        case "$1" in
+                            *.zip) echo "unzip \"$1\"" ;;
+                            *.tar.gz|*.tgz) echo "tar -xvzf \"$1\"" ;;
+                            *.tar.bz2|*.tbz2) echo "tar -xvjf \"$1\"" ;;
+                            *.tar.xz|*.txz) echo "tar -xvJf \"$1\"" ;;
+                            *.tar) echo "tar -xvf \"$1\"" ;;
+                            *.bz2) echo "bunzip2 \"$1\"" ;;
+                            *.gz) echo "gunzip \"$1\"" ;;
+                            *.Z) echo "uncompress \"$1\"" ;;
+                            *.rar) echo "unrar x \"$1\"" ;;
+                            *.7z) echo "7z x \"$1\"" ;;
+                        esac
+                    }
+                    if [[ -n "$(decompress_command "$name")" ]]; then
+                        line=("Decompress $name")
+                    else
+                        line=("Edit $name" "Run $name")
+                    fi
+                    line+=("Copy $name" "Trash $name")
+                    [[ $__GIT_CHANGES__ =~ \;[!]*"$name"\; ]] && line+=("Git: diff $name" "Git: stage $name" "Git: commit $name" "Git: revert $name" "Git...")
+                    [[ $__GIT_CHANGES__ == *\;\?\?"$name"\;* ]] && line+=("Git: add $name")
+                    local op="$(menu "${line[@]}" --color-func paint_cyan --no-footer)"
+                    if [[ $op == Decompress* ]]; then
+                        echo -e "\e[A\r$(nsh_print_prompt)$unzip_cmd\e[J"
+                        nsheval "$(decompress_command "$name")"
+                        echo
+                    elif [[ $op == Edit* ]]; then
+                        $EDITOR "$name"
+                    elif [[ $op == Run* ]]; then
+                        [[ -x "$name" ]] && name="./$name"
+                        eval "[[ -e $name ]] && echo" &>/dev/null || name=\"$name\"
+                        if [[ $name == *.py ]]; then
+                            ret="python $name"
+                        else
+                            ret="$name"
+                        fi
+                        break
+                    elif [[ $op == Copy* ]]; then
+                        register=("$(pwd)/$name")
+                        register_op=ncp
+                    elif [[ $op == Trash* ]]; then
+                        trash "$name"
+                    elif [[ $op == Git:\ diff* ]]; then
+                        echo -e "\e[A\r$(nsh_print_prompt)git diff $name\e[J"
+                        git diff "$name"
+                        git -- "$name"
+                        echo
+                    elif [[ $op == Git:\ add* || $op == Git:\ stage* ]]; then
+                        echo -e "\e[A\r$(nsh_print_prompt)git add $name\e[J"
+                        git add "$name"
+                        git
+                        echo
+                    elif [[ $op == Git:\ commit* ]]; then
+                        echo -e "\e[A\r$(nsh_print_prompt)git commit $name\e[J"
+                        git commit "$name"
+                        git
+                        echo
+                    elif [[ $op == Git:\ revert* ]]; then
+                        echo -e "\e[A\r$(nsh_print_prompt)git checkout -- $name\e[J"
+                        git checkout -- "$name"
+                        git
+                        echo
+                    elif [[ $op == Git\.\.\. ]]; then
+                        echo -e "\e[A\r$(nsh_print_prompt)git\e[J"
+                        git -- "$name"
+                        echo
+                    else
+                        ret=
+                        refresh=0
+                    fi
+                fi
+            fi
+            hide_cursor
+            echo -ne "\e[A\e[${#prefix}D\r\e[0m" >&2
+        done
+        __EXPLORER_RET__="$ret"
+    }
 
     shopt -s nocaseglob
     update_dotglob()
@@ -2367,24 +2723,15 @@ nsh_main_loop() {
         update_dotglob
     }
     update_dotglob
-    draw_titlebar() {
-        prefix= && [[ -n $mode ]] && prefix="\e[0;30;45mSelect"
-        echo -e "\r$prefix$(nsh_print_prompt)\e[J"
-    }
     paint_cyan() {
         echo -e '\e[36m'
     }
 
-    mode=first
+    NEXT_KEY=$'\e'
     while true; do
         prefix="$(nsh_print_prompt)"
-        if [[ $mode == first ]]; then
-            command=$'\e'
-            mode=
-        else
-            read_command --prefix "$prefix" --initial "$command" $cursor_param command
-            cursor_param=
-        fi
+        read_command --prefix "$prefix" --initial "$command" $cursor_param command
+        cursor_param=
 
         if [[ "$command" == exit || "$command" == exit\ * ]]; then
             ret="$(strip_spaces "${command#exit}")"
@@ -2393,329 +2740,9 @@ nsh_main_loop() {
             }
             return "${ret:-0}"
         elif [[ "$command" == $'\e' ]]; then
-            # explorer
-            local working_dir=
-            local line dirs files name path ret op
-            local refresh=1
-            local git_color
-            local i
             echo -ne "\e[${#prefix}D\r\e[0m" >&2
-            while true; do
-                if [[ $mode != searching ]]; then
-                    IFS=$'\n' read -d '' __GIT_STAT__ git_color __GIT_CHANGES__ < <(git_status)
-                    [[ -n $__GIT_STAT__ ]] && __GIT_STAT__=$' \e[30;'"$((git_color+10))m($__GIT_STAT__)"$'\e[0m'
-                    draw_titlebar
-                else
-                    echo
-                fi
-                path="$(pwd)"
-                if [[ $refresh -ne 0 || "$path" != "$working_dir" ]]; then
-                    working_dir="$path"
-                    dirs=() files=()
-                    [[ "$(pwd)" != / ]] && dirs+=("../")
-                    while IFS= read line; do
-                        if [[ -d "$line" ]]; then
-                            dirs+=("$line/")
-                        else
-                            files+=("$line")
-                        fi
-                    done < <(command ls -d * 2>/dev/null | sort --ignore-case --version-sort)
-                fi
-                local extra_params=()
-                if [[ -z $mode ]]; then
-                    extra_params+=(--key a 'echo ////add////' --key P 'echo ////fetch////' --can-select select_file --key $'\07' 'echo "////git////"' --key $'\e[21~' 'echo "////menu////"')
-                elif [[ $mode == fetch ]]; then
-                    extra_params+=(--can-select select_file)
-                fi
-                git_marker_deep() {
-                    git_marker --deep "$@"
-                }
-                fn_footer() {
-                    local p=-lh && [[ -d "$1" ]] && p=-ld
-                    local f="$(ls --time-style=long-iso "$p" "$1" 2>/dev/null || ls "$p" "$1" 2>/dev/null)"
-                    local i=$idx s=$list_size
-                    [[ "${list[0]}" == '../' ]] && s=$((s-1)) || i=$((i+1))
-                    f="$i/$s ${f%$1}"
-                    sed 's/\ /\ \|\ /g' <<< "$f"
-                }
-                IFS=$'\n' read -d '' -a ret < <(menu "${dirs[@]}" "${files[@]}" --color-func put_filecolor --marker-func git_marker_deep --fn-footer fn_footer --key $'\t' 'print_selected force' --key $'\n' 'echo ////enter////; print_selected force' --key '.' 'echo "////dotglob////"' --key '~' 'echo $HOME' --key r 'echo ./' --key ':' 'echo "////////"; print_selected; quit; echo >&2' --key H 'echo ../' --key y 'echo "////yank////"; get_key KEY; [[ $KEY == y ]] && print_selected force' --key p 'echo "////paste////"' --key d 'echo "////delete////"; print_selected force' --key $'\e[12~'$'\eOQ'i 'echo "////rename////"; echo "$1"; quit' --key - 'echo "////back////"' --key m 'echo "////mark////"' --key \' 'echo "////bookmark////"' --key $'\06' 'echo "////search////"' "${extra_params[@]}")
-                refresh=1
-                if [[ ${#ret[@]} -eq 0 ]]; then
-                    [[ -n $mode ]] && echo -e "\e[A\e[A\r\e[J"
-                    if [[ $mode != searching ]]; then
-                        break
-                    fi
-                    mode=
-                elif [[ ${#ret[@]} -gt 1 || "${ret[0]}" == '////'* ]]; then
-                    if [[ "${ret[0]}" == '////dotglob////' ]]; then
-                        toggle_dotglob
-                        ret=
-                    elif [[ "${ret[0]}" == '////menu////' ]]; then
-                        nsh menu
-                        echo -e "\e[A"
-                    elif [[ "${ret[0]}" == '////search////' ]]; then
-                        echo -ne "$NSH_PROMPT Search: \e[J"
-                        read_string line
-                        if [[ -n "$line" ]]; then
-                            dirs=() files=()
-                            IFS=$'\n' read -d '' -a files < <(search "$line")
-                        fi
-                        refresh=0
-                        mode=searching
-                    else
-                        if [[ "${ret[0]}" == '////enter////' ]]; then # enter key
-                            unset ret[0]
-                            if [[ $mode == add ]]; then
-                                mode=
-                                path="$(pwd)/${ret[1]%/}"
-                                cd "$pwd"
-                                echo -e "\e[A\e[A\e[0m\r$(nsh_print_prompt) ln -s $path ${path##*/}"
-                                command ln -s "$path" "${path##*/}"
-                            elif [[ $mode == fetch ]]; then
-                                mode=
-                                if [[ ${#ret[@]} -gt 1 ]]; then
-                                    echo -e "\e[A\r$NSH_PROMPT Selected: ${ret[1]}...(${#ret[@]})\e[J"
-                                else
-                                    echo -e "\e[A\r$NSH_PROMPT Selected: ${ret[1]}\e[J"
-                                fi
-                                path="$(pwd)" && cd "$pwd"
-                                op="$(menu Copy Move 'Symbolic Link' --color-func paint_cyan --no-footer)"
-                                if [[ -n "$op" ]]; then
-                                    echo -ne '\e[A'
-                                    for ((i=1; i<=${#ret[@]}; i++)); do
-                                        name="$path/${ret[$i]%/}"
-                                        if [[ $op == Copy ]]; then
-                                            echo "$NSH_PROMPT cp $name ."
-                                            cp -r "$name" .
-                                        elif [[ $op == Move ]]; then
-                                            echo "$NSH_PROMPT mv $name ."
-                                            mv "$name" .
-                                        elif [[ $op == 'Symbolic Link' ]]; then
-                                            echo "$NSH_PROMPT ln -s $name ${name##*/}"
-                                            ln -s "$name" "${name##*/}"
-                                        fi
-                                    done
-                                    echo
-                                fi
-                            #elif [[ ${#ret[@]} -eq 1 && -d "${ret[1]}" ]]; then
-                            #    cd "${ret[1]}"
-                            #    break
-                            else
-                                for ((i=1; i<=${#ret[@]}; i++)); do
-                                    [[ ! -d "${ret[$i]}" && -x "${ret[$i]}" ]] && ret[$i]="./${ret[$i]}"
-                                    eval "[[ -e ${ret[$i]} ]] && echo" &>/dev/null || ret[$i]=\"${ret[$i]}\"
-                                done
-                                ret="$(printf '%s ' "${ret[@]}")" && ret="${ret% }"
-                                cursor_param="--cursor 0"
-                                break
-                            fi
-                        elif [[ "${ret[0]}" == '////yank////' ]]; then
-                            if [[ ${#ret[@]} -gt 1 ]]; then
-                                local d="$(pwd)" && [[ $d == / ]] && d=
-                                for ((i=1; i<${#ret[@]}; i++)); do
-                                    ret[$i]="$d/${ret[$i]}"
-                                done
-                                unset ret[0]
-                                register=("${ret[@]}")
-                                register_op=ncp
-                                if [[ ${#register[@]} -gt 1 ]]; then
-                                    echo "$NSH_PROMPT yanked ${#register[@]} files"
-                                else
-                                    echo "$NSH_PROMPT yanked: ${register[0]/#$d\//}"
-                                fi
-                                echo
-                            fi
-                            refresh=0
-                        elif [[ "${ret[0]}" == '////paste////' ]]; then
-                            if [[ -n $register_op ]]; then
-                                echo -e "\e[A${prefix//?/\\b}\r$(nsh_print_prompt)$register_op ${register[@]/#$HOME\//\~/} .\e[K"
-                                $register_op "${register[@]}" .
-                                echo
-                                register=()
-                                register_op=
-                            fi
-                        elif [[ "${ret[0]}" == '////delete////' ]]; then
-                            unset ret[0]
-                            line="${#ret[@]} files" && [[ ${#ret[@]} -eq 1 ]] && line="${ret[1]}"
-                            echo -ne "\e[A\e[0;37;41m\e[KDelete $line? (yd/n)\e[0m " >&2
-                            get_key KEY
-                            draw_titlebar
-                            [[ yYd == *$KEY* ]] && trash "${ret[@]}"
-                        elif [[ "${ret[0]}" == '////add////' ]]; then
-                            echo "$NSH_PROMPT Add:"
-                            line=(Directory File) && [[ $mode != add ]] && line+=('Symbolic Link')
-                            ret="$(menu "${line[@]}" --key d 'echo Directory' --key f 'echo File' --color-func paint_cyan --no-footer)"
-                            if [[ $ret == Directory ]]; then
-                                echo -ne "\e[A$NSH_PROMPT Add a directory: "
-                                read_string name
-                                [[ -n "$name" ]] && mkdir -p "$name"
-                            elif [[ $ret == File ]]; then
-                                echo -ne "\e[A$NSH_PROMPT Add a file: "
-                                read_string name
-                                [[ -n "$name" ]] && touch "$name"
-                            elif [[ $ret == Symbolic\ Link ]]; then
-                                echo -e "\e[A\e[A$NSH_PROMPT Adding a symbolic link of: \e[J"
-                                echo
-                                mode=add
-                                pwd="$(pwd)"
-                            else
-                                echo -ne '\e[A'
-                            fi
-                        elif [[ "${ret[0]}" == '////fetch////' ]]; then
-                            echo -e "\e[A$(nsh_print_prompt)fetch\n"
-                            mode=fetch
-                            pwd="$(pwd)"
-                        elif [[ "${ret[0]}" == '////rename////' ]]; then
-                            read_string --prefix "$NSH_PROMPT rename: " --initial "${ret[1]}" line
-                            [[ -n "$line" ]] && mv "${ret[1]}" "$line" || echo
-                        elif [[ "${ret[0]}" == '////git////' ]]; then
-                            echo -e "\e[A\e[J$(nsh_print_prompt)git"
-                            nsheval git
-                            echo
-                        elif [[ "${ret[0]}" == '////back////' ]]; then
-                            cd - &>/dev/null
-                        elif [[ "${ret[0]}" == '////mark////' ]]; then
-                            refresh=0
-                            nsh mark
-                            echo
-                        elif [[ "${ret[0]}" == '////bookmark////' ]]; then
-                            refresh=0
-                            get_key -t 1 KEY
-                            if [[ -z $KEY ]]; then
-                                KEY="$(menu -c 1 --raw "${bookmarks[@]/:/ $NSH_COLOR_DIR}")"
-                                [[ -n "$KEY" ]] && KEY="${KEY#*$NSH_COLOR_DIR}" && cd "$KEY"
-                            else
-                                for ((i=0; i<${#bookmarks[@]}; i++)); do
-                                    if [[ "${bookmarks[$i]}" == "$KEY:"* ]]; then
-                                        cd "${bookmarks[$i]#??}"
-                                        break
-                                    fi
-                                done
-                            fi
-                        elif [[ "${ret[0]}" == '////////' ]]; then
-                            unset ret[0]
-                            [[ ${#ret[@]} -gt 0 ]] && ret="$(printf '"%s" ' "${ret[@]}")" && ret="${ret% }"
-                            break
-                        else
-                            compress() {
-                                local output="$1.tar.gz"
-                                [[ $1 == -o ]] && output="$2" && shift 2
-                                case "$output" in
-                                    *.zip) zip -r "$output" "$@" ;;
-                                    *.tar.gz|*.tgz) tar -cvzf "$output" "$@" ;;
-                                    *.tar.bz2|*.tbz2) tar -cvjf "$output" "$@" ;;
-                                    *.tar.xz|*.txz) tar -cvJf "$output" "$@" ;;
-                                    *.tar) tar -cvf "$output" "$@" ;;
-                                    *.bz2) bzip2 "$@" ;;
-                                    *.gz) gzip "$@" ;;
-                                    *.Z) command compress "$@" ;;
-                                    *.rar) rar a "$output" "$@" ;;
-                                    *.7z) 7z a "$output" "$@" ;;
-                                    *)
-                                        echo "$NSH_PROMPT Unsupported archive format"
-                                        return 1
-                                        ;;
-                                esac
-                            }
-                            [[ "${ret[0]}" == '////////' ]] && unset ret[0]
-                            #[[ ${#ret[@]} -gt 0 ]] && ret="$(printf '"%s" ' "${ret[@]}")" && ret="${ret% }"
-                            local op="$(menu -c 1 "Compress ${#ret[@]} files" "Copy ${#ret[@]} files" "Trash ${#ret[@]} files" --color-func paint_cyan --no-footer)"
-                            if [[ "$op" == Compress* ]]; then
-                                read_string --prefix "$NSH_PROMPT Archive name: " --initial "${ret[0]}.tar.gz" LINE
-                                [[ -n "$LINE" ]] && nsheval compress -o "$LINE" "${ret[@]}" && echo
-                            elif [[ "$op" == Copy* ]]; then
-                                for ((i=0; i<${#ret[@]}; i++)); do
-                                    ret[$i]="$(pwd)/${ret[$i]}"
-                                done
-                                register=("${ret[@]}")
-                                register_op=ncp
-                            elif [[ "$op" == Trash* ]]; then
-                                trash "${ret[@]}"
-                            fi
-                        fi
-                    fi
-                else
-                    name="$(strip_escape "$ret")"
-                    if [[ -d "$name" ]]; then
-                        cd "$name"
-                    else
-                        decompress_command() {
-                            case "$1" in
-                                *.zip) echo "unzip \"$1\"" ;;
-                                *.tar.gz|*.tgz) echo "tar -xvzf \"$1\"" ;;
-                                *.tar.bz2|*.tbz2) echo "tar -xvjf \"$1\"" ;;
-                                *.tar.xz|*.txz) echo "tar -xvJf \"$1\"" ;;
-                                *.tar) echo "tar -xvf \"$1\"" ;;
-                                *.bz2) echo "bunzip2 \"$1\"" ;;
-                                *.gz) echo "gunzip \"$1\"" ;;
-                                *.Z) echo "uncompress \"$1\"" ;;
-                                *.rar) echo "unrar x \"$1\"" ;;
-                                *.7z) echo "7z x \"$1\"" ;;
-                            esac
-                        }
-                        if [[ -n "$(decompress_command "$name")" ]]; then
-                            line=("Decompress $name")
-                        else
-                            line=("Edit $name" "Run $name")
-                        fi
-                        line+=("Copy $name" "Trash $name")
-                        [[ $__GIT_CHANGES__ =~ \;[!]*"$name"\; ]] && line+=("Git: diff $name" "Git: stage $name" "Git: commit $name" "Git: revert $name" "Git...")
-                        [[ $__GIT_CHANGES__ == *\;\?\?"$name"\;* ]] && line+=("Git: add $name")
-                        local op="$(menu "${line[@]}" --color-func paint_cyan --no-footer)"
-                        if [[ $op == Decompress* ]]; then
-                            echo -e "\e[A\r$(nsh_print_prompt)$unzip_cmd\e[J"
-                            nsheval "$(decompress_command "$name")"
-                            echo
-                        elif [[ $op == Edit* ]]; then
-                            $EDITOR "$name"
-                        elif [[ $op == Run* ]]; then
-                            [[ -x "$name" ]] && name="./$name"
-                            eval "[[ -e $name ]] && echo" &>/dev/null || name=\"$name\"
-                            if [[ $name == *.py ]]; then
-                                ret="python $name"
-                            else
-                                ret="$name"
-                            fi
-                            break
-                        elif [[ $op == Copy* ]]; then
-                            register=("$(pwd)/$name")
-                            register_op=ncp
-                        elif [[ $op == Trash* ]]; then
-                            trash "$name"
-                        elif [[ $op == Git:\ diff* ]]; then
-                            echo -e "\e[A\r$(nsh_print_prompt)git diff $name\e[J"
-                            git diff "$name"
-                            git -- "$name"
-                            echo
-                        elif [[ $op == Git:\ add* || $op == Git:\ stage* ]]; then
-                            echo -e "\e[A\r$(nsh_print_prompt)git add $name\e[J"
-                            git add "$name"
-                            git
-                            echo
-                        elif [[ $op == Git:\ commit* ]]; then
-                            echo -e "\e[A\r$(nsh_print_prompt)git commit $name\e[J"
-                            git commit "$name"
-                            git
-                            echo
-                        elif [[ $op == Git:\ revert* ]]; then
-                            echo -e "\e[A\r$(nsh_print_prompt)git checkout -- $name\e[J"
-                            git checkout -- "$name"
-                            git
-                            echo
-                        elif [[ $op == Git\.\.\. ]]; then
-                            echo -e "\e[A\r$(nsh_print_prompt)git\e[J"
-                            git -- "$name"
-                            echo
-                        else
-                            ret=
-                            refresh=0
-                        fi
-                    fi
-                fi
-                hide_cursor
-                echo -ne "\e[A\e[${#prefix}D\r\e[0m" >&2
-            done
-            hide_cursor
+            explorer
+            ret="$__EXPLORER_RET__"
             echo -ne "\e[A\e[${#prefix}D\r\e[0m" >&2
             [[ -n $ret ]] && command="$ret " || command=
         elif [[ -n $command ]]; then
