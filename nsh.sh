@@ -1145,8 +1145,8 @@ disk() {
             size=$(stat "$stat_param" "$line" 2>/dev/null)
             [[ -z $size ]] && size=0
         fi
-        size="$(sed ':a;s/\B[0-9]\{3\}\>/,&/;ta' <<< "$size")"
-        printf "%15s %s\n" "$size" "$(put_filecolor "$line")$line"$'\e[0m'
+        size="$(sed ':a;s/\B[0-9]\{3\}\>/\ &/;ta' <<< "$size")"
+        printf "%15s | %s\n" "$size" "$(put_filecolor "$line")$line"$'\e[0m'
     done | menu --raw)"
 }
 
