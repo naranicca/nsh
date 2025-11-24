@@ -295,8 +295,8 @@ menu() {
             marker_func="$2"
             shift
         elif [[ $1 == --key ]]; then
-            shift && item="$1" && [[ $item == $'\e' ]] && item=$'\e '
-            return_key+=("$item")
+            shift && item="$1"
+            return_key+=(";$item;")
             shift && return_fn+=("$1") # if fn ends with '...', menu will not end after running the function
         elif [[ $1 == --no-footer ]]; then
             show_footer=0
@@ -666,7 +666,7 @@ menu() {
             item="${list[$idx]}"
             local quit=yes
             for ((i=0; i<${#return_key[@]}; i++)); do
-                if [[ "${return_key[$i]}" == *"$key_to_match"* ]]; then
+                if [[ "${return_key[$i]}" == *";$key_to_match;"* ]]; then
                     if [[ $(type -t "${return_fn[$i]}") == function ]]; then
                         "${return_fn[$i]}" "$item"
                     else
@@ -1112,7 +1112,7 @@ disk_old() {
         ret="$(for ((i=0; i<${#files[@]}; i++)); do
             local p='            ' && [[ ${sideinfo[$i]} -ge 0 ]] && p="[${bars[$(((${sideinfo[$i]}*100/$total+5)/10))]}]"
             printf "%8s %s\n" "$(get_hsize ${sideinfo[$i]})" "$p $(put_filecolor "${files[$i]}")${files[$i]}"
-        done | menu --raw -c 1 --key $'\eq:' 'quit' | strip_escape)"
+        done | menu --raw -c 1 --key $'\e;q;:' 'quit' | strip_escape)"
         ret="${ret#*\] }"
         [[ -z "$ret" ]] && break
         [[ -d "$ret" ]] && cd "$ret"
@@ -1937,7 +1937,7 @@ read_command() {
                 ;;
             $'\e[A') # up
                 echo -e "\e[$((${#prefix}+${#cmd}))D$prefix$cmd" >&2
-                cmd="$(menu "${history[@]}" -c 1 --initial "$HISTSIZE" --key ' ' 'echo "$1 "' --key $'\n' 'echo "////////$1"' --key $'\177'$'\b ' 'echo "${1%?}"')"
+                cmd="$(menu "${history[@]}" -c 1 --initial "$HISTSIZE" --key ' ' 'echo "$1 "' --key $'\n' 'echo "////////$1"' --key $'\177;'$'\b ' 'echo "${1%?}"')"
                 [[ "$cmd" == ////////* ]] && cmd="${cmd:8:$((${#cmd}-8))}" && NEXT_KEY=$'\n'
                 cur=${#cmd}
                 iword=$cur
@@ -2026,7 +2026,7 @@ __NSH_HIDE_ELAPSED_TIME__=0
 # main loop
 ############################################################################
 nsh_main_loop() {
-    local NSH_VERSION='0.3.20'
+    local NSH_VERSION='0.3.21'
     local mode pw line
     local history=() history_size=0
     local bookmarks=() bookmark_size=0
@@ -2429,7 +2429,7 @@ nsh_main_loop() {
                 f="$i/$s ${f%$1}"
                 sed 's/\ /\ \|\ /g' <<< "$f"
             }
-            IFS=$'\n' read -d '' -a ret < <(menu "${dirs[@]}" "${files[@]}" --color-func put_filecolor --marker-func git_marker_deep --fn-footer fn_footer --key $'\t' 'print_selected force' --key $'\n' 'echo ////enter////; print_selected force' --key '.' 'echo "////dotglob////"' --key '~' 'echo $HOME' --key r 'echo ./' --key ':' 'echo "////////"; print_selected; quit; echo >&2' --key H 'echo ../' --key y 'echo "////yank////"; get_key KEY; [[ $KEY == y ]] && print_selected force' --key p 'echo "////paste////"' --key d 'echo "////delete////"; print_selected force' --key $'\e[12~'$'\eOQ'i 'echo "////rename////"; echo "$1"; quit' --key - 'echo "////back////"' --key m 'echo "////mark////"' --key \' 'echo "////bookmark////"' --key $'\06' 'echo "////search////"' "${extra_params[@]}")
+            IFS=$'\n' read -d '' -a ret < <(menu "${dirs[@]}" "${files[@]}" --color-func put_filecolor --marker-func git_marker_deep --fn-footer fn_footer --key $'\t' 'print_selected force' --key $'\n' 'echo ////enter////; print_selected force' --key '.' 'echo "////dotglob////"' --key '~' 'echo $HOME' --key r 'echo ./' --key ':' 'echo "////////"; print_selected; quit; echo >&2' --key H 'echo ../' --key y 'echo "////yank////"; get_key KEY; [[ $KEY == y ]] && print_selected force' --key p 'echo "////paste////"' --key d 'echo "////delete////"; print_selected force' --key $'\e[12~;'$'\eOQ;'i 'echo "////rename////"; echo "$1"; quit' --key - 'echo "////back////"' --key m 'echo "////mark////"' --key \' 'echo "////bookmark////"' --key $'\06' 'echo "////search////"' "${extra_params[@]}")
             refresh=1
             if [[ ${#ret[@]} -eq 0 ]]; then
                 [[ -n $mode ]] && echo -e "\e[A\e[A\r\e[J"
