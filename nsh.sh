@@ -952,7 +952,9 @@ ncp() {
     while [ $# -gt 1 ]; do
         [[ -z "$1" ]] && shift && continue
         if [[ -e "$1" ]]; then
-            if [[ -d "$1" ]]; then
+            if [[ -h "$1" ]]; then
+                eval "$op \"$1\" \"$dst\""
+            elif [[ -d "$1" ]]; then
                 local src="$(command cd "$1"; pwd -P)"
                 local b="${src##*/}"
                 local tmp="${1%/}" && tmp="$dst/${tmp##*/}"
@@ -1148,6 +1150,41 @@ disk() {
         size="$(sed ':a;s/\B[0-9]\{3\}\>/\ &/;ta' <<< "$size")"
         printf "%15s | %s\n" "$size" "$(put_filecolor "$line")$line"$'\e[0m'
     done | menu --raw)"
+}
+
+__CPU_ACTIV_PREV__=
+__CPU_TOTAL_PREV__=
+cpu_usage() {
+    local cpu=- cpu_activ_cur cpu_total_cur
+    local __cpu user nice system idle iowait irq softirq steal guest
+    while true; do
+        if read __cpu user nice system idle iowait irq softirq steal guest 2>/dev/null < /proc/stat; then
+            if [[ -z $__CPU_ACTIV_PREV__ ]]; then
+                __CPU_ACTIV_PREV__=$((user+system+nice+softirq+steal))
+                __CPU_TOTAL_PREV__=$((user+system+nice+softirq+steal+idle+iowait))
+                sleep 1s
+                continue
+            else
+                cpu_activ_cur=$((user+system+nice+softirq+steal))
+                cpu_total_cur=$((user+system+nice+softirq+steal+idle+iowait))
+                cpu=$((((cpu_activ_cur-__CPU_ACTIV_PREV__)*1000/(cpu_total_cur-__CPU_TOTAL_PREV__)+5)/10))
+                __CPU_ACTIV_PREV__=$cpu_activ_cur
+                __CPU_TOTAL_PREV__=$cpu_total_cur
+                echo "$cpu"
+                break
+            fi
+        fi
+    done
+}
+
+mem_usage() {
+    mem=(`free -m 2>/dev/null | grep '^Mem:'`)
+    if [ -z "$mem" ]; then
+        mem=-
+    else
+        mem=$(((${mem[2]}*1000/${mem[1]}+5)/10))
+    fi
+    echo "$mem"
 }
 
 git_status()  {
@@ -2152,30 +2189,9 @@ nsh_main_loop() {
                 while true; do
                     if [[ $y -eq 0 ]]; then
                         # cpu usage
-                        if read __cpu user nice system idle iowait irq softirq steal guest 2>/dev/null < /proc/stat; then
-                            if [[ -z $cpu_activ_prev ]]; then
-                                cpu_activ_prev=$((user+system+nice+softirq+steal))
-                                cpu_total_prev=$((user+system+nice+softirq+steal+idle+iowait))
-                                cpu=-
-                                sleep 1s
-                                continue
-                            else
-                                cpu_activ_cur=$((user+system+nice+softirq+steal))
-                                cpu_total_cur=$((user+system+nice+softirq+steal+idle+iowait))
-                                cpu=$((((cpu_activ_cur-cpu_activ_prev)*1000/(cpu_total_cur-cpu_total_prev)+5)/10))
-                                cpu_activ_prev=$cpu_activ_cur
-                                cpu_total_prev=$cpu_total_cur
-                            fi
-                        else
-                            cpu=-
-                        fi
+                        cpu=$(cpu_usage)
                         # memory usage
-                        mem=(`free -m 2>/dev/null | grep '^Mem:'`)
-                        if [ -z "$mem" ]; then
-                            mem=-
-                        else
-                            mem=$(((${mem[2]}*1000/${mem[1]}+5)/10))
-                        fi
+                        mem=$(mem_usage)
                         # disk usage
                         if [[ $t -eq 10 ]]; then
                             line="$(df -h . 2>/dev/null | tail -n 1)" && line="${line%%%*}"
@@ -2190,10 +2206,7 @@ nsh_main_loop() {
                     c1=$'\e[0m' && [[ $x -eq 1 ]] && c1=$'\e[30;46m' && cmd="${pscmd/%cpu/%mem}"
                     c2=$'\e[0m' && [[ $x -eq 2 ]] && c2=$'\e[30;46m' && cmd='echo -e "        Size Filename"; for ((i=0; i<${#files[@]}; i++)); do printf "%10s %s\n" "${sizes[$i]}" "${files[$i]}"; done'
                     if [[ $y -eq 0 ]]; then
-                        list=()
-                        while IFS= read line; do
-                            list+=("$line")
-                        done < <(eval "$cmd 2>/dev/null")
+                        IFS=$'\n' read -d '' -ra list < <(eval "$cmd 2>/dev/null")
                     fi
 
                     printf '\r%bCPU: %3s%% \e[0m|%b MEM: %3s%% \e[0m|%b DISK: %s%% (%s/%s, %s free)\e[0m\e[K\n' $c0 $cpu $c1 $mem $c2 "$disk" "$disk_used" "$disk_size" "$disk_avail"
