@@ -1901,8 +1901,7 @@ read_command() {
                 if [[ -z $cmd ]]; then
                     NEXT_KEY=$'\e'
                 elif [[ $tmp != *\ * && "$tmp" != './'* && "$tmp" != '../'* && "$tmp" != /* ]]; then
-                    #cand="$(compgen -c "$tmp" | menu -c 1)"
-                    cand=(`compgen -c "$tmp" 2>/dev/null`)
+                    cand=(`compgen -c "$tmp" 2>/dev/null | uniq`)
                     if [[ ${#cand[@]} -gt 1 ]]; then
                         cand="$(menu -c 1 "${cand[@]}")"
                     fi
@@ -1917,14 +1916,17 @@ read_command() {
                     fi
                 else
                     local quote=
+                    local used_menu=0
                     while true; do
                         chunk="${pre:$ichunk}"
                         local p='-p' && [[ "$chunk" == */ ]] && p=  # to avoid //
-                        cand="$(eval command ls $p -d "${pre:$iword:$((ichunk-iword))}$(fuzzy_word "${chunk:-*}")" 2>/dev/null | sed "s@^$HOME/@~/@" | sort --ignore-case --version-sort)"
-                        if [[ "$cand" == *$'\n'* ]]; then
+                        local pattern="\"${pre:$iword:$((ichunk-iword))}\"$(fuzzy_word "${chunk:-*}")"
+                        cand="$(eval command ls $p -d "$pattern" 2>/dev/null | sed "s@^$HOME/@~/@" | sort --ignore-case --version-sort)"
+                        if [[ "$cand" == *$'\n'* || $used_menu -ne 0 ]]; then
                             echo >&2
                             IFS=$'\n' read -d '' -a cand < <(echo -e "$cand" | menu --color-func put_filecolor --can-select select_file --key '.' 'echo "%&\$#!@"' --key $'\t' 'echo "$1"' --key $'\n' 'echo "////done////$1"')
                             echo -ne "\e[A${prefix//?/\\b}${pre//?/\\b}$prefix$pre" >&2
+                            used_menu=1
                         else
                             cand=("$cand")
                         fi
@@ -1943,7 +1945,7 @@ read_command() {
                                 cur=${#pre}
                                 ichunk=$cur
                                 [[ $enter -ne 0 ]] && NEXT_KEY=$'\n' && break
-                                [[ -f "${word/#\~/$HOME}" ]] && NEXT_KEY=\  && break
+                                [[ -f "$cand" ]] && NEXT_KEY=\  && break
                             else
                                 break
                             fi
@@ -1963,12 +1965,14 @@ read_command() {
                         eval "[[ -e $word ]] && echo" &>/dev/null || quote=\"
                     fi
                     if [[ -n "$word" && -n $quote ]]; then
-                        echo -ne "${word//?/\\b}$quote$word$quote$post" >&2
+                        quoted_word="$quote${word//\"/}$quote"
+                        [[ "$quoted_word" == */$quote ]] && quoted_word="${quoted_word%??}$quote/"
+                        echo -ne "${word//?/\\b}$quoted_word$post" >&2
                         echo -ne "${post//?/\\b}" >&2
                         pre="${pre:0:$iword}$quote${pre:$iword}$quote"
                         cmd="$pre$post"
                         cur=${#pre}
-                        NEXT_KEY=\ 
+                        ichunk=$cur
                     fi
                 fi
                 ;;
@@ -2063,7 +2067,7 @@ __NSH_HIDE_ELAPSED_TIME__=0
 # main loop
 ############################################################################
 nsh_main_loop() {
-    local NSH_VERSION='0.3.21'
+    local NSH_VERSION='0.3.22'
     local mode pw line
     local history=() history_size=0
     local bookmarks=() bookmark_size=0
