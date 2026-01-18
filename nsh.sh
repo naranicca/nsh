@@ -484,13 +484,15 @@ menu() {
         local lbs=$((lls*2+2))
         local bs="$(printf "%${lbs}s" ' ')" && bs="${bs//?/\\b}"
         local num_selected=${#selected[@]}
+        local str
         if [[ -n "$fn_footer" ]]; then
             local nl=$'\n' && [[ $rows -lt $avail_rows ]] && nl="$(printf "%$((avail_rows-rows+1))s" ' ')" && nl="${nl//?/\\n}"
             local up=$'\e[A' && [[ $rows -lt $avail_rows ]] && up=$'\e['"$((avail_rows-rows+1))A"
             if [[ -n $search ]]; then
-                echo -ne "$nl\e[0;39;41m$search\e[K\e[0m$up" >&2
+                echo -ne "$nl\e[0;39;41m${search:0:$COLUMNS}\e[K\e[0m$up" >&2
             else
-                echo -ne "$nl\e[0;48;5;235m$($fn_footer "${list[$idx]}" 2>/dev/null)\e[K$up" >&2
+                str="$($fn_footer "${list[$idx]}" 2>/dev/null)"
+                echo -ne "$nl\e[0;48;5;235m${str:0:$COLUMNS}\e[K\e[0m$up" >&2
             fi
         else
             if [[ -n $search ]]; then
@@ -1900,6 +1902,20 @@ read_command() {
                 tmp="$(sed 's/^[ ]*//' <<< "$cmd")"
                 if [[ -z $cmd ]]; then
                     NEXT_KEY=$'\e'
+                elif [[ $iword == $ichunk && "${pre:$iword}" == \$* ]]; then
+                    tmp="${pre:$((iword+1))}"
+                    __footer_compgen_var__() {
+                        eval "echo \$"$1" | strip_escape"
+                    }
+                    cand="$(compgen -v "$tmp" 2>/dev/null | uniq | sort --ignore-case --version-sort | menu -c 1 --fn-footer __footer_compgen_var__)"
+                    if [[ -n "$cand" ]]; then
+                        echo -ne "${tmp//?/$'\b'}$cand " >&2
+                        pre="${pre%$tmp}$cand "
+                        cmd="$pre$post"
+                        cur="${#pre}"
+                        iword="$cur"
+                        ichunk="$cur"
+                    fi
                 elif [[ $tmp != *\ * && "$tmp" != './'* && "$tmp" != '../'* && "$tmp" != /* ]]; then
                     cand=(`compgen -c "$tmp" 2>/dev/null | uniq`)
                     if [[ ${#cand[@]} -gt 1 ]]; then
