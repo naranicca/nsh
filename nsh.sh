@@ -263,7 +263,7 @@ menu() {
     get_cursor_pos </dev/tty
     col0=$__COL__ && [[ $col0 -gt 1 ]] && echo >&2
     max_rows=$NSH_MENU_HEIGHT
-    avail_rows=$((LINES-__ROW__+1))
+    avail_rows=$((LINES-__ROW__+1)) && [[ $avail_rows -le 3 ]] && avail_rows=3
     can_select_all() { return 0; }
 
     disable_line_wrapping >&2
@@ -352,11 +352,10 @@ menu() {
 
     [[ $max_rows == *% ]] && max_rows=$((LINES*${max_rows%?}/100))
     [[ -n "$fn_footer" ]] && max_rows=$((max_rows-1)) && avail_rows=$((avail_rows-1))
-    if [[ $max_rows -lt $avail_rows || # when we have plenty of empty rows below the cursor
+    if [[ $max_rows -lt $avail_rows && # when we have plenty of empty rows below the cursor
           $avail_rows -gt 1 ]]; then   # or we don't need to add empty rows
         max_rows=$avail_rows
     fi
-    [[ $list_size -le $max_rows ]] && max_cols=1
 
     disp=()
     if [[ $list_size -eq 0 ]]; then
@@ -384,35 +383,31 @@ menu() {
         # too many items to calculate the width of each item
         cols=1
     fi
-    rows=$(((list_size+cols-1)/cols))
-    [[ $rows -ge $max_rows ]] && rows=$max_rows
-    [[ $(((cols-1)*rows)) -ge $list_size ]] && cols=$((cols-1))
-    if [[ $cols -eq 1 ]]; then
+    local num_max_items_displayed=$((max_rows*cols))
+    if [[ $num_max_items_displayed -lt $list_size ]]; then
+        # need scrolling
+        rows=$max_rows
+        cols=1
         max_cols=1
         max_rows=$list_size
     else
-        max_rows=$rows
-        max_cols=$(((list_size+rows-1)/rows))
+        local min_rows=$(((list_size+cols-1)/cols))
+        if [[ $cols -eq 1 || $min_rows -le $avail_rows ]]; then
+            rows=$avail_rows
+        else
+            rows=$min_rows
+        fi
+        cols=$(((list_size+rows-1)/rows))
+        [[ -n $max_cols && $cols -gt $max_cols ]] && cols=$max_cols || max_cols=$cols
     fi
+    [[ $cols -eq 1 ]] && disp=()
     [[ $w -eq 0 || $((w*cols)) -gt $COLUMNS ]] && w=$((COLUMNS/cols))
-    [[ $cols -gt 1 && $rows -lt $avail_rows ]] && rows=$avail_rows
     if [[ $cols -gt 1 ]]; then
         for ((i=0; i<list_size; i++)); do
             trail="$(printf "%$((w-${disp[$i]}+$__WRAP_OPTION_SUPPORTED__))s" ' ')"
             item="${list[$i]}" && [[ $allow_escape -eq 0 ]] && item="${item//[^[:print:]]/^[}"
             disp[$i]="$item$trail"
         done
-    #else
-    #    if [[ $__WRAP_OPTION_SUPPORTED__ -eq 0 ]]; then
-    #        for ((i=0; i<list_size; i++)); do
-    #            item="${list[$i]}" && [[ $allow_escape -eq 0 ]] && item="${item//[^[:print:]]/^[}"
-    #            disp[$i]="${item:0:$((w-1))}"
-    #        done
-    #    elif [[ $allow_escape -eq 0 ]]; then
-    #        disp=("${list[@]//[^[:print:]]/^[}")
-    #    else
-    #        disp=("${list[@]}")
-    #    fi
     fi
 
     draw_line() {
@@ -522,6 +517,7 @@ menu() {
     }
     quit() {
         x=9999 y=9999
+	[[ $rows -gt $list_size ]] && rows=$list_size
         for ((i=0; i<rows; i++)); do
             draw_line $i
         done
@@ -555,7 +551,7 @@ menu() {
             fi
         elif [[ $y -ge $rows ]]; then
             if [[ $cols -eq 1 ]]; then
-                y=$((irow+y)) && [[ $y -ge $max_rows ]] && y=$((max_rows-1))
+                y=$((irow+y)) && [[ $y -ge $list_size ]] && y=$((list_size-1))
                 irow=$((y-rows+1)) y=$((rows-1))
             else
                 if [[ $((icol+x+1)) -lt $max_cols ]]; then
@@ -619,9 +615,12 @@ menu() {
         fi
         max_rows=$avail_rows
         rows=$max_rows
-        cols=$((COLUMNS/w))
-        [[ $cols -gt $max_cols ]] && max_cols=$cols
-        [[ $cols -eq 1 ]] && max_rows=$list_size
+        if [[ $cols -eq 1 ]]; then
+            max_rows=$list_size
+        else
+            cols=$((COLUMNS/w))
+            [[ $cols -gt $max_cols ]] && max_cols=$cols
+        fi
         for ((i=0; i<rows; i++)); do
             draw_line $i
         done
