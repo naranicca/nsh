@@ -552,7 +552,11 @@ menu() {
         elif [[ $y -ge $rows ]]; then
             if [[ $cols -eq 1 ]]; then
                 y=$((irow+y)) && [[ $y -ge $list_size ]] && y=$((list_size-1))
-                irow=$((y-rows+1)) y=$((rows-1))
+                if [[ $rows -le $list_size ]]; then
+                    irow=$((y-rows+1)) y=$((rows-1))
+                else
+                    irow=0 y=$((list_size-1))
+                fi
             else
                 if [[ $((icol+x+1)) -lt $max_cols ]]; then
                     x=$((x+1)) && y=0
