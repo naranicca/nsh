@@ -315,15 +315,9 @@ menu() {
         shift
     done
     if [[ $(pipe_context) == \>* ]]; then
-        if false; then
-            while IFS= read -t $__eps_get_key__ line; do
-                [[ -n $line ]] && list+=("$line")
-            done
-        else
-            IFS= read -t $__eps_get_key__ line
+        while IFS= read -t $__eps_get_key__ line; do
             [[ -n $line ]] && list+=("$line")
-            line=
-        fi
+        done
         if [[ -z "$line" ]]; then
             max_cols=1
             polling=1
@@ -2086,7 +2080,7 @@ __NSH_HIDE_ELAPSED_TIME__=0
 # main loop
 ############################################################################
 nsh_main_loop() {
-    local NSH_VERSION='0.3.22'
+    local NSH_VERSION='0.3.23'
     local mode pw line
     local history=() history_size=0
     local bookmarks=() bookmark_size=0
