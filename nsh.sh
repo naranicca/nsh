@@ -2476,13 +2476,27 @@ nsh_main_loop() {
                     echo -e "\e[A"
                 elif [[ "${ret[0]}" == '////search////' ]]; then
                     echo -ne "$NSH_PROMPT Search: \e[J"
-                    read_string line
-                    if [[ -n "$line" ]]; then
-                        dirs=() files=()
-                        IFS=$'\n' read -d '' -a files < <(search "$line")
+                    line=$(menu "file" "text" --color-func paint_cyan --no-footer)
+                    if [[ "$line" == file ]]; then
+                        echo -ne "\r$NSH_PROMPT Search File: \e[K"
+                        read_string line
+                        if [[ -n "$line" ]]; then
+                            dirs=() files=()
+                            IFS=$'\n' read -d '' -a files < <(search "$line")
+                            echo -ne '\e[A'
+                        fi
+                    elif [[ "$line" == text ]]; then
+                        echo -ne "\r$NSH_PROMPT Search Text: \e[K"
+                        read_string line
+                        if [[ -n "$line" ]]; then
+                            local __param='--color=always'
+                            [[ $NSH_SEARCH_INCLUDE_HIDDEN_FILES -ne 0 ]] && __param+=' -a'
+                            grep -IHrn --color=always $__param "$line" . 2>/dev/null
+                            ret=
+                            break
+                        fi
                     fi
                     refresh=0
-                    mode=searching
                 else
                     if [[ "${ret[0]}" == '////enter////' ]]; then # enter key
                         unset ret[0]
