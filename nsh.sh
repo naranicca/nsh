@@ -263,7 +263,7 @@ menu() {
     get_cursor_pos </dev/tty
     col0=$__COL__ && [[ $col0 -gt 1 ]] && echo >&2
     max_rows=$NSH_MENU_HEIGHT
-    avail_rows=$((LINES-__ROW__+1)) && [[ $avail_rows -le 3 ]] && avail_rows=3
+    avail_rows=$((LINES-__ROW__+1))
     can_select_all() { return 0; }
 
     disable_line_wrapping >&2
@@ -386,7 +386,10 @@ menu() {
         max_rows=$list_size
     else
         local min_rows=$(((list_size+cols-1)/cols))
-        if [[ $cols -eq 1 || $min_rows -le $avail_rows ]]; then
+        if [[ $cols -eq 1 || $avail_rows -gt 1 ]]; then
+            [[ $avail_rows -le 3 ]] && avail_rows=3
+            rows=$avail_rows
+        elif [[ $min_rows -le $avail_rows ]]; then
             rows=$avail_rows
         else
             rows=$min_rows
