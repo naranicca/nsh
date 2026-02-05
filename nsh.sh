@@ -386,10 +386,8 @@ menu() {
         max_rows=$list_size
     else
         local min_rows=$(((list_size+cols-1)/cols))
-        if [[ $cols -eq 1 || $avail_rows -gt 1 ]]; then
-            [[ $avail_rows -le 3 ]] && avail_rows=3
-            rows=$avail_rows
-        elif [[ $min_rows -le $avail_rows ]]; then
+        if [[ $cols -eq 1 || $min_rows -le $avail_rows ]]; then
+            [[ $col -eq 1 && $rows -eq 1 && $list_size -ge 3 ]] && avail_rows=3
             rows=$avail_rows
         else
             rows=$min_rows
