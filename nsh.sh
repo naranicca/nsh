@@ -526,7 +526,7 @@ menu() {
         draw_line $j
     done
 
-    move_cursor() {
+    menu_move_cursor() {
         local xpre=$x ypre=$y icolpre=$icol irowpre=$irow
         local idx=$((irow+y+(icol+x)*rows))
         local draw=1 && [[ $1 == --no-draw ]] && draw=0 && shift
@@ -596,9 +596,9 @@ menu() {
 
     if [[ $initial -gt 0 ]]; then
         if [[ $cols -gt 1 ]]; then
-            for ((i=0; i<initial; i++)); do move_cursor 0 1; done
+            for ((i=0; i<initial; i++)); do menu_move_cursor 0 1; done
         else
-            move_cursor 0 $initial
+            menu_move_cursor 0 $initial
         fi
     fi
     keys="${return_key[@]}"
@@ -686,11 +686,11 @@ menu() {
             case $KEY in
                 l|$'\e[C')
                     x_old=$((x+icol))
-                    move_cursor 1 0
+                    menu_move_cursor 1 0
                     if [[ $cols -gt 1 && $((x+icol)) -eq $x_old ]]; then
                         if [[ $((irow+rows+(icol+x)*rows)) -lt $list_size ]]; then
                             for ((i=0; i<rows; i++)); do
-                                move_cursor --no-draw 0 1
+                                menu_move_cursor --no-draw 0 1
                             done
                             for ((i=0; i<rows; i++)); do
                                 draw_line $i
@@ -699,17 +699,17 @@ menu() {
                     fi
                     ;;
                 h|$'\e[D')
-                    move_cursor -1 0
+                    menu_move_cursor -1 0
                     ;;
                 j|$'\e[B')
-                    move_cursor 0 1
+                    menu_move_cursor 0 1
                     ;;
                 k|$'\e[A')
-                    move_cursor 0 -1
+                    menu_move_cursor 0 -1
                     ;;
                 0)
                     if [[ $((x+icol)) -gt 0 ]]; then
-                        move_cursor -$max_cols 0
+                        menu_move_cursor -$max_cols 0
                     else
                         x=0 icol=0 y=0 irow=0
                         for ((i=0; i<rows; i++)); do
@@ -723,10 +723,10 @@ menu() {
                     ;;
                 G)
                     if [[ $cols -gt 1 ]]; then
-                        for ((i=0; i<$list_size; i++)); do move_cursor --no-draw 0 1; done
+                        for ((i=0; i<$list_size; i++)); do menu_move_cursor --no-draw 0 1; done
                         for ((i=0; i<$rows; i++)); do draw_line $i; done
                     else
-                        move_cursor 0 $max_rows
+                        menu_move_cursor 0 $max_rows
                     fi
                     ;;
                 ' ')
