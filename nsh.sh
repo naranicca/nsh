@@ -396,6 +396,7 @@ menu() {
         [[ -n $max_cols && $cols -gt $max_cols ]] && cols=$max_cols || max_cols=$cols
     fi
     [[ $cols -eq 1 ]] && disp=()
+    [[ $cols -eq 1 && $rows -eq 1 && $list_size -ge 2 ]] && rows=2 && [[ $list_size -ge 3 ]] && rows=3
     [[ $w -eq 0 || $((w*cols)) -gt $COLUMNS ]] && w=$((COLUMNS/cols))
     if [[ $cols -gt 1 ]]; then
         for ((i=0; i<list_size; i++)); do
