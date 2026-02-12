@@ -1895,6 +1895,7 @@ read_command() {
                 fi
                 ;;
             $'\t') # tab completion
+                [[ $NSH_SHOW_HIDDEN_FILES -eq 0 ]] && shopt -s dotglob # to show hidden files
                 # ls abc/def/gh
                 #    ^       ^
                 #    iword   ichunk
@@ -1935,7 +1936,8 @@ read_command() {
                     while true; do
                         chunk="${pre:$ichunk}"
                         local p='-p' && [[ "$chunk" == */ ]] && p=  # to avoid //
-                        local pattern="\"${pre:$iword:$((ichunk-iword))}\"$(fuzzy_word "${chunk:-*}")"
+                        local pattern= && [[ $ichunk -gt $iword ]] && pattern="\"${pre:$iword:$((ichunk-iword))}\"" && [[ "$pattern" == '"~/'* ]] && pattern="~/\"${pattern#???}"
+                        pattern="$pattern$(fuzzy_word "${chunk:-*}")"
                         cand="$(eval command ls $p -d "$pattern" 2>/dev/null | sed "s@^$HOME/@~/@" | sort --ignore-case --version-sort)"
                         if [[ "$cand" == *$'\n'* || $used_menu -ne 0 ]]; then
                             echo >&2
@@ -1990,6 +1992,7 @@ read_command() {
                         ichunk=$cur
                     fi
                 fi
+                [[ $NSH_SHOW_HIDDEN_FILES -eq 0 ]] && shopt -u dotglob
                 ;;
             $'\e[A') # up
                 echo -e "\e[$((${#prefix}+${#cmd}))D$prefix$cmd" >&2
