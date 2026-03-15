@@ -1388,6 +1388,12 @@ git() {
                 run pull origin "$(git_branch_name)"
             elif [[ "$op" == commit ]]; then
                 run commit "$files"
+                if [[ $? -eq 0 ]]; then
+                    IFS=$'\n' read -d '' __GIT_STAT__ git_color __GIT_CHANGES__ < <(git_status)
+                    echo -ne "$NSH_PROMPT Do you want to push to \e[${git_color};7m$__GIT_STAT__\e[0m? (Y/n) "
+                    get_key KEY; echo "$KEY"
+                    [[ Yy == *$KEY* ]] && run push origin "$(git_branch_name)"
+                fi
             elif [[ "$op" == push ]]; then
                 run push origin "$(git_branch_name)" -f
             elif [[ "$op" == revert ]]; then
