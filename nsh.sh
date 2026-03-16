@@ -1469,10 +1469,10 @@ git() {
                         elif [[ "$line" == Browse ]]; then
                             local path=
                             selfn() {
-                                [[ $1 == 0 ]] && return 1 || return 0
+                                [[ "$2" == '..' || "$2" == '../' ]] && return 1 || return 0
                             }
                             color_slash() {
-                                [[ "$1" == */ ]] && echo "$NSH_COLOR_DIR$1"
+                                [[ "$1" == */ ]] && echo "$NSH_COLOR_DIR"
                             }
                             sort_git_show() {
                                 local line dirs=() files=()
@@ -1488,7 +1488,9 @@ git() {
                             }
                             while true; do
                                 echo "$NSH_PROMPT ${path:-$'\b'} on $branch"
-                                local p="$(command git show --color=always "$branch:$path" | tail -n +2 | sort_git_show | menu -c 1 --color-func color_slash --can-select selfn --key H 'echo ..')"
+                                local content p
+                                readarray -t content < <(command git show --color=always "$branch:$path" | tail -n +2 | sort_git_show)
+                                p="$(menu --color-func color_slash --can-select selfn --key H 'echo ..' "${content[@]}")"
                                 [[ -z $p ]] && break
                                 p="$(strip_escape "$p")"
                                 if [[ "$p" == .. ]]; then
@@ -1499,15 +1501,15 @@ git() {
                                     echo -ne '\e[A\r\e[J'
                                 else
                                     local name="$path${p#////}"
-                                    op="$(menu "Checkout $name" "Diff $name" "Copy $name")"
+                                    op="$(menu --color-func paint_cyan "Checkout $name" "Diff $name" "Copy $name")"
                                     if [[ "$op" == Checkout* ]]; then
                                         run checkout "$branch" -- "$name"
                                     elif [[ "$op" == Diff* ]]; then
                                         run diff "$(git_branch_name)" "$branch" "$name"
                                     elif [[ "$op" == Copy* ]]; then
-                                        local new_name="$(generate_new_filename "$name")"
+                                        local new_name="$(generate_new_filename "${name##*/}")"
                                         echo -e "\e[A$NSH_PROMPT $branch:$name --> $new_name\e[J"
-                                        command git show "$branch:$name" > "$(generate_new_filename "$new_name")"
+                                        command git show "$branch:$name" > "$new_name"
                                     else
                                         echo -ne '\e[A\r\e[J'
                                     fi
