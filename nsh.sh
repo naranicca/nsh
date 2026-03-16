@@ -315,7 +315,7 @@ menu() {
         shift
     done
     if [[ $(pipe_context) == \>* ]]; then
-        while IFS= read -t $__eps_get_key__ line; do
+        while IFS= read -r -t $__eps_get_key__ line; do
             [[ -n $line ]] && list+=("$line")
         done
         if [[ -z "$line" ]]; then
@@ -1400,11 +1400,13 @@ git() {
                 run checkout -- "$files"
             elif [[ "$op" == stage ]]; then
                 run add "$files"
+                files=
             elif [[ "$op" == log ]]; then
                 p= && [[ $__WRAP_OPTION_SUPPORTED__ -ne 0 ]] && p='--color=always'
                 while true; do
-                    line="$(eval "command git log $p --decorate --oneline $files" | menu --raw -c 1 | strip_escape)"
+                    line="$(eval "command git log $p --graph --decorate --oneline $files" | menu --raw -c 1 | strip_escape)"
                     if [[ -n "$line" ]]; then
+                        line="$(sed 's/^[^0-9a-zA-Z]*//' <<< "$line")"
                         hash="${line%% *}"
                         hash="$(sed 's/^[^0-9^a-z^A-Z]*//' <<< "$line")" && hash="${hash%% *}"
                         command git log --color=always -n 1 --stat "$hash"
@@ -1431,8 +1433,11 @@ git() {
                         elif [[ "$op" == Edit* ]]; then
                             hash="$(command git log --oneline | grep -n "$hash")" && hash="${hash%%:*}"
                             run rebase -i "@~$hash"
+                        else
+                            echo "$(nsh_print_prompt)git log"
                         fi
                     else
+                        echo "$(nsh_print_prompt)git"
                         break
                     fi
                 done
