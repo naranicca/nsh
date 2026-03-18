@@ -1433,6 +1433,11 @@ git() {
                         elif [[ "$op" == Edit* ]]; then
                             hash="$(command git log --oneline | grep -n "$hash")" && hash="${hash%%:*}"
                             run rebase -i "@~$hash"
+                            if [[ $? -eq 0 ]]; then
+                                echo -ne "$NSH_PROMPT Do you want to push the changes to \e[${git_color};7m$__GIT_STAT__\e[0m? (Y/n) "
+                                get_key KEY; echo "$KEY"
+                                [[ Yy == *$KEY* ]] && run push origin "$(git_branch_name)"
+                            fi
                         else
                             echo "$(nsh_print_prompt)git log"
                         fi
