@@ -2019,7 +2019,7 @@ read_command() {
                 cur=${#cmd}
                 iword=$cur
                 ichunk=$cur
-                echo -ne "\e[A\e[$((${#prefix}+${#cmd}))D$prefix$cmd\e[J" >&2
+                echo -n $'\e[A\e['$((${#prefix}+${#cmd}))D$prefix$cmd$'\e[J' >&2
                 ;;
             $'\e[B') # down
                 local d="$(menu -c 1 --raw "${bookmarks[@]/:/ $NSH_COLOR_DIR}")"
@@ -2151,7 +2151,6 @@ nsh_main_loop() {
                         ;;
                     System)
                         nsh system
-                        echo
                         ;;
                     Config)
                         config
@@ -2215,6 +2214,7 @@ nsh_main_loop() {
                 local list size dirs=() files=() sizes=()
                 local str bs x=0 y=0 c0 c1 c2 cps cmd pid
                 local t=10 i
+                open_screen
                 hide_cursor
                 disable_line_wrapping
                 ps aux --sort=-%cpu &>/dev/null && pscmd='ps aux --sort=-%cpu'
@@ -2316,6 +2316,7 @@ nsh_main_loop() {
                 done
                 show_cursor
                 enable_line_wrapping
+                close_screen
                 ;;
         esac
     }
