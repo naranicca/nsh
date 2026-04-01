@@ -124,6 +124,22 @@ close_screen() {
     printf '\e[?1049l' # restore main screen buffer
 }
 
+nls() {
+    local line dirs=() files=()
+    while read line; do
+        if [[ -d "$line" ]]; then
+            [[ $# -gt 0 ]] && line="${line/#$HOME\//\~\/}"
+            dirs+=("$line/")
+        else
+            [[ $# -gt 0 ]] && line="${line/#$HOME\//\~\/}"
+            files+=("$line")
+        fi
+    done < <(eval command ls -d "${1:-*}" 2>/dev/null | sort --ignore-case --version-sort)
+    [[ ${#dirs[@]} -gt 0 ]] && printf '%s\n' "${dirs[@]}"
+    [[ ${#files[@]} -gt 0 ]] && printf '%s\n' "${files[@]}"
+    return 0
+}
+
 # since alias doesn't work in the script, define a function with the same name
 (return 0 2>/dev/null) || alias() {
     local l="$@"
@@ -1147,15 +1163,8 @@ disk() {
     local stat_param='--printf=%s'
     stat "$stat_param" . &>/dev/null || stat_param='-f%z'
 
-    local line dirs=() files=() ret
-    while read line; do
-        if [[ -d "$line" ]]; then
-            dirs+=("$line/")
-        elif [[ -f "$line" ]]; then
-            files+=("$line")
-        fi
-    done < <(command ls -d * 2>/dev/null | sort --ignore-case --version-sort)
-    list=("${dirs[@]}" "${files[@]}")
+    local list ret
+    readarray -t list < <(nls)
 
     ret="$(for line in "${list[@]}"; do
         if [[ -d "$line" ]]; then
@@ -1959,15 +1968,7 @@ read_command() {
                         local p='-p' && [[ "$chunk" == */ ]] && p=  # to avoid //
                         local pattern= && [[ $ichunk -gt $iword ]] && pattern="\"${pre:$iword:$((ichunk-iword))}\"" && [[ "$pattern" == '"~/'* ]] && pattern="~/\"${pattern#???}"
                         pattern="$pattern$(fuzzy_word "${chunk:-*}")"
-                        local dirs=() files=()
-                        while read line; do
-                            if [[ -d "$line" ]]; then
-                                dirs+=("$line/")
-                            else
-                                files+=("$line")
-                            fi
-                        done < <(eval command ls -d "$pattern" 2>/dev/null | sed "s@^$HOME/@~/@" | sort --ignore-case --version-sort)
-                        cand="$(printf '%s\n' "${dirs[@]}"; printf '%s\n' "${files[@]}")"
+                        cand="$(nls "$pattern")"
                         if [[ "$cand" == *$'\n'* || $used_menu -ne 0 ]]; then
                             echo >&2
                             IFS=$'\n' read -d '' -a cand < <(echo -e "$cand" | menu --color-func put_filecolor --can-select select_file --key '.' 'echo "%&\$#!@"' --key $'\t' 'echo "$1"' --key $'\n' 'echo "////done////$1"')
@@ -2222,21 +2223,14 @@ nsh_main_loop() {
                 local cpu mem cpu_activ_prev cpu_activ_cur cpu_total_prev cpu_total_cur
                 local user nice system idle iowait irq softirq steal guest
                 local line filesystem disk disk_size disk_used disk_avail disk_updated=0
-                local list size dirs=() files=() sizes=()
+                local list size files=() sizes=()
                 local str bs x=0 y=0 c0 c1 c2 cps cmd pid
                 local t=10 i
                 open_screen
                 hide_cursor
                 disable_line_wrapping
                 ps aux --sort=-%cpu &>/dev/null && pscmd='ps aux --sort=-%cpu'
-                while read line; do
-                    if [[ -d "$line" ]]; then
-                        dirs+=("$line/")
-                    elif [[ -f "$line" ]]; then
-                        files+=("$line")
-                    fi
-                done < <(command ls -d * 2>/dev/null | sort --ignore-case --version-sort)
-                files=("${dirs[@]}" "${files[@]}")
+                readarray -t files < <(nls)
                 while true; do
                     if [[ $y -eq 0 ]]; then
                         # cpu usage
