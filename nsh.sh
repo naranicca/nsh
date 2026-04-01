@@ -907,6 +907,7 @@ cpmv() {
 
 ncp() {
     local op='command cp'
+    local src
     local dst= && for dst in "$@"; do :; done
     local overwrite_all=no
     local skip_all=no
@@ -917,6 +918,7 @@ ncp() {
     local LINE ans
     set +m
     [[ $1 == --overwrite ]] && overwrite_all=yes && shift
+    [[ $# -lt 2 ]] && return 255
     local STAT_FSIZE_PARAM='--printf=%s'
     stat "$STAT_FSIZE_PARAM" . &>/dev/null || STAT_FSIZE_PARAM='-f%z'
     __worker() {
@@ -960,11 +962,18 @@ ncp() {
     }
     while [ $# -gt 1 ]; do
         [[ -z "$1" ]] && shift && continue
+        src="$(sed 's:/*$::' <<< "$1")"
         if [[ -e "$1" ]]; then
-            if [[ -h "$1" ]]; then
-                eval "$op \"$1\" \"$dst\""
+            if [[ -h "$src" ]]; then
+                local target="$(readlink -f "$src")"
+                if [[ -d "$dst" ]]; then
+                    (cd "$dst" && ln -s "$target" "${src##*/}")
+                else
+                    (cd "${dst%/*}" && ln -s "$target" "${dst##*/}")
+                fi
+                [[ $op == *mv ]] && unlink "$src"
             elif [[ -d "$1" ]]; then
-                local src="$(command cd "$1"; pwd -P)"
+                src="$(command cd "$1"; pwd -P)"
                 local b="${src##*/}"
                 local tmp="${1%/}" && tmp="$dst/${tmp##*/}"
                 if [[ -d "$tmp" && $op == *cp ]]; then
@@ -1950,7 +1959,15 @@ read_command() {
                         local p='-p' && [[ "$chunk" == */ ]] && p=  # to avoid //
                         local pattern= && [[ $ichunk -gt $iword ]] && pattern="\"${pre:$iword:$((ichunk-iword))}\"" && [[ "$pattern" == '"~/'* ]] && pattern="~/\"${pattern#???}"
                         pattern="$pattern$(fuzzy_word "${chunk:-*}")"
-                        cand="$(eval command ls $p -d "$pattern" 2>/dev/null | sed "s@^$HOME/@~/@" | sort --ignore-case --version-sort)"
+                        local dirs=() files=()
+                        while read line; do
+                            if [[ -d "$line" ]]; then
+                                dirs+=("$line/")
+                            else
+                                files+=("$line")
+                            fi
+                        done < <(eval command ls -d "$pattern" 2>/dev/null | sed "s@^$HOME/@~/@" | sort --ignore-case --version-sort)
+                        cand="$(printf '%s\n' "${dirs[@]}"; printf '%s\n' "${files[@]}")"
                         if [[ "$cand" == *$'\n'* || $used_menu -ne 0 ]]; then
                             echo >&2
                             IFS=$'\n' read -d '' -a cand < <(echo -e "$cand" | menu --color-func put_filecolor --can-select select_file --key '.' 'echo "%&\$#!@"' --key $'\t' 'echo "$1"' --key $'\n' 'echo "////done////$1"')
@@ -1974,7 +1991,7 @@ read_command() {
                                 cur=${#pre}
                                 ichunk=$cur
                                 [[ $enter -ne 0 ]] && NEXT_KEY=$'\n' && break
-                                [[ -f "$cand" ]] && NEXT_KEY=\  && break
+                                [[ ! -d "${cand/#\~/$HOME}" ]] && NEXT_KEY=\  && break
                             else
                                 break
                             fi
@@ -2420,11 +2437,15 @@ nsh_main_loop() {
         trap - INT
     }
     trash() {
-        [[ -n "$(ls -A "$trash_path" 2>/dev/null)" ]] && rm -rf "$trash_path"
-        mkdir -p "$trash_path"
-        mv "$@" "$trash_path" 2>/dev/null
-        IFS=$'\n' read -d '' -a register < <(ls -d "$trash_path"/*)
-        register_op=nmv
+        if [[ $# -eq 0 ]]; then
+            [[ -d "$trash_path" ]] && ls -Al -F --color=always "$trash_path"
+        else
+            [[ -n "$(ls -A "$trash_path" 2>/dev/null)" ]] && rm -rf "$trash_path"
+            mkdir -p "$trash_path"
+            nmv "$@" "$trash_path" 2>/dev/null
+            IFS=$'\n' read -d '' -a register < <(ls -d "$trash_path"/*)
+            register_op=nmv
+        fi
     }
     __EXPLORER_RET__=
     explorer() {
