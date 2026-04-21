@@ -331,13 +331,17 @@ menu() {
         shift
     done
     if [[ $(pipe_context) == \>* ]]; then
-        while IFS= read -r -t $__eps_get_key__ line; do
-            [[ -n $line ]] && list+=("$line")
+        while IFS= read -r -t 1 line || [[ ${#list[@]} -eq 0 ]]; do
+            if [[ -n $line ]]; then
+                list+=("$line")
+            else
+                get_key -t $__eps_get_key__ KEY </dev/tty
+                [[ $KEY == $'\e' || $KEY == q ]] && return 0
+            fi
         done
         if [[ -z "$line" ]]; then
             max_cols=1
             polling=1
-            [[ ${#list[@]} -eq 0 ]] && list+=("...") && polling=2
         fi
     fi
     list_size=${#list[@]}
@@ -649,7 +653,6 @@ menu() {
         if [[ $polling -ne 0 && -z $NEXT_KEY ]]; then
             IFS= read -t $__eps_get_key__ line
             if [[ $? -eq 0 ]]; then
-                [[ $polling -eq 2 ]] && list=() && disp=() && colors=() && markers=() && polling=1
                 i="${#list[@]}"
                 [[ -n $line ]] && list+=("$line")
                 [[ -n $color_func ]] && colors[$i]="$($color_func "$line" "$i")"
@@ -871,7 +874,7 @@ menu() {
     enable_line_wrapping >&2
 }
 
-yes_or_no() {
+confirm() {
     echo -ne "$NSH_PROMPT $1 (Y/n) " >&2
     get_key KEY
     echo -ne '\r\e[K' >&2
@@ -1416,7 +1419,7 @@ git() {
                 run commit "$files"
                 if [[ $? -eq 0 ]]; then
                     IFS=$'\n' read -d '' __GIT_STAT__ git_color __GIT_CHANGES__ < <(git_status)
-                    yes_or_no "Do you want to push to \e[${git_color};7m$__GIT_STAT__\e[0m?" && run push origin "$(git_branch_name)"
+                    confirm "Do you want to push to \e[${git_color};7m$__GIT_STAT__\e[0m?" && run push origin "$(git_branch_name)" && files=
                 fi
             elif [[ "$op" == push ]]; then
                 run push origin "$(git_branch_name)" -f
@@ -1441,12 +1444,12 @@ git() {
                             run checkout "$hash"
                             break
                         elif [[ "$op" == Roll\ back\ to* ]]; then
-                            if yes_or_no "You will lose the commits. Continue?"; then
+                            if confirm "You will lose the commits. Continue?"; then
                                 run reset --hard "$hash"
                                 break
                             fi
                         elif [[ "$op" == Roll\ back\ * ]]; then
-                            if yes_or_no "Roll back to this commit? You can cancel rollback by run "git restore FILE" and git pull"; then
+                            if confirm "Roll back to this commit? You can cancel rollback by run "git restore FILE" and git pull"; then
                                 run reset --soft $hash && run restore --staged .
                                 break
                             fi
@@ -1454,7 +1457,7 @@ git() {
                             hash="$(command git log --oneline | grep -n "$hash")" && hash="${hash%%:*}"
                             run rebase -i "@~$hash"
                             if [[ $? -eq 0 ]]; then
-                                yes_or_no "Do you want to push the changes to \e[${git_color};7m$__GIT_STAT__\e[0m?" && run push origin "$(git_branch_name)"
+                                confirm "Do you want to push the changes to \e[${git_color};7m$__GIT_STAT__\e[0m?" && run push origin "$(git_branch_name)"
                             fi
                         else
                             echo "$(nsh_print_prompt)git log"
@@ -1487,10 +1490,10 @@ git() {
                     elif [[ -n "$branch" ]]; then
                         line="$(menu Checkout Merge Browse Delete --color-func paint_cyan --no-footer)"
                         if [[ "$line" == Checkout ]]; then
-                            yes_or_no "Checkout $branch?" && run checkout "${branch#origin\/}"
+                            confirm "Checkout $branch?" && run checkout "${branch#origin\/}"
                             break
                         elif [[ "$line" == Merge ]]; then
-                            yes_or_no "Merge $branch. Continue?" && run merge "${branch#origin\/}"
+                            confirm "Merge $branch. Continue?" && run merge "${branch#origin\/}"
                             break
                         elif [[ "$line" == Browse ]]; then
                             local path=
@@ -1544,9 +1547,9 @@ git() {
                             echo -ne '\e[A\r\e[J'
                         elif [[ "$line" == Delete ]]; then
                             if [[ "$branch" == origin\/* ]]; then
-                                yes_or_no "\e[31m${branch#*/} branch will be deleted from repository. Continue?" && run push origin --delete "${branch#*/}"
+                                confirm "\e[31m${branch#*/} branch will be deleted from repository. Continue?" && run push origin --delete "${branch#*/}"
                             else
-                                yes_or_no "${branch#*/} will be deleted from the disk. Continue?" && run branch -D "$branch"
+                                confirm "${branch#*/} will be deleted from the disk. Continue?" && run branch -D "$branch"
                             fi
                         fi
                     else
@@ -2309,7 +2312,7 @@ nsh_main_loop() {
                             i=$(search_pid_from_header ${list[0]})
                             line=(`echo ${list[$y]}`)
                             pid=${line[$i]}
-                            if yes_or_no "Kill process $pid?"; then
+                            if confirm "Kill process $pid?"; then
                                 kill -9 $pid || break
                             fi
                             echo -ne '\r\e[J\e[A'
@@ -2751,7 +2754,7 @@ nsh_main_loop() {
                     elif [[ $op == Git:\ diff* ]]; then
                         echo -e "\e[A\r$(nsh_print_prompt)git diff $name\e[J"
                         git diff "$name"
-                        git -- "$name"
+                        git '--' "$name"
                         echo
                     elif [[ $op == Git:\ add* || $op == Git:\ stage* ]]; then
                         echo -e "\e[A\r$(nsh_print_prompt)git add $name\e[J"
@@ -2760,10 +2763,10 @@ nsh_main_loop() {
                         echo -e "\e[A\r$(nsh_print_prompt)git commit $name\e[J"
                         git commit "$name"
                     elif [[ $op == Git:\ revert* ]]; then
-                        yes_or_no "Revert changes in $name?" && git checkout -- "$name"
+                        confirm "Revert changes in $name?" && git checkout -- "$name"
                     elif [[ $op == Git\.\.\. ]]; then
                         echo -e "\e[A\r$(nsh_print_prompt)git\e[J"
-                        git -- "$name"
+                        git '--' "$name"
                         echo
                     else
                         ret=
