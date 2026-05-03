@@ -397,6 +397,7 @@ menu() {
         # too many items to calculate the width of each item
         cols=1
     fi
+    [[ $cols -eq 1 && -z $fn_footer && $list_size -lt $max_rows ]] && max_rows=$((max_rows-1)) && avail_rows=$((avail_rows-1))
     local num_max_items_displayed=$((max_rows*cols))
     if [[ $num_max_items_displayed -lt $list_size ]]; then
         # need scrolling
@@ -1948,6 +1949,18 @@ read_command() {
                         cur="${#pre}"
                         iword="$cur"
                         ichunk="$cur"
+                    fi
+                elif [[ $iword == $ichunk && "${pre:$iword}" == \' ]]; then
+                    cand="$(menu -c 1 "${bookmarks[@]#*:}" --color-func put_filecolor)"
+                    if [[ -n "$cand" ]]; then
+                        echo -ne "\b$cand\e[K" >&2
+                        pre="${pre%\'}$cand"
+                        cmd="$pre$post"
+                        cur="${#pre}"
+                        ichunk="$cur"
+                        word="${pre:$iword}"
+                        chunk=
+                        NEXT_KEY=$'\t'
                     fi
                 elif [[ $tmp != *\ * && "$tmp" != './'* && "$tmp" != '../'* && "$tmp" != /* ]]; then
                     cand=(`compgen -c "$tmp" 2>/dev/null | uniq`)
