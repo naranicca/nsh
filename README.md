@@ -68,6 +68,7 @@ The action keys (everything below the navigation block) are remappable in
 | `R` | rename |
 | `m` / `N` | new folder / new file |
 | `D` | delete (asks to confirm) |
+| `b` | bookmarks — add/remove this directory, or jump to a saved one |
 | `/` | fuzzy-find a file |
 | `:` | switch to command-line mode |
 | `P` | toggle the preview pane |
@@ -119,6 +120,8 @@ quit   = q
 
 `[colors]` overrides any UI style class; `[keys]` remaps the explorer action keys.
 Invalid entries are ignored, never fatal.
+
+Bookmarks (the `b` key) are saved one path per line in `~/.config/nsh/bookmarks`.
 
 ## Architecture
 

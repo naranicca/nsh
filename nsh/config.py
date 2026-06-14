@@ -12,7 +12,9 @@ from prompt_toolkit.styles import Style
 STYLE_DEFAULTS = {
         # chrome
         "titlebar": "bg:#303030 #d0d0d0",
-        "titlebar.mode": "bg:#5f87af #ffffff bold",
+        # the "nsh" label: blends with the bar normally, lights up (menu.title)
+        # while a popup menu is open
+        "titlebar.name": "bg:#303030 #ffffff bold",
         "titlebar.path": "bg:#303030 #87d7ff bold",
         "titlebar.branch": "bg:#303030 #87ff87 bold",
         "titlebar.sel": "bg:#303030 #ffff5f bold",
@@ -91,6 +93,7 @@ DEFAULT_KEYS = {
     "rename": "R",
     "new_dir": "m",
     "new_file": "N",
+    "bookmark": "b",
     "find": "/",
     "command": ":",
     "preview": "P",
@@ -157,7 +160,7 @@ DEFAULT_NSHRC = """\
 # explorer.dir = #5fafff bold
 # explorer.selected = #ffff5f bold
 # explorer.image = #ff5fff
-# titlebar.mode = bg:#5f87af #ffffff bold
+# titlebar.name = bg:#303030 #ffffff bold
 # titlebar.clock = bg:#303030 #d0d0d0 bold
 # shell.command = #5fafff bold
 # shell.string = #ffff87
@@ -173,6 +176,7 @@ DEFAULT_NSHRC = """\
 # rename = R
 # new_dir = m
 # new_file = N
+# bookmark = b
 # find = /
 # command = :
 # preview = P

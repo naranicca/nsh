@@ -33,6 +33,7 @@ from .explorer.view import ExplorerView
 from .search.view import SearchView
 from .shell.runner import CommandRunner
 from .shell.view import ShellView
+from .util.bookmarks import Bookmarks
 from .util.menu import Menu
 from .util.paths import shorten_home
 from .util.width import text_width
@@ -88,6 +89,7 @@ class NshApp:
 
         # popup action menu (Tab in the explorer)
         self.menu = Menu(self._menu_closed)
+        self.bookmarks = Bookmarks()
 
         self.application = self._build_application()
 
@@ -261,7 +263,9 @@ class NshApp:
                 ),
                 Float(top=2, left=4, right=4, content=prompt_overlay),
                 Float(top=2, left=4, right=4, content=confirm_overlay),
-                Float(top=2, left=4, content=self.menu.container),
+                # row 1 = directly under the title bar (row 0); left=1 aligns the
+                # menu with the "nsh" label
+                Float(top=1, left=1, content=self.menu.container),
             ],
         )
 
@@ -311,8 +315,11 @@ class NshApp:
         return left + right
 
     def _title_text(self):
+        # the "nsh" label adopts the menu's header colour while a menu is open,
+        # so it's obvious a popup is active; otherwise it blends into the bar.
+        name_style = "class:menu.title" if self.menu.active else "class:titlebar.name"
         segs = [
-            ("class:titlebar.mode", f" {self.mode.upper()} "),
+            (name_style, " nsh "),
             ("class:titlebar", " "),
             ("class:titlebar.path", shorten_home(self.cwd)),
         ]
@@ -329,7 +336,8 @@ class NshApp:
         if self.mode == EXPLORER:
             hints = [
                 ("↑↓", "move"), ("↵", "open"), ("Space", "select"),
-                ("Tab", "actions"), ("/", "find"), (":", "cmd"), ("q", "quit"),
+                ("Tab", "actions"), ("b", "marks"), ("/", "find"),
+                (":", "cmd"), ("q", "quit"),
             ]
         elif self.mode == SEARCH:
             hints = [
@@ -568,6 +576,22 @@ class NshApp:
     def _menu_closed(self):
         self._restore_focus()
         self.invalidate()
+
+    # -- bookmarks ------------------------------------------------------------
+    def open_bookmark_menu(self):
+        cwd = str(self.cwd)
+        bookmarked = self.bookmarks.contains(cwd)
+        items = [
+            ("✓ Remove this directory" if bookmarked else "★ Bookmark this directory",
+             self._toggle_bookmark),
+        ]
+        for p in self.bookmarks.list():
+            items.append((f"  {shorten_home(p)}", lambda p=p: self.set_cwd(p)))
+        self.open_menu("Bookmarks", items)
+
+    def _toggle_bookmark(self):
+        added = self.bookmarks.toggle(str(self.cwd))
+        self.set_message("bookmarked" if added else "bookmark removed")
 
     # -- misc -----------------------------------------------------------------
     def set_message(self, message):

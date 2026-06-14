@@ -444,6 +444,7 @@ class ExplorerView:
             "new_file": self.new_file,
             "select": self.toggle_select,
             "menu": self.open_command_menu,
+            "bookmark": lambda: self.app.open_bookmark_menu(),
             "find": lambda: self.app.enter_search(),
             "command": lambda: self.app.switch_mode("shell"),
             "preview": lambda: self.app.toggle_preview(),
