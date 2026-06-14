@@ -133,10 +133,14 @@ class ExplorerView:
         # sel(2) + marker(2) + icon(2) + gap(1) + size
         name_w = max(4, cols - 7 - SIZE_COL)
         gs = self.app.git_status
+        # hide the cursor-row highlight while the shell has focus: the listing
+        # is still shown on top of the shell, but the active "cursor" is the
+        # command line, so highlighting an explorer row would be misleading.
+        cursor_shown = self.app.mode != "shell"
         result = []
         last = len(self.entries) - 1
         for i, e in enumerate(self.entries):
-            on = i == self.cursor
+            on = cursor_shown and (i == self.cursor)
             sel = e.path in self.selected
             code = gs.files.get(norm(e.path)) if (gs and gs.is_repo) else None
             marker = config.GIT_SYMBOL.get(code, " ")
