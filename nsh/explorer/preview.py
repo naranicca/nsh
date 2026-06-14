@@ -14,6 +14,7 @@ from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.layout.dimension import Dimension
 
 from .. import config
+from ..util.aio import run_in_thread
 from ..util.paths import human_size, norm
 from . import model
 
@@ -112,7 +113,7 @@ class PreviewView:
 
     async def _load(self, entry, key):
         try:
-            frags = await asyncio.to_thread(self._build, entry)
+            frags = await run_in_thread(self._build, entry)
         except Exception as exc:  # noqa: BLE001 - shown in the pane
             frags = [("class:preview.dim", f" preview error: {exc}")]
         self._cache[key] = frags

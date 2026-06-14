@@ -12,6 +12,7 @@ from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout.containers import HSplit, VSplit, Window
 from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
 
+from ..util.aio import run_in_thread
 from . import fuzzy
 
 
@@ -70,7 +71,7 @@ class SearchView:
         asyncio.ensure_future(self._index())
 
     async def _index(self):
-        items = await asyncio.to_thread(
+        items = await run_in_thread(
             fuzzy.gather, self.app.cwd, self.app.explorer.show_hidden
         )
         self.candidates = items

@@ -1,16 +1,17 @@
 """File operations: copy / move / delete / rename / mkdir / touch.
 
 Potentially slow operations (copy, move, delete of large trees) run in a worker
-thread via :func:`asyncio.to_thread` so the UI event loop stays responsive;
-callers ``await`` them and refresh the listing afterwards. The cheap metadata
-operations (rename, mkdir, touch) run inline.
+thread via :func:`run_in_thread` so the UI event loop stays responsive; callers
+``await`` them and refresh the listing afterwards. The cheap metadata operations
+(rename, mkdir, touch) run inline.
 
 Nothing here ever clobbers an existing path: paste targets are de-duplicated by
 :func:`unique_target`, and rename/mkdir/touch refuse to overwrite.
 """
-import asyncio
 import shutil
 from pathlib import Path
+
+from ..util.aio import run_in_thread
 
 
 def unique_target(dst_dir, name: str) -> Path:
@@ -49,7 +50,7 @@ async def copy(src, dst_dir) -> Path:
         else:
             shutil.copy2(src, target, follow_symlinks=False)
 
-    await asyncio.to_thread(_do)
+    await run_in_thread(_do)
     return target
 
 
@@ -58,7 +59,7 @@ async def move(src, dst_dir) -> Path:
     src = Path(src)
     target = unique_target(dst_dir, src.name)
     _ensure_not_into_self(src, target)
-    await asyncio.to_thread(shutil.move, str(src), str(target))
+    await run_in_thread(shutil.move, str(src), str(target))
     return target
 
 
@@ -72,7 +73,7 @@ async def delete(path) -> None:
         else:
             path.unlink()
 
-    await asyncio.to_thread(_do)
+    await run_in_thread(_do)
 
 
 def rename(path, new_name: str) -> Path:
