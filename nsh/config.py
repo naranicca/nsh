@@ -154,14 +154,27 @@ def entry_icon(entry) -> str:
 
 
 # -- user configuration (~/.config/nsh/nshrc) --------------------------------
+# Default settings (overridable by nshrc's [general] section).
+DEFAULT_SETTINGS = {
+    # editor for the "Edit" action; empty -> $EDITOR/$VISUAL, then a platform default
+    "editor": "",
+}
+
 DEFAULT_NSHRC = """\
 # nsh configuration file.
 #
+# [general] sets miscellaneous options (see below).
 # [colors] overrides any UI style; values use prompt_toolkit syntax, e.g.
 #   "#ff8700 bold", "bg:#1c1c1c #ffffff", "italic underline".
 # [keys] remaps an explorer action to a key. A key is a single character, or a
 #   name: space, tab, escape, enter, f1..f12, or a modifier form like c-r
 #   (Ctrl-R) or s-tab (Shift-Tab). Navigation keys (arrows, j/k, …) are fixed.
+
+[general]
+# editor used by the "Edit" action (Tab menu). When unset, nsh falls back to
+# $EDITOR / $VISUAL, then to notepad (Windows) or vi (Linux/macOS).
+# editor = code -w
+# editor = vim
 
 [colors]
 # explorer.dir = #5fafff bold
@@ -222,22 +235,26 @@ def _norm_key(value: str) -> str:
 
 
 def load_user_config():
-    """Return ``(color_overrides, key_overrides, warning)`` from nshrc."""
-    colors, keys = {}, {}
+    """Return ``(color_overrides, key_overrides, settings, warning)`` from nshrc."""
+    colors, keys, settings = {}, {}, dict(DEFAULT_SETTINGS)
     try:
         path = config_path()
     except RuntimeError:  # no home directory
-        return colors, keys, None
+        return colors, keys, settings, None
     if not path.exists():
-        return colors, keys, None
+        return colors, keys, settings, None
     parser = configparser.ConfigParser(interpolation=None)
     parser.optionxform = str  # preserve case (style classes, key values)
     try:
         parser.read(path, encoding="utf-8")
     except (configparser.Error, OSError):
-        return colors, keys, f"nshrc not loaded (not valid INI): {path} - using defaults"
+        return colors, keys, settings, f"nshrc not loaded (not valid INI): {path} - using defaults"
     if parser.has_section("colors"):
         colors = {k.strip(): v.strip() for k, v in parser.items("colors")}
     if parser.has_section("keys"):
         keys = {k.strip(): _norm_key(v) for k, v in parser.items("keys") if v.strip()}
-    return colors, keys, None
+    if parser.has_section("general"):
+        for k, v in parser.items("general"):
+            if k.strip() in settings:
+                settings[k.strip()] = v.strip()
+    return colors, keys, settings, None

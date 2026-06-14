@@ -54,9 +54,10 @@ class NshApp:
 
         # user configuration (~/.config/nsh/nshrc): colours + explorer keys
         config.ensure_default_config()
-        color_overrides, key_overrides, cfg_warning = config.load_user_config()
+        color_overrides, key_overrides, settings, cfg_warning = config.load_user_config()
         self.keys = {**config.DEFAULT_KEYS, **key_overrides}
         self.style = config.build_style(color_overrides)
+        self.settings = settings
         self.message = cfg_warning or ""
 
         # search-mode startup / result plumbing
@@ -412,6 +413,17 @@ class NshApp:
         except Exception as exc:  # noqa: BLE001 - surfaced to the user
             self.shell.append(f"nsh: {exc}", "class:shell.error")
         self.invalidate()
+
+    def edit_file(self, path):
+        """Open ``path`` in a text editor.
+
+        Precedence: the nshrc ``[general] editor`` setting, then $EDITOR /
+        $VISUAL, then a platform default (notepad on Windows, vi elsewhere).
+        """
+        editor = (self.settings.get("editor") or os.environ.get("EDITOR")
+                  or os.environ.get("VISUAL")
+                  or ("notepad" if os.name == "nt" else "vi"))
+        asyncio.ensure_future(self.runner.run_in_term(f'{editor} "{path}"'))
 
     def open_file(self, path):
         editor = os.environ.get("EDITOR") or os.environ.get("VISUAL")

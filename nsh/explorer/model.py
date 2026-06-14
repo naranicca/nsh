@@ -32,6 +32,30 @@ def _is_exec(dir_entry, name: str) -> bool:
         return False
 
 
+def is_text_file(path, probe: int = 4096) -> bool:
+    """Best-effort guess of whether ``path`` is an editable text file.
+
+    Reads a small head: a NUL byte means binary, otherwise we try the same
+    encodings the preview pane uses. Empty files count as text (editable).
+    """
+    try:
+        with open(path, "rb") as f:
+            chunk = f.read(probe)
+    except OSError:
+        return False
+    if not chunk:
+        return True
+    if b"\x00" in chunk:
+        return False
+    for enc in ("utf-8", "cp949", "latin-1"):
+        try:
+            chunk.decode(enc)
+            return True
+        except UnicodeDecodeError:
+            continue
+    return False
+
+
 def list_dir(path, show_hidden: bool = False):
     """Return a sorted list of :class:`Entry` for ``path`` (dirs first)."""
     entries = []

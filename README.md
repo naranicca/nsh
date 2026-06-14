@@ -105,6 +105,10 @@ On first run nsh seeds a commented template at `~/.config/nsh/nshrc`
 (`$XDG_CONFIG_HOME` is honoured). It is a simple INI file:
 
 ```ini
+[general]
+# editor for the "Edit" action; unset -> $EDITOR/$VISUAL, then notepad/vi
+editor = code -w
+
 [colors]
 # <style-class> = <prompt_toolkit style>
 explorer.dir      = #5fafff bold
@@ -119,7 +123,8 @@ menu   = tab
 quit   = q
 ```
 
-`[colors]` overrides any UI style class; `[keys]` remaps the explorer action keys.
+`[general]` sets the **Edit** editor (Tab menu, text files only); `[colors]`
+overrides any UI style class; `[keys]` remaps the explorer action keys.
 Invalid entries are ignored, never fatal.
 
 Bookmarks (the `b` key) are saved one path per line in `~/.config/nsh/bookmarks`.

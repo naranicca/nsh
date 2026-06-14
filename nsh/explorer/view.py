@@ -343,13 +343,26 @@ class ExplorerView:
         except Exception as exc:  # noqa: BLE001
             self.app.set_message(f"touch failed: {exc}")
 
+    def edit_entry(self):
+        entry = self.current()
+        if entry is None or entry.is_dir:
+            return
+        self.app.edit_file(entry.path)
+
     # -- action menu (Tab) ----------------------------------------------------
     def open_command_menu(self):
         if not self.selected and self.current() is None:
             return
         target = (f"{len(self.selected)} selected" if self.selected
                   else self.current().name)
-        items = [
+        cur = self.current()
+        items = []
+        # "Edit" only for a single text file under the cursor (not a directory,
+        # image, or binary), and not while multi-selecting.
+        if (not self.selected and cur is not None and not cur.is_dir
+                and not cur.is_image and model.is_text_file(cur.path)):
+            items.append(("Edit", self.edit_entry))
+        items += [
             ("Copy", self.copy_entry),
             ("Cut", self.cut_entry),
         ]
