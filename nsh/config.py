@@ -222,8 +222,8 @@ def load_user_config():
     parser.optionxform = str  # preserve case (style classes, key values)
     try:
         parser.read(path, encoding="utf-8")
-    except (configparser.Error, OSError) as exc:
-        return colors, keys, f"nshrc: {exc}"
+    except (configparser.Error, OSError):
+        return colors, keys, f"nshrc not loaded (not valid INI): {path} - using defaults"
     if parser.has_section("colors"):
         colors = {k.strip(): v.strip() for k, v in parser.items("colors")}
     if parser.has_section("keys"):

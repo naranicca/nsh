@@ -43,6 +43,24 @@ class CommandRunner:
         parts = command.strip().split()
         return bool(parts) and os.path.basename(parts[0]) in INTERACTIVE
 
+    @staticmethod
+    def _child_env():
+        """Environment that nudges tools to emit ANSI colour through the pipe.
+
+        Their stdout is not a TTY, so colour is normally suppressed; nsh parses
+        the escape codes itself, so we ask for it. ``setdefault`` lets the user
+        override any of these from their own environment.
+        """
+        env = dict(os.environ)
+        env.setdefault("CLICOLOR_FORCE", "1")
+        env.setdefault("CLICOLOR", "1")
+        env.setdefault("FORCE_COLOR", "1")
+        # git only colours when told to; force color.ui for every git command
+        param = "'color.ui=always'"
+        existing = env.get("GIT_CONFIG_PARAMETERS")
+        env["GIT_CONFIG_PARAMETERS"] = f"{existing} {param}" if existing else param
+        return env
+
     async def run(self, command: str):
         """Stream a non-interactive command's stdout+stderr into scrollback."""
         argv = [self.shell, *self.shell_args, command]
@@ -50,6 +68,7 @@ class CommandRunner:
             proc = await asyncio.create_subprocess_exec(
                 *argv,
                 cwd=str(self.app.cwd),
+                env=self._child_env(),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
             )

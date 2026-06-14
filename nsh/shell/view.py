@@ -140,7 +140,7 @@ class ShellView:
             result.append(("", "\n"))
         live = self._live_open()
         if live:
-            result.extend(to_formatted_text(ANSI(live)))
+            result.extend(to_formatted_text(ANSI(live.expandtabs(4))))
             result.append(("", "\n"))
         return result
 
@@ -167,7 +167,7 @@ class ShellView:
             self._open = ""
 
     def _commit_line(self, raw):
-        line = self._last_segment(raw)
+        line = self._last_segment(raw).expandtabs(4)
         self._push(list(to_formatted_text(ANSI(line))) or [("", "")])
 
     # -- internal (already-styled) lines -------------------------------------

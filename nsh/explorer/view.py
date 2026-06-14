@@ -105,14 +105,18 @@ class ExplorerView:
             estyle = "class:explorer.selected" if sel else config.entry_style(e)
             name = e.name + ("/" if e.is_dir else "")
             size = "" if e.is_dir else human_size(e.size)
+            # an empty size (directories) blends into the row instead of showing
+            # the grey size colour — otherwise the cursor highlight leaves a grey
+            # block where the size would be.
+            size_style = "class:explorer.size" if size else estyle
             result += [
                 (self._cursor_style("class:explorer.selected" if sel else "", on),
                  "● " if sel else "  "),
                 (self._cursor_style(mstyle, on), f"{marker} "),
                 (self._cursor_style(estyle, on), f"{config.entry_icon(e)} "),
                 (self._cursor_style(estyle, on), pad_to_width(name, name_w)),
-                (self._cursor_style("", on), " "),
-                (self._cursor_style("class:explorer.size", on),
+                (self._cursor_style(estyle, on), " "),
+                (self._cursor_style(size_style, on),
                  pad_to_width(size, SIZE_COL, align="right")),
             ]
             if i != last:
