@@ -153,6 +153,12 @@ class ExplorerView:
             self.app.set_message("selection cleared")
             self.app.invalidate()
 
+    def toggle_hidden(self):
+        self.show_hidden = not self.show_hidden
+        self.app.preview.clear()
+        self.load()
+        self.app.invalidate()
+
     def _targets(self):
         """Paths a file op should act on: the selection, else the cursor entry."""
         if self.selected:
@@ -423,67 +429,37 @@ class ExplorerView:
         def _(event):
             self.app.set_cwd(self.app.cwd.parent)
 
-        @kb.add("y")
-        def _(event):
-            self.copy_entry()
-
-        @kb.add("x")
-        def _(event):
-            self.cut_entry()
-
-        @kb.add("p")
-        def _(event):
-            self.paste()
-
-        @kb.add("D")
-        def _(event):
-            self.delete_entry()
-
-        @kb.add("R")
-        def _(event):
-            self.rename_entry()
-
-        @kb.add("m")
-        def _(event):
-            self.new_dir()
-
-        @kb.add("N")
-        def _(event):
-            self.new_file()
-
-        @kb.add(" ")
-        def _(event):
-            self.toggle_select()
-
-        @kb.add("tab")
-        def _(event):
-            self.open_command_menu()
-
-        @kb.add(":")
-        def _(event):
-            self.app.switch_mode("shell")
-
-        @kb.add("P")
-        def _(event):
-            self.app.toggle_preview()
-
-        @kb.add("/")
-        def _(event):
-            self.app.enter_search()
-
-        @kb.add(".")
-        def _(event):
-            self.show_hidden = not self.show_hidden
-            self.app.preview.clear()
-            self.load()
-            self.app.invalidate()
-
-        @kb.add("r")
-        def _(event):
-            self.app.set_cwd(self.app.cwd)
-
-        @kb.add("q")
-        def _(event):
-            self.app.exit()
+        # Configurable action keys (remappable via the [keys] section of nshrc).
+        actions = {
+            "copy": self.copy_entry,
+            "cut": self.cut_entry,
+            "paste": self.paste,
+            "delete": self.delete_entry,
+            "rename": self.rename_entry,
+            "new_dir": self.new_dir,
+            "new_file": self.new_file,
+            "select": self.toggle_select,
+            "menu": self.open_command_menu,
+            "find": lambda: self.app.enter_search(),
+            "command": lambda: self.app.switch_mode("shell"),
+            "preview": lambda: self.app.toggle_preview(),
+            "hidden": self.toggle_hidden,
+            "refresh": lambda: self.app.set_cwd(self.app.cwd),
+            "quit": self.app.exit,
+        }
+        for action, handler in actions.items():
+            key = self.app.keys.get(action)
+            if not key:
+                continue
+            try:
+                kb.add(key)(self._action_handler(handler))
+            except Exception:  # noqa: BLE001 - invalid key spec in nshrc; skip it
+                pass
 
         return kb
+
+    @staticmethod
+    def _action_handler(func):
+        def handler(event):
+            func()
+        return handler

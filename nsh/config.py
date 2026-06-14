@@ -1,8 +1,15 @@
-"""Theme, icons and the file/git -> style mappings used across the UI."""
+"""Theme, icons and the file/git -> style mappings used across the UI.
+
+Colours and the explorer action keys can be overridden by the user's
+``~/.config/nsh/nshrc`` (see :func:`load_user_config`).
+"""
+import configparser
+import os
+from pathlib import Path
+
 from prompt_toolkit.styles import Style
 
-STYLE = Style.from_dict(
-    {
+STYLE_DEFAULTS = {
         # chrome
         "titlebar": "bg:#303030 #d0d0d0",
         "titlebar.mode": "bg:#5f87af #ffffff bold",
@@ -60,8 +67,37 @@ STYLE = Style.from_dict(
         "menu.title": "bg:#5f87af #ffffff bold",
         "menu.item": "bg:#1c1c1c #d0d0d0",
         "menu.selected": "bg:#5fafff #000000 bold",
-    }
-)
+}
+
+
+def build_style(overrides=None):
+    """A prompt_toolkit ``Style`` from the defaults plus user overrides."""
+    merged = dict(STYLE_DEFAULTS)
+    merged.update(overrides or {})
+    return Style.from_dict(merged)
+
+
+STYLE = build_style()
+
+# Explorer action -> default key. These are the keys the user may remap in the
+# ``[keys]`` section of nshrc. Navigation keys (arrows, j/k, enter…) are fixed.
+DEFAULT_KEYS = {
+    "select": " ",
+    "menu": "tab",
+    "copy": "y",
+    "cut": "x",
+    "paste": "p",
+    "delete": "D",
+    "rename": "R",
+    "new_dir": "m",
+    "new_file": "N",
+    "find": "/",
+    "command": ":",
+    "preview": "P",
+    "hidden": ".",
+    "refresh": "r",
+    "quit": "q",
+}
 
 # Single-cell glyphs (width 1) chosen for broad terminal support; colour carries
 # most of the meaning, the icon is a secondary cue.
@@ -105,3 +141,91 @@ def entry_icon(entry) -> str:
     if entry.is_exec:
         return ICONS["exec"]
     return ICONS["file"]
+
+
+# -- user configuration (~/.config/nsh/nshrc) --------------------------------
+DEFAULT_NSHRC = """\
+# nsh configuration file.
+#
+# [colors] overrides any UI style; values use prompt_toolkit syntax, e.g.
+#   "#ff8700 bold", "bg:#1c1c1c #ffffff", "italic underline".
+# [keys] remaps an explorer action to a key. A key is a single character, or a
+#   name: space, tab, escape, enter, f1..f12, or a modifier form like c-r
+#   (Ctrl-R) or s-tab (Shift-Tab). Navigation keys (arrows, j/k, …) are fixed.
+
+[colors]
+# explorer.dir = #5fafff bold
+# explorer.selected = #ffff5f bold
+# explorer.image = #ff5fff
+# titlebar.mode = bg:#5f87af #ffffff bold
+# titlebar.clock = bg:#303030 #d0d0d0 bold
+# shell.command = #5fafff bold
+# shell.string = #ffff87
+# menu.selected = bg:#5fafff #000000 bold
+
+[keys]
+# select = space
+# menu = tab
+# copy = y
+# cut = x
+# paste = p
+# delete = D
+# rename = R
+# new_dir = m
+# new_file = N
+# find = /
+# command = :
+# preview = P
+# hidden = .
+# refresh = r
+# quit = q
+"""
+
+
+def config_dir() -> Path:
+    base = os.environ.get("XDG_CONFIG_HOME")
+    if base:
+        return Path(base) / "nsh"
+    return Path.home() / ".config" / "nsh"
+
+
+def config_path() -> Path:
+    return config_dir() / "nshrc"
+
+
+def ensure_default_config() -> None:
+    """Seed a commented template nshrc on first run (best-effort)."""
+    path = config_path()
+    try:
+        if not path.exists():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(DEFAULT_NSHRC, encoding="utf-8")
+    except OSError:
+        pass
+
+
+def _norm_key(value: str) -> str:
+    value = value.strip()
+    return " " if value.lower() == "space" else value
+
+
+def load_user_config():
+    """Return ``(color_overrides, key_overrides, warning)`` from nshrc."""
+    colors, keys = {}, {}
+    try:
+        path = config_path()
+    except RuntimeError:  # no home directory
+        return colors, keys, None
+    if not path.exists():
+        return colors, keys, None
+    parser = configparser.ConfigParser(interpolation=None)
+    parser.optionxform = str  # preserve case (style classes, key values)
+    try:
+        parser.read(path, encoding="utf-8")
+    except (configparser.Error, OSError) as exc:
+        return colors, keys, f"nshrc: {exc}"
+    if parser.has_section("colors"):
+        colors = {k.strip(): v.strip() for k, v in parser.items("colors")}
+    if parser.has_section("keys"):
+        keys = {k.strip(): _norm_key(v) for k, v in parser.items("keys") if v.strip()}
+    return colors, keys, None

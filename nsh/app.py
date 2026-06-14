@@ -50,9 +50,15 @@ class NshApp:
     def __init__(self, start_mode=None, query="", picker=False):
         self.cwd = Path.cwd().resolve()
         self.mode = EXPLORER
-        self.message = ""
         self.git_status = git.GitStatus()
         self._git_task = None
+
+        # user configuration (~/.config/nsh/nshrc): colours + explorer keys
+        config.ensure_default_config()
+        color_overrides, key_overrides, cfg_warning = config.load_user_config()
+        self.keys = {**config.DEFAULT_KEYS, **key_overrides}
+        self.style = config.build_style(color_overrides)
+        self.message = cfg_warning or ""
 
         # search-mode startup / result plumbing
         self._start_mode = start_mode
@@ -243,7 +249,7 @@ class NshApp:
         return Application(
             layout=Layout(root, focused_element=self.explorer.control),
             key_bindings=merge_key_bindings([load_key_bindings(), kb]),
-            style=config.STYLE,
+            style=self.style,
             full_screen=True,
             mouse_support=True,  # enables mouse-wheel scrolling of the log/list
             refresh_interval=1.0,  # keep the title-bar clock ticking
