@@ -44,6 +44,9 @@ class CommandRunner:
         self.shell, self.shell_args = detect_shell()
         self._proc = None  # the currently streaming subprocess, if any
 
+    def is_running(self) -> bool:
+        return self._proc is not None and self._proc.returncode is None
+
     def interrupt(self) -> bool:
         """Kill the running command and its children. True if one was running."""
         proc = self._proc

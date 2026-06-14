@@ -12,7 +12,6 @@ from prompt_toolkit.filters import Condition
 from prompt_toolkit.key_binding import KeyBindings, merge_key_bindings
 from prompt_toolkit.key_binding.defaults import load_key_bindings
 from prompt_toolkit.layout.containers import (
-    ConditionalContainer,
     DynamicContainer,
     Float,
     FloatContainer,
@@ -32,7 +31,7 @@ from .search.view import SearchView
 from .shell.runner import CommandRunner
 from .shell.view import ShellView
 from .util.bookmarks import Bookmarks
-from .util.dialog import InputDialog
+from .util.dialog import ConfirmDialog, InputDialog
 from .util.menu import Menu
 from .util.paths import shorten_home
 from .util.width import text_width
@@ -74,23 +73,18 @@ class NshApp:
         self.show_preview = True
         self.search = SearchView(self)
 
-        # yes/no confirmation overlay (used before a destructive delete)
-        self._confirm_active = False
-        self._confirm_label = ""
-        self._confirm_callback = None
-        self._confirm_control = None
-
         # popup action menu (Tab in the explorer)
         self.menu = Menu(self._menu_closed)
         self.bookmarks = Bookmarks()
-        # centered modal input dialog (rename)
+        # centered modal dialogs: text input (rename/new) and yes/no confirm
         self.dialog = InputDialog(self._dialog_closed)
+        self.confirm_dialog = ConfirmDialog(self._dialog_closed)
 
         self.application = self._build_application()
 
     # -- layout ---------------------------------------------------------------
     def _build_application(self):
-        confirm_open = Condition(lambda: self._confirm_active)
+        confirm_open = Condition(lambda: self.confirm_dialog.active)
         menu_open = Condition(lambda: self.menu.active)
         dialog_open = Condition(lambda: self.dialog.active)
         overlay_open = confirm_open | menu_open | dialog_open
@@ -149,33 +143,6 @@ class NshApp:
         def _(event):
             self.exit()
 
-        # confirmation overlay keys (active only while it owns focus)
-        confirm_kb = KeyBindings()
-
-        @confirm_kb.add("y")
-        @confirm_kb.add("Y")
-        def _(event):
-            self._resolve_confirm(True)
-
-        @confirm_kb.add("n")
-        @confirm_kb.add("N")
-        @confirm_kb.add("escape")
-        @confirm_kb.add("c-c")
-        def _(event):
-            self._resolve_confirm(False)
-
-        self._confirm_control = FormattedTextControl(
-            lambda: [
-                ("class:dialog.label", f" {self._confirm_label} "),
-                ("class:dialog", "   "),
-                ("class:statusbar.key", " y "), ("class:dialog", " yes  "),
-                ("class:statusbar.key", " n "), ("class:dialog", " no "),
-            ],
-            focusable=True,
-            show_cursor=False,
-            key_bindings=confirm_kb,
-        )
-
         self._explorer_split = VSplit(
             [
                 self.explorer.window,
@@ -211,11 +178,6 @@ class NshApp:
 
         body = DynamicContainer(_body)
 
-        confirm_overlay = ConditionalContainer(
-            Window(self._confirm_control, height=1, style="class:dialog"),
-            filter=confirm_open,
-        )
-
         root = FloatContainer(
             content=HSplit(
                 [
@@ -232,12 +194,12 @@ class NshApp:
                     ycursor=True,
                     content=CompletionsMenu(max_height=16, scroll_offset=1),
                 ),
-                Float(top=2, left=4, right=4, content=confirm_overlay),
                 # row 1 = directly under the title bar (row 0); left=1 aligns the
                 # menu with the "nsh" label
                 Float(top=1, left=1, content=self.menu.container),
-                # an unpositioned Float is centered on screen
+                # unpositioned Floats are centered on screen
                 Float(content=self.dialog.container),
+                Float(content=self.confirm_dialog.container),
             ],
         )
 
@@ -504,22 +466,11 @@ class NshApp:
         else:
             self.application.layout.focus(self.explorer.control)
 
-    # -- confirmation overlay -------------------------------------------------
+    # -- confirmation dialog --------------------------------------------------
     def confirm(self, label, callback):
-        """Show a yes/no overlay; ``callback(True|False)`` on resolve."""
-        self._confirm_label = label
-        self._confirm_callback = callback
-        self._confirm_active = True
-        self.application.layout.focus(self._confirm_control)
-        self.invalidate()
-
-    def _resolve_confirm(self, ok):
-        callback = self._confirm_callback
-        self._confirm_active = False
-        self._confirm_callback = None
-        self._restore_focus()
-        if callback:
-            callback(ok)
+        """Show a centered yes/no dialog; ``callback(True|False)`` on resolve."""
+        self.confirm_dialog.open("Confirm", label, callback)
+        self.application.layout.focus(self.confirm_dialog.control)
         self.invalidate()
 
     # -- action menu ----------------------------------------------------------
@@ -570,6 +521,18 @@ class NshApp:
             pass
 
     def exit(self):
+        # if a shell command is still running, confirm before quitting
+        if self.runner.is_running():
+            self.confirm("A command is still running. Quit anyway?", self._confirm_quit)
+            return
+        self._do_exit()
+
+    def _confirm_quit(self, ok):
+        if ok:
+            self.runner.interrupt()  # don't leave the command orphaned
+            self._do_exit()
+
+    def _do_exit(self):
         try:
             self.application.exit()
         except Exception:

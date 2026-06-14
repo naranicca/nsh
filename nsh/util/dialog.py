@@ -1,7 +1,10 @@
-"""A centered modal input dialog: a text field with OK / Cancel buttons.
+"""Centered modal dialogs.
 
-Arrow keys edit the field; Tab toggles which button Enter triggers; Enter runs
-the active button (OK -> accept, Cancel -> dismiss); Esc dismisses.
+``InputDialog`` — a text field with OK / Cancel buttons.
+``ConfirmDialog`` — a message with Yes / No buttons.
+
+Both: arrow keys / Tab move between/choose buttons, Enter runs the active one,
+Esc dismisses (cancel / No).
 """
 from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.filters import Condition
@@ -16,10 +19,15 @@ from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
 from prompt_toolkit.layout.dimension import Dimension
 from prompt_toolkit.widgets import Frame
 
+WIDTH = 50
+
+
+def _button(label, active):
+    style = "class:dialog.button.focus" if active else "class:dialog.button"
+    return (style, f"  {label}  ")
+
 
 class InputDialog:
-    WIDTH = 50
-
     def __init__(self, on_close):
         self._on_close = on_close
         self.active = False
@@ -32,7 +40,7 @@ class InputDialog:
         body = HSplit(
             [
                 Window(self.control, height=1, style="class:dialog.input",
-                       width=Dimension.exact(self.WIDTH)),
+                       width=Dimension.exact(WIDTH)),
                 Window(height=1),  # spacer
                 Window(FormattedTextControl(self._buttons), height=1,
                        align=WindowAlign.CENTER),
@@ -45,7 +53,6 @@ class InputDialog:
             filter=Condition(lambda: self.active),
         )
 
-    # -- lifecycle ------------------------------------------------------------
     def open(self, title, text, cursor, on_accept):
         self.title = title
         self._on_accept = on_accept
@@ -76,14 +83,10 @@ class InputDialog:
     def _toggle(self):
         self.button = "cancel" if self.button == "ok" else "ok"
 
-    # -- rendering ------------------------------------------------------------
     def _buttons(self):
-        def b(name, label):
-            style = "class:dialog.button.focus" if self.button == name else "class:dialog.button"
-            return (style, f"  {label}  ")
-        return [b("ok", "OK"), ("", "      "), b("cancel", "Cancel")]
+        return [_button("OK", self.button == "ok"), ("", "      "),
+                _button("Cancel", self.button == "cancel")]
 
-    # -- keys -----------------------------------------------------------------
     def _kb(self):
         kb = KeyBindings()
 
@@ -99,5 +102,79 @@ class InputDialog:
         @kb.add("escape")
         def _(event):
             self.cancel()
+
+        return kb
+
+
+class ConfirmDialog:
+    def __init__(self, on_close):
+        self._on_close = on_close
+        self.active = False
+        self.title = ""
+        self.message = ""
+        self.button = "cancel"      # default to the safe choice for Enter
+        self._on_result = None
+
+        self.control = FormattedTextControl(
+            self._text, focusable=True, show_cursor=False, key_bindings=self._kb()
+        )
+        body = HSplit(
+            [
+                Window(self.control, wrap_lines=True, width=Dimension.exact(WIDTH)),
+                Window(height=1),  # spacer
+                Window(FormattedTextControl(self._buttons), height=1,
+                       align=WindowAlign.CENTER),
+            ],
+            style="class:dialog",
+            padding=0,
+        )
+        self.container = ConditionalContainer(
+            Frame(body, title=lambda: self.title),
+            filter=Condition(lambda: self.active),
+        )
+
+    def open(self, title, message, on_result):
+        self.title = title
+        self.message = message
+        self.button = "cancel"
+        self.active = True
+        self._on_result = on_result
+
+    def _resolve(self, ok):
+        callback = self._on_result
+        self.active = False
+        self._on_result = None
+        self._on_close()
+        if callback:
+            callback(ok)
+
+    def _toggle(self):
+        self.button = "ok" if self.button == "cancel" else "cancel"
+
+    def _text(self):
+        return [("class:dialog", " " + self.message)]
+
+    def _buttons(self):
+        return [_button("OK", self.button == "ok"), ("", "      "),
+                _button("Cancel", self.button == "cancel")]
+
+    def _kb(self):
+        kb = KeyBindings()
+
+        @kb.add("tab")
+        @kb.add("s-tab")
+        @kb.add("left")
+        @kb.add("right")
+        def _(event):
+            self._toggle()
+
+        @kb.add("enter")
+        def _(event):
+            self._resolve(self.button == "ok")
+
+        @kb.add("escape")
+        @kb.add("c-c")
+        def _(event):
+            self._resolve(False)
 
         return kb
