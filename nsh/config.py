@@ -64,6 +64,10 @@ STYLE_DEFAULTS = {
         "dialog": "bg:#1c1c1c",
         "dialog.label": "bg:#1c1c1c #ffff87 bold",
         "dialog.input": "bg:#303030 #ffffff",
+        "dialog.button": "bg:#303030 #d0d0d0",
+        "dialog.button.focus": "bg:#5fafff #000000 bold",
+        "frame.border": "#5f87af",
+        "frame.label": "#87d7ff bold",
         # popup action menu
         "menu": "bg:#1c1c1c",
         "menu.title": "bg:#5f87af #ffffff bold",

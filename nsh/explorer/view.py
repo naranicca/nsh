@@ -253,10 +253,11 @@ class ExplorerView:
         entry = self.current()
         if entry is None:
             return
-        self.app.ask(
-            f"Rename '{entry.name}' to:",
+        # cursor at the end of the name minus its extension
+        stem_len = len(Path(entry.name).stem)
+        self.app.open_input_dialog(
+            "Rename", entry.name, stem_len,
             lambda name: self._do_rename(entry, name),
-            default=entry.name,
         )
 
     def _do_rename(self, entry, name):
@@ -273,7 +274,7 @@ class ExplorerView:
             self.app.set_message(f"rename failed: {exc}")
 
     def new_dir(self):
-        self.app.ask("New folder name:", self._do_new_dir)
+        self.app.open_input_dialog("New folder", "", 0, self._do_new_dir)
 
     def _do_new_dir(self, name):
         name = name.strip()
@@ -288,7 +289,7 @@ class ExplorerView:
             self.app.set_message(f"mkdir failed: {exc}")
 
     def new_file(self):
-        self.app.ask("New file name:", self._do_new_file)
+        self.app.open_input_dialog("New file", "", 0, self._do_new_file)
 
     def _do_new_file(self, name):
         name = name.strip()
@@ -349,7 +350,7 @@ class ExplorerView:
     def git_commit(self):
         if not self._require_repo():
             return
-        self.app.ask("Commit message:", self._do_commit)
+        self.app.open_input_dialog("Commit message", "", 0, self._do_commit)
 
     def _do_commit(self, message):
         if not message.strip():
@@ -431,7 +432,8 @@ class ExplorerView:
         @kb.add("left")
         @kb.add("backspace")
         def _(event):
-            self.app.set_cwd(self.app.cwd.parent)
+            # going up: land the cursor on the directory we're leaving
+            self.app.set_cwd(self.app.cwd.parent, select_name=self.app.cwd.name)
 
         # Configurable action keys (remappable via the [keys] section of nshrc).
         actions = {

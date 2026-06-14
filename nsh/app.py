@@ -8,8 +8,6 @@ from pathlib import Path
 
 from prompt_toolkit.application import Application
 from prompt_toolkit.application.current import get_app
-from prompt_toolkit.buffer import Buffer
-from prompt_toolkit.data_structures import Point
 from prompt_toolkit.filters import Condition
 from prompt_toolkit.key_binding import KeyBindings, merge_key_bindings
 from prompt_toolkit.key_binding.defaults import load_key_bindings
@@ -22,7 +20,7 @@ from prompt_toolkit.layout.containers import (
     VSplit,
     Window,
 )
-from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
+from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.layout.layout import Layout
 from prompt_toolkit.layout.menus import CompletionsMenu
 
@@ -34,6 +32,7 @@ from .search.view import SearchView
 from .shell.runner import CommandRunner
 from .shell.view import ShellView
 from .util.bookmarks import Bookmarks
+from .util.dialog import InputDialog
 from .util.menu import Menu
 from .util.paths import shorten_home
 from .util.width import text_width
@@ -75,12 +74,6 @@ class NshApp:
         self.show_preview = True
         self.search = SearchView(self)
 
-        # one-line input overlay (commit message, rename, new file/folder)
-        self._prompt_active = False
-        self._prompt_label = ""
-        self._prompt_callback = None
-        self.prompt_buffer = Buffer(multiline=False, accept_handler=self._prompt_accept)
-
         # yes/no confirmation overlay (used before a destructive delete)
         self._confirm_active = False
         self._confirm_label = ""
@@ -90,15 +83,17 @@ class NshApp:
         # popup action menu (Tab in the explorer)
         self.menu = Menu(self._menu_closed)
         self.bookmarks = Bookmarks()
+        # centered modal input dialog (rename)
+        self.dialog = InputDialog(self._dialog_closed)
 
         self.application = self._build_application()
 
     # -- layout ---------------------------------------------------------------
     def _build_application(self):
-        prompt_open = Condition(lambda: self._prompt_active)
         confirm_open = Condition(lambda: self._confirm_active)
         menu_open = Condition(lambda: self.menu.active)
-        overlay_open = prompt_open | confirm_open | menu_open
+        dialog_open = Condition(lambda: self.dialog.active)
+        overlay_open = confirm_open | menu_open | dialog_open
 
         kb = KeyBindings()
 
@@ -114,10 +109,6 @@ class NshApp:
                     self.switch_mode(EXPLORER)
             else:  # EXPLORER: clear any multi-selection
                 self.explorer.clear_selection()
-
-        @kb.add("escape", filter=prompt_open)
-        def _(event):
-            self.close_prompt()
 
         @kb.add("c-q")
         def _(event):
@@ -220,26 +211,6 @@ class NshApp:
 
         body = DynamicContainer(_body)
 
-        prompt_overlay = ConditionalContainer(
-            HSplit(
-                [
-                    Window(
-                        FormattedTextControl(
-                            lambda: [("class:dialog.label", f" {self._prompt_label} ")]
-                        ),
-                        height=1,
-                    ),
-                    Window(
-                        BufferControl(buffer=self.prompt_buffer),
-                        height=1,
-                        style="class:dialog.input",
-                    ),
-                ],
-                style="class:dialog",
-            ),
-            filter=prompt_open,
-        )
-
         confirm_overlay = ConditionalContainer(
             Window(self._confirm_control, height=1, style="class:dialog"),
             filter=confirm_open,
@@ -261,11 +232,12 @@ class NshApp:
                     ycursor=True,
                     content=CompletionsMenu(max_height=16, scroll_offset=1),
                 ),
-                Float(top=2, left=4, right=4, content=prompt_overlay),
                 Float(top=2, left=4, right=4, content=confirm_overlay),
                 # row 1 = directly under the title bar (row 0); left=1 aligns the
                 # menu with the "nsh" label
                 Float(top=1, left=1, content=self.menu.container),
+                # an unpositioned Float is centered on screen
+                Float(content=self.dialog.container),
             ],
         )
 
@@ -487,7 +459,7 @@ class NshApp:
             self.set_message(f"cannot open: {exc}")
 
     # -- directory / git ------------------------------------------------------
-    def set_cwd(self, path):
+    def set_cwd(self, path, select_name=None):
         path = Path(path)
         try:
             os.chdir(path)
@@ -495,9 +467,15 @@ class NshApp:
             self.set_message(f"cannot enter: {exc}")
             return
         self.cwd = path.resolve()
-        self.explorer.cursor = 0
         self.explorer.selected.clear()
         self.explorer.load()
+        # put the cursor on ``select_name`` (e.g. the directory we came up from)
+        self.explorer.cursor = 0
+        if select_name:
+            for i, e in enumerate(self.explorer.entries):
+                if e.name == select_name:
+                    self.explorer.cursor = i
+                    break
         self.preview.clear()
         self.message = ""
         self.schedule_git()
@@ -519,35 +497,12 @@ class NshApp:
         self.git_status = await git.query(self.cwd)
         self.invalidate()
 
-    # -- input overlay --------------------------------------------------------
+    # -- focus / overlays -----------------------------------------------------
     def _restore_focus(self):
         if self.mode == SHELL:
             self.application.layout.focus(self.shell.command_buffer)
         else:
             self.application.layout.focus(self.explorer.control)
-
-    def ask(self, label, callback, default=""):
-        self._prompt_label = label
-        self._prompt_callback = callback
-        self._prompt_active = True
-        self.prompt_buffer.text = default
-        self.prompt_buffer.cursor_position = len(default)
-        self.application.layout.focus(self.prompt_buffer)
-        self.invalidate()
-
-    def close_prompt(self):
-        self._prompt_active = False
-        self._prompt_callback = None
-        self._restore_focus()
-        self.invalidate()
-
-    def _prompt_accept(self, buff):
-        callback = self._prompt_callback
-        text = buff.text
-        self.close_prompt()
-        if callback:
-            callback(text)
-        return False
 
     # -- confirmation overlay -------------------------------------------------
     def confirm(self, label, callback):
@@ -574,6 +529,16 @@ class NshApp:
         self.invalidate()
 
     def _menu_closed(self):
+        self._restore_focus()
+        self.invalidate()
+
+    # -- input dialog ---------------------------------------------------------
+    def open_input_dialog(self, title, text, cursor, on_accept):
+        self.dialog.open(title, text, cursor, on_accept)
+        self.application.layout.focus(self.dialog.control)
+        self.invalidate()
+
+    def _dialog_closed(self):
         self._restore_focus()
         self.invalidate()
 
