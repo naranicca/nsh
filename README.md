@@ -19,15 +19,37 @@ It has three modes:
 
 ## Install / run
 
+Requires Python 3.7+.
+
 ```sh
-pip install -e .            # installs prompt_toolkit + wcwidth
-nsh                         # explorer mode (or: python -m nsh)
+pip install -e .            # installs prompt_toolkit + wcwidth, and an `nsh` command
+```
+
+The `-e` (editable) install puts an **`nsh` command on your PATH** that runs from
+any directory; because it's editable, later code edits take effect with no
+re-install. Then, from anywhere:
+
+```sh
+nsh                         # explorer mode
 nsh shell                   # start in command-line mode
 nsh search [WORD]           # fuzzy-pick a file; the choice is printed to stdout
 nsh -h | -v
 ```
 
-Requires Python 3.7+.
+If the `nsh` command isn't found after installing, your Python **user-scripts
+directory isn't on PATH**. Print it and add it to PATH:
+
+```sh
+python -c "import sysconfig,os; print(sysconfig.get_path('scripts', os.name=='nt' and 'nt_user' or 'posix_user'))"
+```
+
+- **Linux / macOS** — this is usually `~/.local/bin`; add it to PATH in your shell rc.
+- **Windows** — with the Microsoft Store Python it's a
+  `…\LocalCache\local-packages\Python3x\Scripts` folder that isn't on PATH by
+  default; add it under *Settings → Edit environment variables → Path*, then open
+  a new terminal.
+
+As a fallback that needs no PATH change, run it as a module: `python -m nsh`.
 
 ## Keys
 
