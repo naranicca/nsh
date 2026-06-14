@@ -26,6 +26,80 @@ INTERACTIVE = {
 REPL = {"python", "python3", "ipython", "node", "deno", "bun"}
 
 
+def _oem_fallback():
+    """Legacy code page name that Windows console tools emit, or ``None``.
+
+    cmd built-ins and many native tools write their (localized) output in the
+    OEM code page — e.g. cp949 on Korean Windows — not UTF-8. Returns a codec
+    name like ``"cp949"`` to fall back to, or ``None`` off Windows / when it is
+    already UTF-8 so the decoder just stays on plain UTF-8.
+    """
+    if os.name != "nt":
+        return None
+    try:
+        import ctypes
+        cp = int(ctypes.windll.kernel32.GetOEMCP())
+    except Exception:  # noqa: BLE001 - any failure -> no fallback
+        return None
+    if not cp or cp == 65001:
+        return None
+    name = f"cp{cp}"
+    try:
+        codecs.lookup(name)
+    except LookupError:
+        return None
+    return name
+
+
+def _utf8_safe_cut(buf: bytes) -> int:
+    """Length of the largest prefix of ``buf`` not ending mid UTF-8 sequence."""
+    n = len(buf)
+    for back in range(1, min(4, n) + 1):
+        b = buf[n - back]
+        if b < 0x80:           # ASCII byte: clean boundary right after it
+            return n
+        if b >= 0xC0:          # lead byte of a multibyte sequence
+            seq_len = 2 if b < 0xE0 else (3 if b < 0xF0 else 4)
+            return n if back >= seq_len else n - back
+        # else 0x80..0xBF continuation byte: keep scanning back
+    return n
+
+
+class _StreamDecoder:
+    """Decode subprocess byte chunks, preferring UTF-8 with an OEM fallback.
+
+    Most modern tools (git, python) emit UTF-8, so that is tried first. The
+    moment a chunk isn't valid UTF-8 the stream switches to ``fallback`` (the
+    OEM code page) for the rest — that is where cmd's localized error messages
+    land. A multibyte character split across a 4 KiB chunk boundary is held
+    back until the next chunk so it never decodes to a replacement char.
+    """
+
+    def __init__(self, fallback=None):
+        self._fallback = fallback
+        self._pending = b""
+        self._fb = None  # incremental fallback decoder, created once we switch
+
+    def decode(self, data: bytes = b"", final: bool = False) -> str:
+        if self._fb is not None:
+            return self._fb.decode(data, final)
+        buf = self._pending + data
+        cut = len(buf) if final else _utf8_safe_cut(buf)
+        head, tail = buf[:cut], buf[cut:]
+        try:
+            text = head.decode("utf-8")
+        except UnicodeDecodeError:
+            if not self._fallback:
+                self._pending = tail
+                return head.decode("utf-8", "replace")
+            # not UTF-8: switch the remainder of this stream to the OEM codec
+            self._fb = codecs.getincrementaldecoder(self._fallback)("replace")
+            self._pending = b""
+            return self._fb.decode(buf, final)
+        self._pending = tail
+        return text
+
+
 def detect_shell():
     """Return ``(executable, prefix_args)`` for the host's default shell."""
     if os.name == "nt":
@@ -42,6 +116,7 @@ class CommandRunner:
     def __init__(self, app):
         self.app = app
         self.shell, self.shell_args = detect_shell()
+        self._fallback_encoding = _oem_fallback()  # OEM code page, for non-UTF-8 output
         self._proc = None  # the currently streaming subprocess, if any
 
     def is_running(self) -> bool:
@@ -121,7 +196,7 @@ class CommandRunner:
             assert proc.stdout is not None
             # Read in chunks (not readline): a progress bar that only emits
             # carriage returns would otherwise stay buffered until the newline.
-            decoder = codecs.getincrementaldecoder("utf-8")("replace")
+            decoder = _StreamDecoder(self._fallback_encoding)
             while True:
                 chunk = await proc.stdout.read(4096)
                 if not chunk:
