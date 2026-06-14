@@ -19,6 +19,13 @@ class GitStatus:
     root: Optional[Path] = None
     # normalised abspath -> porcelain code in {"M","S","?","C"}
     files: Dict[str, str] = field(default_factory=dict)
+    behind: int = 0  # commits the upstream has that we don't
+    ahead: int = 0   # commits we have that the upstream doesn't
+
+    @property
+    def dirty(self) -> bool:
+        """True when there are tracked changes to commit (untracked files excluded)."""
+        return any(code != "?" for code in self.files.values())
 
 
 async def run_git(args, cwd):
@@ -54,6 +61,15 @@ async def query(directory) -> GitStatus:
     if branch is not None:
         b = branch.strip()
         st.branch = b if b and b != "HEAD" else "(detached)"
+
+    # behind/ahead vs. the upstream (absent if there's no tracking branch)
+    counts = await _out(
+        ["rev-list", "--left-right", "--count", "@{upstream}...HEAD"], directory
+    )
+    if counts:
+        parts = counts.split()
+        if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+            st.behind, st.ahead = int(parts[0]), int(parts[1])
 
     # core.quotepath=false keeps CJK / unicode filenames intact in the output.
     porcelain = await _out(

@@ -258,8 +258,16 @@ class NshApp:
             ("class:titlebar.path", shorten_home(self.cwd)),
         ]
         if self.git_status.is_repo and self.git_status.branch:
+            g = self.git_status
+            # behind upstream -> yellow with the count; else dirty -> red; else green
+            if g.behind > 0:
+                style, text = "class:titlebar.branch.behind", f"⎇ {g.branch} ↓{g.behind}"
+            elif g.dirty:
+                style, text = "class:titlebar.branch.dirty", f"⎇ {g.branch}"
+            else:
+                style, text = "class:titlebar.branch", f"⎇ {g.branch}"
             segs.append(("class:titlebar", "  on "))
-            segs.append(("class:titlebar.branch", f"⎇ {self.git_status.branch}"))
+            segs.append((style, text))
         if self.mode == EXPLORER and self.explorer.selected:
             segs.append(("class:titlebar", "   "))
             segs.append(("class:titlebar.sel", f"● {len(self.explorer.selected)} selected"))

@@ -17,6 +17,8 @@ STYLE_DEFAULTS = {
         "titlebar.name": "bg:#303030 #ffffff bold",
         "titlebar.path": "bg:#303030 #87d7ff bold",
         "titlebar.branch": "bg:#303030 #87ff87 bold",
+        "titlebar.branch.dirty": "bg:#303030 #ff5f5f bold",
+        "titlebar.branch.behind": "bg:#303030 #ffaf00 bold",
         "titlebar.sel": "bg:#303030 #ffff5f bold",
         "titlebar.clock": "bg:#303030 #d0d0d0 bold",
         "statusbar": "bg:#1c1c1c #999999",
