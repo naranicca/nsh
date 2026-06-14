@@ -139,3 +139,13 @@ async def list_branches(cwd):
 async def checkout_branch(name, cwd):
     """Switch to an existing branch (``git checkout <name>``)."""
     return await run_git(["checkout", name], cwd)
+
+
+async def delete_local_branch(name, cwd):
+    """Delete a local branch (safe: ``git branch -d`` refuses unmerged work)."""
+    return await run_git(["branch", "-d", name], cwd)
+
+
+async def delete_remote_branch(name, cwd, remote="origin"):
+    """Delete the branch on the remote (``git push <remote> --delete <name>``)."""
+    return await run_git(["push", remote, "--delete", name], cwd)

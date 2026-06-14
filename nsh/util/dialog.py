@@ -161,10 +161,14 @@ class ConfirmDialog:
     def _kb(self):
         kb = KeyBindings()
 
+        # tab / arrows plus vim-style h/l all move between the two buttons; with
+        # only two, any direction is just a toggle.
         @kb.add("tab")
         @kb.add("s-tab")
         @kb.add("left")
         @kb.add("right")
+        @kb.add("h")
+        @kb.add("l")
         def _(event):
             self._toggle()
 

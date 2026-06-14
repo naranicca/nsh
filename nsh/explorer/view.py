@@ -379,12 +379,21 @@ class ExplorerView:
             ("New file", self.new_file),
         ]
         if self.app.git_status and self.app.git_status.is_repo:
-            items += [
-                ("Git: stage / unstage", self.git_stage),
-                ("Git: commit", self.git_commit),
-                ("Git: diff", self.git_diff),
-                ("Git: Branches", self.git_branches),
-            ]
+            gs = self.app.git_status
+            code = gs.files.get(norm(cur.path)) if cur else None
+            if code == "?":
+                # untracked file: stage/unstage, commit and diff don't apply
+                # yet, so only offer to start tracking it.
+                items.append(("Git: Add", self.git_stage))
+            elif code in ("M", "S", "C"):
+                # has changes (modified / staged / conflicted): full set
+                items += [
+                    ("Git: Stage / Unstage", self.git_stage),
+                    ("Git: Commit", self.git_commit),
+                    ("Git: Diff", self.git_diff),
+                ]
+            # clean tracked file (code is None): nothing to stage/commit/diff
+            items.append(("Git: Branches", self.git_branches))
         self.app.open_menu(f"Actions · {target}", items)
 
     # -- help (?) -------------------------------------------------------------
@@ -508,9 +517,17 @@ class ExplorerView:
             items = [("+ New Branch", self.git_new_branch)]
             for b in branches:
                 mark = "● " if b == cur else "  "
-                items.append((f"{mark}{b}", lambda b=b: self._do_checkout(b)))
+                items.append((f"{mark}{b}", lambda b=b: self._branch_menu(b)))
             self.app.open_menu("Branches", items)
         asyncio.ensure_future(do())
+
+    def _branch_menu(self, name):
+        """Per-branch actions: checkout, or delete (locally / on the remote)."""
+        self.app.open_menu(f"Branch · {name}", [
+            ("Checkout", lambda: self._do_checkout(name)),
+            ("Delete locally", lambda: self._confirm_delete_branch(name, remote=False)),
+            ("Delete remotely", lambda: self._confirm_delete_branch(name, remote=True)),
+        ])
 
     def _do_checkout(self, name):
         async def do():
@@ -520,6 +537,33 @@ class ExplorerView:
                 self.app.set_message(f"checked out: {name}")
             else:
                 self.app.set_message(f"checkout failed: {out.strip()}")
+        asyncio.ensure_future(do())
+
+    def _confirm_delete_branch(self, name, remote):
+        if remote:
+            label = f"Delete remote branch 'origin/{name}'? This affects the remote."
+        else:
+            label = f"Delete local branch '{name}'? This cannot be undone."
+        self.app.confirm(label, lambda ok: self._do_delete_branch(name, remote, ok))
+
+    def _do_delete_branch(self, name, remote, ok):
+        if not ok:
+            self.app.set_message("delete cancelled")
+            return
+
+        async def do():
+            if remote:
+                self.app.set_message(f"deleting remote branch: {name}…")
+                rc, out = await git.delete_remote_branch(name, self.app.cwd)
+                done = f"deleted remote branch: origin/{name}"
+            else:
+                rc, out = await git.delete_local_branch(name, self.app.cwd)
+                done = f"deleted local branch: {name}"
+            if rc == 0:
+                self.app.set_message(done)
+            else:
+                self.app.set_message(f"delete failed: {out.strip()}")
+            await self.app.refresh_git()
         asyncio.ensure_future(do())
 
     # -- key bindings ---------------------------------------------------------
