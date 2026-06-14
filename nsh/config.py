@@ -44,11 +44,21 @@ STYLE_DEFAULTS = {
         "preview.meta": "#5fafff bold",
         "preview.border": "#444444",
         # fuzzy search
+        # prompt_toolkit ships a built-in "search" class (its incremental-search
+        # highlight) styled bg:ansibrightyellow; because style classes inherit
+        # along dots, our search.* classes would pick up that yellow background.
+        # Reset it here so the picker uses the normal background.
+        "search": "noinherit",
         "search.prompt": "bg:#5f87af #ffffff bold",
         "search.input": "bg:#303030 #ffffff",
         "search.count": "bg:#303030 #999999",
         "search.results": "#d0d0d0",
         "search.match": "#ffaf00 bold",
+        # selected row: a background only (no fg) so the match/dir colours show.
+        # Deliberately NOT under the "search." namespace: as a child of "search"
+        # it would re-apply that class's noinherit and wipe the match colour when
+        # combined with search.match on a selected, matched character.
+        "search-selected": "bg:#444444 bold",
         # shell
         "shell.output": "#d0d0d0",
         "shell.prompt": "#5fff5f bold",

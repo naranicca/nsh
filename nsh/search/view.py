@@ -7,12 +7,14 @@ gathered once in a worker thread so opening the picker never blocks.
 import asyncio
 import os
 
+from prompt_toolkit.application.current import get_app
 from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout.containers import HSplit, VSplit, Window
 from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
 
 from ..util.aio import run_in_thread
+from ..util.width import text_width
 from . import fuzzy
 
 
@@ -124,18 +126,31 @@ class SearchView:
         elif self.cursor >= self.scroll + height:
             self.scroll = self.cursor - height + 1
 
+        try:
+            width = get_app().output.get_size().columns
+        except Exception:
+            width = 80
+
         frags = []
         view = self.results[self.scroll:self.scroll + height]
         for offset, (rel, _score, positions) in enumerate(view):
             i = self.scroll + offset
             on = i == self.cursor
-            cur = " reverse" if on else ""
+            # mark the selection with the ▸ arrow plus a background colour. Use
+            # an explicit bg (search.selected) rather than reverse, which would
+            # flip the orange match colour into a harsh yellow block.
+            cur = " class:search-selected" if on else ""
             base = "class:explorer.dir" if rel.endswith(os.sep) else "class:explorer.file"
             posset = set(positions)
             frags.append((base + cur, "▸ " if on else "  "))
             for ci, ch in enumerate(rel):
                 style = "class:search.match" if ci in posset else base
                 frags.append((style + cur, ch))
+            if on:
+                # pad the selected row so its background spans the whole width
+                pad = width - 2 - text_width(rel)
+                if pad > 0:
+                    frags.append(("class:search-selected", " " * pad))
             frags.append(("", "\n"))
         return frags
 
