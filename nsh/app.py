@@ -134,6 +134,18 @@ class NshApp:
         def _(event):
             self.shell.scroll_to_bottom()
 
+        # Alt+Up / Alt+Down scroll the output a line at a time. Both Win32 input
+        # and VT100 terminals deliver Alt+<key> as an Escape prefix followed by
+        # the key, so this is bound as the two-key sequence escape+arrow. (Plain
+        # Up/Down stay free for command history.)
+        @kb.add("escape", "up", filter=shell_mode)
+        def _(event):
+            self.shell.scroll(-1)
+
+        @kb.add("escape", "down", filter=shell_mode)
+        def _(event):
+            self.shell.scroll(1)
+
         # Ctrl-D on an empty command line quits nsh (shell convention); with text
         # present the filter is false, so the default delete-char still applies.
         shell_line_empty = shell_mode & Condition(
