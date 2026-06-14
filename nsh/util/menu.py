@@ -119,12 +119,12 @@ class Menu:
             self._move(1)
 
         @kb.add("enter")
+        @kb.add("tab")
         def _(event):
             self._invoke()
 
         @kb.add("escape")
         @kb.add("q")
-        @kb.add("tab")
         def _(event):
             self.close()
 
