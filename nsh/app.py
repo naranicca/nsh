@@ -33,6 +33,7 @@ from .explorer.view import ExplorerView
 from .search.view import SearchView
 from .shell.runner import CommandRunner
 from .shell.view import ShellView
+from .util.menu import Menu
 from .util.paths import shorten_home
 from .util.width import text_width
 
@@ -79,13 +80,17 @@ class NshApp:
         self._confirm_callback = None
         self._confirm_control = None
 
+        # popup action menu (Tab in the explorer)
+        self.menu = Menu(self._menu_closed)
+
         self.application = self._build_application()
 
     # -- layout ---------------------------------------------------------------
     def _build_application(self):
         prompt_open = Condition(lambda: self._prompt_active)
         confirm_open = Condition(lambda: self._confirm_active)
-        overlay_open = prompt_open | confirm_open
+        menu_open = Condition(lambda: self.menu.active)
+        overlay_open = prompt_open | confirm_open | menu_open
 
         kb = KeyBindings()
 
@@ -231,6 +236,7 @@ class NshApp:
                 ),
                 Float(top=2, left=4, right=4, content=prompt_overlay),
                 Float(top=2, left=4, right=4, content=confirm_overlay),
+                Float(top=2, left=4, content=self.menu.container),
             ],
         )
 
@@ -286,9 +292,7 @@ class NshApp:
         if self.mode == EXPLORER:
             hints = [
                 ("↑↓", "move"), ("↵", "open"), ("Space", "select"),
-                ("y", "copy"), ("x", "cut"), ("p", "paste"),
-                ("R", "rename"), ("m", "new"), ("D", "del"),
-                ("/", "find"), (":", "cmd"), ("q", "quit"),
+                ("Tab", "actions"), ("/", "find"), (":", "cmd"), ("q", "quit"),
             ]
         elif self.mode == SEARCH:
             hints = [
@@ -371,11 +375,11 @@ class NshApp:
 
     def shell_fullscreen(self):
         """True once the output no longer fits the shared (split) layout."""
-        return len(self.shell.lines) > self._shell_cap()
+        return self.shell.line_count() > self._shell_cap()
 
     def shell_split_output_rows(self):
         """Output rows in split mode: grows with content up to the cap."""
-        return max(0, min(len(self.shell.lines), self._shell_cap()))
+        return max(0, min(self.shell.line_count(), self._shell_cap()))
 
     # -- command line ---------------------------------------------------------
     def accept_command(self, buff):
@@ -515,6 +519,16 @@ class NshApp:
         self._restore_focus()
         if callback:
             callback(ok)
+        self.invalidate()
+
+    # -- action menu ----------------------------------------------------------
+    def open_menu(self, title, items):
+        self.menu.open(title, items)
+        self.application.layout.focus(self.menu.control)
+        self.invalidate()
+
+    def _menu_closed(self):
+        self._restore_focus()
         self.invalidate()
 
     # -- misc -----------------------------------------------------------------

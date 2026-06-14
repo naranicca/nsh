@@ -55,6 +55,11 @@ STYLE = Style.from_dict(
         "dialog": "bg:#1c1c1c",
         "dialog.label": "bg:#1c1c1c #ffff87 bold",
         "dialog.input": "bg:#303030 #ffffff",
+        # popup action menu
+        "menu": "bg:#1c1c1c",
+        "menu.title": "bg:#5f87af #ffffff bold",
+        "menu.item": "bg:#1c1c1c #d0d0d0",
+        "menu.selected": "bg:#5fafff #000000 bold",
     }
 )
 

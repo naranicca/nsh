@@ -11,6 +11,7 @@ from prompt_toolkit.application.current import get_app
 from prompt_toolkit.data_structures import Point
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout.containers import ScrollOffsets, Window
+from prompt_toolkit.layout.dimension import Dimension
 
 from .. import config
 from ..util.paths import human_size, norm
@@ -43,6 +44,10 @@ class ExplorerView:
             scroll_offsets=ScrollOffsets(top=1, bottom=1),
             always_hide_cursor=True,
             style="class:explorer.file",
+            # preferred=0 so the VSplit ignores content width and splits the
+            # space evenly with the preview instead of letting the listing
+            # balloon when the preview content is narrow.
+            width=Dimension(min=0, preferred=0, weight=1),
         )
 
     # -- data -----------------------------------------------------------------
@@ -83,7 +88,7 @@ class ExplorerView:
         except Exception:
             total = 80
         if self.app.show_preview and self.app._wide_enough():
-            cols = (total - 1) // 2  # 50/50 split, minus the 1-col separator
+            cols = total // 2  # the listing's half of the even split (it gets the larger half)
         else:
             cols = total
         # sel(2) + marker(2) + icon(2) + gap(1) + size
@@ -288,6 +293,32 @@ class ExplorerView:
         except Exception as exc:  # noqa: BLE001
             self.app.set_message(f"touch failed: {exc}")
 
+    # -- action menu (Tab) ----------------------------------------------------
+    def open_command_menu(self):
+        if not self.selected and self.current() is None:
+            return
+        target = (f"{len(self.selected)} selected" if self.selected
+                  else self.current().name)
+        items = [
+            ("Copy", self.copy_entry),
+            ("Cut", self.cut_entry),
+        ]
+        if self.clipboard:
+            items.append(("Paste", self.paste))
+        items += [
+            ("Rename", self.rename_entry),
+            ("Delete", self.delete_entry),
+            ("New folder", self.new_dir),
+            ("New file", self.new_file),
+        ]
+        if self.app.git_status and self.app.git_status.is_repo:
+            items += [
+                ("Git: stage / unstage", self.git_stage),
+                ("Git: commit", self.git_commit),
+                ("Git: diff", self.git_diff),
+            ]
+        self.app.open_menu(f"Actions · {target}", items)
+
     # -- git actions (lazygit-style) ------------------------------------------
     def _require_repo(self):
         if not (self.app.git_status and self.app.git_status.is_repo):
@@ -424,21 +455,13 @@ class ExplorerView:
         def _(event):
             self.toggle_select()
 
+        @kb.add("tab")
+        def _(event):
+            self.open_command_menu()
+
         @kb.add(":")
         def _(event):
             self.app.switch_mode("shell")
-
-        @kb.add("s")
-        def _(event):
-            self.git_stage()
-
-        @kb.add("c")
-        def _(event):
-            self.git_commit()
-
-        @kb.add("d")
-        def _(event):
-            self.git_diff()
 
         @kb.add("P")
         def _(event):

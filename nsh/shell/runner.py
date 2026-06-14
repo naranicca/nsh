@@ -6,6 +6,7 @@ command never freezes the UI.  Commands that need a real TTY (editors, pagers…
 are run with prompt_toolkit's ``run_in_terminal`` instead.
 """
 import asyncio
+import codecs
 import os
 import subprocess
 
@@ -56,12 +57,22 @@ class CommandRunner:
             self.app.shell.append(f"nsh: cannot run shell: {exc}", "class:shell.error")
             return
         assert proc.stdout is not None
+        # Read in chunks (not readline): a progress bar that only emits carriage
+        # returns would otherwise stay buffered until the final newline.
+        decoder = codecs.getincrementaldecoder("utf-8")("replace")
         while True:
-            line = await proc.stdout.readline()
-            if not line:
+            chunk = await proc.stdout.read(4096)
+            if not chunk:
                 break
-            self.app.shell.append(line.decode("utf-8", "replace").rstrip("\r\n"))
-            self.app.invalidate()
+            text = decoder.decode(chunk)
+            if text:
+                self.app.shell.feed_output(text)
+                self.app.invalidate()
+        tail = decoder.decode(b"", final=True)
+        if tail:
+            self.app.shell.feed_output(tail)
+        self.app.shell.flush_output()
+        self.app.invalidate()
         await proc.wait()
 
     async def run_in_term(self, command: str):

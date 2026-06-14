@@ -11,6 +11,7 @@ import struct
 
 from prompt_toolkit.layout.containers import Window
 from prompt_toolkit.layout.controls import FormattedTextControl
+from prompt_toolkit.layout.dimension import Dimension
 
 from .. import config
 from ..util.paths import human_size, norm
@@ -77,7 +78,13 @@ class PreviewView:
         self._cache = {}
         self._inflight = set()
         self.control = FormattedTextControl(self._text, focusable=False)
-        self.window = Window(self.control, wrap_lines=True, style="class:preview")
+        self.window = Window(
+            self.control,
+            wrap_lines=True,
+            style="class:preview",
+            # match the explorer: preferred=0 keeps the split content-independent
+            width=Dimension(min=0, preferred=0, weight=1),
+        )
 
     # -- cache ----------------------------------------------------------------
     def clear(self):
