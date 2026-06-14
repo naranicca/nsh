@@ -118,6 +118,7 @@ class CommandRunner:
         self.shell, self.shell_args = detect_shell()
         self._fallback_encoding = _oem_fallback()  # OEM code page, for non-UTF-8 output
         self._proc = None  # the currently streaming subprocess, if any
+        self._interrupted = False  # set when the user kills the command (Ctrl-C)
 
     def is_running(self) -> bool:
         return self._proc is not None and self._proc.returncode is None
@@ -127,6 +128,7 @@ class CommandRunner:
         proc = self._proc
         if proc is None or proc.returncode is not None:
             return False
+        self._interrupted = True  # so run() doesn't also report the exit code
         try:
             if os.name == "nt":
                 # taskkill /T terminates the whole tree (cmd + the real command)
@@ -175,19 +177,28 @@ class CommandRunner:
 
     async def run(self, command: str):
         """Stream a non-interactive command's stdout+stderr into scrollback."""
-        argv = [self.shell, *self.shell_args, command]
-        # Put the command in its own process group so Ctrl-C can kill the whole
-        # tree (the shell plus the command it spawns), not just the shell.
-        group = {"start_new_session": True} if os.name != "nt" else {}
+        self._interrupted = False
+        kwargs = dict(
+            cwd=str(self.app.cwd),
+            env=self._child_env(),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
         try:
-            proc = await asyncio.create_subprocess_exec(
-                *argv,
-                cwd=str(self.app.cwd),
-                env=self._child_env(),
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT,
-                **group,
-            )
+            if os.name == "nt":
+                # Run through the shell so cmd.exe parses the command's own
+                # quotes (e.g. python -c "..."). create_subprocess_exec would
+                # route them through list2cmdline, which escapes the inner
+                # quotes and corrupts the command.
+                proc = await asyncio.create_subprocess_shell(command, **kwargs)
+            else:
+                # Unix: exec the shell directly (execve doesn't re-quote, so the
+                # command's quotes survive) in a new session so Ctrl-C can signal
+                # the whole process group (the shell plus what it spawns).
+                proc = await asyncio.create_subprocess_exec(
+                    self.shell, *self.shell_args, command,
+                    start_new_session=True, **kwargs,
+                )
         except (FileNotFoundError, NotADirectoryError, OSError) as exc:
             self.app.shell.append(f"nsh: cannot run shell: {exc}", "class:shell.error")
             return
@@ -209,8 +220,12 @@ class CommandRunner:
             if tail:
                 self.app.shell.feed_output(tail)
             self.app.shell.flush_output()
-            self.app.invalidate()
             await proc.wait()
+            # report a non-zero exit (unless the user interrupted it themselves)
+            rc = proc.returncode
+            if rc and not self._interrupted:
+                self.app.shell.append(f"[exit code {rc}]", "class:shell.error")
+            self.app.invalidate()
         finally:
             self._proc = None
 
