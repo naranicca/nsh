@@ -1,0 +1,466 @@
+"""Interactive file-explorer pane.
+
+A focusable ``FormattedTextControl`` renders the current directory; navigation
+and the lazygit-style Git keys (Space/c/d) are bound on the control so they are
+only active while the explorer has focus.
+"""
+import asyncio
+from pathlib import Path
+
+from prompt_toolkit.application.current import get_app
+from prompt_toolkit.data_structures import Point
+from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.layout.containers import ScrollOffsets, Window
+
+from .. import config
+from ..util.paths import human_size, norm
+from ..util.widgets import WheelScrollControl
+from ..util.width import pad_to_width
+from . import fileops, git, model
+
+SIZE_COL = 8
+
+
+class ExplorerView:
+    def __init__(self, app):
+        self.app = app
+        self.entries = []
+        self.cursor = 0
+        self.show_hidden = False
+        self.selected = set()  # set[Path] of marked entries (multi-select)
+        self.clipboard = None  # ([Path, ...], "copy" | "cut")
+
+        self.control = WheelScrollControl(
+            lambda d: self.move(d * 3),  # mouse wheel moves the cursor
+            text=self._formatted_text,
+            focusable=True,
+            show_cursor=False,
+            key_bindings=self._build_key_bindings(),
+            get_cursor_position=lambda: Point(0, self.cursor),
+        )
+        self.window = Window(
+            self.control,
+            scroll_offsets=ScrollOffsets(top=1, bottom=1),
+            always_hide_cursor=True,
+            style="class:explorer.file",
+        )
+
+    # -- data -----------------------------------------------------------------
+    def load(self):
+        self.entries = model.list_dir(self.app.cwd, self.show_hidden)
+        if self.cursor >= len(self.entries):
+            self.cursor = max(0, len(self.entries) - 1)
+
+    def current(self):
+        if 0 <= self.cursor < len(self.entries):
+            return self.entries[self.cursor]
+        return None
+
+    def refresh_listing(self, select_name=None):
+        """Reload the current directory, optionally moving the cursor to a name."""
+        self.app.preview.clear()
+        self.load()
+        if select_name:
+            for i, e in enumerate(self.entries):
+                if e.name == select_name:
+                    self.cursor = i
+                    break
+        self.app.invalidate()
+
+    # -- rendering ------------------------------------------------------------
+    @staticmethod
+    def _cursor_style(base, on_cursor):
+        return (base + " reverse").strip() if on_cursor else base
+
+    def _formatted_text(self):
+        if not self.entries:
+            return [("class:explorer.file", "  (empty directory)")]
+        # Derive this pane's width from the layout directly. Reading the Window's
+        # render_info instead would lag one frame behind any width change (app
+        # start, toggling the preview), briefly pushing the size column off-pane.
+        try:
+            total = get_app().output.get_size().columns
+        except Exception:
+            total = 80
+        if self.app.show_preview and self.app._wide_enough():
+            cols = (total - 1) // 2  # 50/50 split, minus the 1-col separator
+        else:
+            cols = total
+        # sel(2) + marker(2) + icon(2) + gap(1) + size
+        name_w = max(4, cols - 7 - SIZE_COL)
+        gs = self.app.git_status
+        result = []
+        last = len(self.entries) - 1
+        for i, e in enumerate(self.entries):
+            on = i == self.cursor
+            sel = e.path in self.selected
+            code = gs.files.get(norm(e.path)) if (gs and gs.is_repo) else None
+            marker = config.GIT_SYMBOL.get(code, " ")
+            mstyle = config.GIT_STYLE.get(code, "")
+            estyle = "class:explorer.selected" if sel else config.entry_style(e)
+            name = e.name + ("/" if e.is_dir else "")
+            size = "" if e.is_dir else human_size(e.size)
+            result += [
+                (self._cursor_style("class:explorer.selected" if sel else "", on),
+                 "● " if sel else "  "),
+                (self._cursor_style(mstyle, on), f"{marker} "),
+                (self._cursor_style(estyle, on), f"{config.entry_icon(e)} "),
+                (self._cursor_style(estyle, on), pad_to_width(name, name_w)),
+                (self._cursor_style("", on), " "),
+                (self._cursor_style("class:explorer.size", on),
+                 pad_to_width(size, SIZE_COL, align="right")),
+            ]
+            if i != last:
+                result.append(("", "\n"))
+        return result
+
+    # -- navigation -----------------------------------------------------------
+    def move(self, delta):
+        if not self.entries:
+            return
+        self.cursor = max(0, min(len(self.entries) - 1, self.cursor + delta))
+        self.app.invalidate()
+
+    def open(self):
+        entry = self.current()
+        if entry is None:
+            return
+        if entry.is_dir:
+            self.app.set_cwd(entry.path)
+        else:
+            self.app.open_file(entry.path)
+
+    # -- selection ------------------------------------------------------------
+    def toggle_select(self):
+        entry = self.current()
+        if entry is None:
+            return
+        if entry.path in self.selected:
+            self.selected.discard(entry.path)
+        else:
+            self.selected.add(entry.path)
+        self.move(1)  # toggle-and-advance
+        self.app.invalidate()
+
+    def clear_selection(self):
+        if self.selected:
+            self.selected.clear()
+            self.app.set_message("selection cleared")
+            self.app.invalidate()
+
+    def _targets(self):
+        """Paths a file op should act on: the selection, else the cursor entry."""
+        if self.selected:
+            # preserve listing order, drop anything that has since vanished
+            return [e.path for e in self.entries if e.path in self.selected]
+        entry = self.current()
+        return [entry.path] if entry else []
+
+    # -- file operations ------------------------------------------------------
+    def copy_entry(self):
+        targets = self._targets()
+        if not targets:
+            return
+        self.clipboard = (targets, "copy")
+        self.selected.clear()
+        self.app.set_message(f"copied {len(targets)} item(s)  (p to paste)")
+        self.app.invalidate()
+
+    def cut_entry(self):
+        targets = self._targets()
+        if not targets:
+            return
+        self.clipboard = (targets, "cut")
+        self.selected.clear()
+        self.app.set_message(f"cut {len(targets)} item(s)  (p to paste)")
+        self.app.invalidate()
+
+    def paste(self):
+        if not self.clipboard:
+            self.app.set_message("clipboard empty")
+            return
+        paths, op = self.clipboard
+
+        async def do():
+            done = 0
+            last = None
+            for i, src in enumerate(paths, 1):
+                if not src.exists():
+                    continue
+                try:
+                    if op == "copy":
+                        self.app.set_message(f"copying {i}/{len(paths)}: {src.name}…")
+                        last = await fileops.copy(src, self.app.cwd)
+                    else:
+                        self.app.set_message(f"moving {i}/{len(paths)}: {src.name}…")
+                        last = await fileops.move(src, self.app.cwd)
+                    done += 1
+                except Exception as exc:  # noqa: BLE001 - surfaced to the user
+                    self.app.set_message(f"{src.name}: {exc}")
+            if op == "cut":
+                self.clipboard = None
+            self.refresh_listing(select_name=last.name if last else None)
+            verb = "copied" if op == "copy" else "moved"
+            self.app.set_message(f"{verb} {done}/{len(paths)} item(s)")
+            await self.app.refresh_git()
+        asyncio.ensure_future(do())
+
+    def delete_entry(self):
+        targets = self._targets()
+        if not targets:
+            return
+        if len(targets) == 1:
+            label = f"Delete '{targets[0].name}'? This cannot be undone."
+        else:
+            label = f"Delete {len(targets)} items? This cannot be undone."
+        self.app.confirm(label, lambda ok: self._do_delete(targets, ok))
+
+    def _do_delete(self, targets, ok):
+        if not ok:
+            self.app.set_message("delete cancelled")
+            return
+
+        async def do():
+            done = 0
+            for path in targets:
+                try:
+                    await fileops.delete(path)
+                    done += 1
+                except Exception as exc:  # noqa: BLE001
+                    self.app.set_message(f"{path.name}: {exc}")
+            self.selected.clear()
+            self.refresh_listing()
+            self.app.set_message(f"deleted {done} item(s)")
+            await self.app.refresh_git()
+        asyncio.ensure_future(do())
+
+    def rename_entry(self):
+        entry = self.current()
+        if entry is None:
+            return
+        self.app.ask(
+            f"Rename '{entry.name}' to:",
+            lambda name: self._do_rename(entry, name),
+            default=entry.name,
+        )
+
+    def _do_rename(self, entry, name):
+        name = name.strip()
+        if not name or name == entry.name:
+            self.app.set_message("rename cancelled")
+            return
+        try:
+            target = fileops.rename(entry.path, name)
+            self.refresh_listing(select_name=target.name)
+            self.app.set_message(f"renamed to: {target.name}")
+            asyncio.ensure_future(self.app.refresh_git())
+        except Exception as exc:  # noqa: BLE001
+            self.app.set_message(f"rename failed: {exc}")
+
+    def new_dir(self):
+        self.app.ask("New folder name:", self._do_new_dir)
+
+    def _do_new_dir(self, name):
+        name = name.strip()
+        if not name:
+            self.app.set_message("cancelled")
+            return
+        try:
+            target = fileops.make_dir(self.app.cwd, name)
+            self.refresh_listing(select_name=target.name)
+            self.app.set_message(f"created folder: {target.name}")
+        except Exception as exc:  # noqa: BLE001
+            self.app.set_message(f"mkdir failed: {exc}")
+
+    def new_file(self):
+        self.app.ask("New file name:", self._do_new_file)
+
+    def _do_new_file(self, name):
+        name = name.strip()
+        if not name:
+            self.app.set_message("cancelled")
+            return
+        try:
+            target = fileops.make_file(self.app.cwd, name)
+            self.refresh_listing(select_name=target.name)
+            self.app.set_message(f"created file: {target.name}")
+            asyncio.ensure_future(self.app.refresh_git())
+        except Exception as exc:  # noqa: BLE001
+            self.app.set_message(f"touch failed: {exc}")
+
+    # -- git actions (lazygit-style) ------------------------------------------
+    def _require_repo(self):
+        if not (self.app.git_status and self.app.git_status.is_repo):
+            self.app.set_message("not a git repository")
+            return False
+        return True
+
+    def git_stage(self):
+        entry = self.current()
+        if entry is None or not self._require_repo():
+            return
+
+        async def do():
+            await git.stage_toggle(entry.path, self.app.git_status, self.app.cwd)
+            await self.app.refresh_git()
+        asyncio.ensure_future(do())
+
+    def git_commit(self):
+        if not self._require_repo():
+            return
+        self.app.ask("Commit message:", self._do_commit)
+
+    def _do_commit(self, message):
+        if not message.strip():
+            self.app.set_message("commit cancelled")
+            return
+
+        async def do():
+            rc, out = await git.commit(message, self.app.cwd)
+            self.app.shell.append(out.strip() or "committed",
+                                  "class:shell.output" if rc == 0 else "class:shell.error")
+            await self.app.refresh_git()
+            self.app.set_message("committed" if rc == 0 else "commit failed")
+        asyncio.ensure_future(do())
+
+    def git_diff(self):
+        entry = self.current()
+        if entry is None or not self._require_repo():
+            return
+
+        async def do():
+            text = await git.diff(entry.path, self.app.cwd)
+            self.app.shell.append(f"--- diff: {entry.name} ---", "class:shell.command")
+            if not text:
+                self.app.shell.append("(no changes)")
+            for line in text.splitlines():
+                if line.startswith("+"):
+                    style = "class:git.staged"
+                elif line.startswith("-"):
+                    style = "class:git.untracked"
+                elif line.startswith("@@"):
+                    style = "class:shell.command"
+                else:
+                    style = "class:shell.output"
+                self.app.shell.append(line, style)
+            self.app.switch_mode("shell")
+        asyncio.ensure_future(do())
+
+    # -- key bindings ---------------------------------------------------------
+    def _build_key_bindings(self):
+        kb = KeyBindings()
+
+        @kb.add("j")
+        @kb.add("down")
+        def _(event):
+            self.move(1)
+
+        @kb.add("k")
+        @kb.add("up")
+        def _(event):
+            self.move(-1)
+
+        @kb.add("pagedown")
+        def _(event):
+            self.move(10)
+
+        @kb.add("pageup")
+        def _(event):
+            self.move(-10)
+
+        @kb.add("g")
+        @kb.add("home")
+        def _(event):
+            self.cursor = 0
+            self.app.invalidate()
+
+        @kb.add("G")
+        @kb.add("end")
+        def _(event):
+            self.cursor = max(0, len(self.entries) - 1)
+            self.app.invalidate()
+
+        @kb.add("enter")
+        @kb.add("l")
+        @kb.add("right")
+        def _(event):
+            self.open()
+
+        @kb.add("h")
+        @kb.add("left")
+        @kb.add("backspace")
+        def _(event):
+            self.app.set_cwd(self.app.cwd.parent)
+
+        @kb.add("y")
+        def _(event):
+            self.copy_entry()
+
+        @kb.add("x")
+        def _(event):
+            self.cut_entry()
+
+        @kb.add("p")
+        def _(event):
+            self.paste()
+
+        @kb.add("D")
+        def _(event):
+            self.delete_entry()
+
+        @kb.add("R")
+        def _(event):
+            self.rename_entry()
+
+        @kb.add("m")
+        def _(event):
+            self.new_dir()
+
+        @kb.add("N")
+        def _(event):
+            self.new_file()
+
+        @kb.add(" ")
+        def _(event):
+            self.toggle_select()
+
+        @kb.add(":")
+        def _(event):
+            self.app.switch_mode("shell")
+
+        @kb.add("s")
+        def _(event):
+            self.git_stage()
+
+        @kb.add("c")
+        def _(event):
+            self.git_commit()
+
+        @kb.add("d")
+        def _(event):
+            self.git_diff()
+
+        @kb.add("P")
+        def _(event):
+            self.app.toggle_preview()
+
+        @kb.add("/")
+        def _(event):
+            self.app.enter_search()
+
+        @kb.add(".")
+        def _(event):
+            self.show_hidden = not self.show_hidden
+            self.app.preview.clear()
+            self.load()
+            self.app.invalidate()
+
+        @kb.add("r")
+        def _(event):
+            self.app.set_cwd(self.app.cwd)
+
+        @kb.add("q")
+        def _(event):
+            self.app.exit()
+
+        return kb

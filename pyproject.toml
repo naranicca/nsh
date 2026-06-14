@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nsh"
+version = "0.2.0"
+description = "nsh is Not a SHell — a cross-platform interactive shell and file explorer"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "GPL-3.0-or-later" }
+dependencies = [
+    "prompt_toolkit>=3.0.39",
+    "wcwidth>=0.2.6",
+]
+
+[project.scripts]
+nsh = "nsh.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["nsh*"]
