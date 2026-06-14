@@ -118,3 +118,24 @@ async def diff(path, cwd):
 
 async def commit(message, cwd):
     return await run_git(["commit", "-m", message], cwd)
+
+
+async def create_branch(name, cwd):
+    """Create branch ``name`` and switch to it (``git checkout -b``)."""
+    return await run_git(["checkout", "-b", name], cwd)
+
+
+async def list_branches(cwd):
+    """Return ``(branches, current)`` — local branch names and the checked-out one."""
+    out = await _out(["branch", "--format=%(refname:short)"], cwd)
+    if out is None:
+        return [], None
+    branches = [ln.strip() for ln in out.splitlines() if ln.strip()]
+    cur = await _out(["rev-parse", "--abbrev-ref", "HEAD"], cwd)
+    cur = cur.strip() if cur else None
+    return branches, cur
+
+
+async def checkout_branch(name, cwd):
+    """Switch to an existing branch (``git checkout <name>``)."""
+    return await run_git(["checkout", name], cwd)

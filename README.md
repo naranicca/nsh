@@ -78,8 +78,9 @@ The action keys (everything below the navigation block) are remappable in
 | `ESC` | clear the selection |
 | `q` | quit |
 
-Git actions (stage / unstage, commit, diff) live in the `Tab` action menu when
-the directory is a repository.
+Git actions (stage / unstage, commit, diff, and a **Branches** submenu that
+lists branches to check out plus a `+ New Branch` entry) live in the `Tab`
+action menu when the directory is a repository.
 
 ### Command-line mode
 | Key | Action |

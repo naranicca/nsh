@@ -379,6 +379,7 @@ class ExplorerView:
                 ("Git: stage / unstage", self.git_stage),
                 ("Git: commit", self.git_commit),
                 ("Git: diff", self.git_diff),
+                ("Git: Branches", self.git_branches),
             ]
         self.app.open_menu(f"Actions · {target}", items)
 
@@ -472,6 +473,49 @@ class ExplorerView:
                     style = "class:shell.output"
                 self.app.shell.append(line, style)
             self.app.switch_mode("shell")
+        asyncio.ensure_future(do())
+
+    def git_new_branch(self):
+        if not self._require_repo():
+            return
+        self.app.open_input_dialog("New branch name", "", 0, self._do_new_branch)
+
+    def _do_new_branch(self, name):
+        name = name.strip()
+        if not name:
+            self.app.set_message("cancelled")
+            return
+
+        async def do():
+            rc, out = await git.create_branch(name, self.app.cwd)
+            if rc == 0:
+                self.refresh()  # branch switch may change the working tree
+                self.app.set_message(f"switched to new branch: {name}")
+            else:
+                self.app.set_message(f"branch failed: {out.strip()}")
+        asyncio.ensure_future(do())
+
+    def git_branches(self):
+        if not self._require_repo():
+            return
+
+        async def do():
+            branches, cur = await git.list_branches(self.app.cwd)
+            items = [("+ New Branch", self.git_new_branch)]
+            for b in branches:
+                mark = "● " if b == cur else "  "
+                items.append((f"{mark}{b}", lambda b=b: self._do_checkout(b)))
+            self.app.open_menu("Branches", items)
+        asyncio.ensure_future(do())
+
+    def _do_checkout(self, name):
+        async def do():
+            rc, out = await git.checkout_branch(name, self.app.cwd)
+            if rc == 0:
+                self.refresh()  # the new branch may have a different working tree
+                self.app.set_message(f"checked out: {name}")
+            else:
+                self.app.set_message(f"checkout failed: {out.strip()}")
         asyncio.ensure_future(do())
 
     # -- key bindings ---------------------------------------------------------
