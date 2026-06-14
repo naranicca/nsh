@@ -82,11 +82,24 @@ class ShellView:
         """Visible line count, including the live (unterminated) output line."""
         return len(self.lines) + (1 if self._live_open() else 0)
 
+    def _visible_height(self):
+        """Output rows shown this frame.
+
+        In split mode the height is deterministic (``shell_split_output_rows``),
+        so we must NOT read it from ``render_info``: render_info lags one frame
+        behind a height change, and right after a command grows the log that
+        stale height makes :meth:`_bottom_top` scroll one row too far, briefly
+        exposing the trailing blank row. In fullscreen the height is stable, so
+        render_info is fine.
+        """
+        if self.app.shell_fullscreen():
+            ri = self.output_window.render_info
+            return ri.window_height if (ri is not None and ri.window_height) else 10
+        return max(1, self.app.shell_split_output_rows())
+
     def _bottom_top(self):
         """The top line index when the very bottom of the log is shown."""
-        ri = self.output_window.render_info
-        height = ri.window_height if (ri is not None and ri.window_height) else 10
-        return max(0, self.line_count() - height)
+        return max(0, self.line_count() - self._visible_height())
 
     def _cursor_position(self):
         # Keep the "cursor" on the top visible line so do_scroll leaves the
