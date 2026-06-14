@@ -121,6 +121,15 @@ class NshApp:
         def _(event):
             self.exit()
 
+        @kb.add("c-c")
+        def _(event):
+            # Ctrl-C stops the running command (and its children) but never quits
+            # nsh; with nothing running it just clears the command line.
+            if self.runner.interrupt():
+                self.shell.append("^C")
+            elif self.mode == SHELL:
+                self.shell.command_buffer.reset()
+
         # shell output scrolling — global (not on the input buffer) so it keeps
         # working even while the command line is hidden during a scroll-up
         shell_mode = Condition(lambda: self.mode == SHELL)
@@ -136,6 +145,16 @@ class NshApp:
         @kb.add("c-end", filter=shell_mode)
         def _(event):
             self.shell.scroll_to_bottom()
+
+        # Ctrl-D on an empty command line quits nsh (shell convention); with text
+        # present the filter is false, so the default delete-char still applies.
+        shell_line_empty = shell_mode & Condition(
+            lambda: not self.shell.command_buffer.text
+        )
+
+        @kb.add("c-d", filter=shell_line_empty)
+        def _(event):
+            self.exit()
 
         # confirmation overlay keys (active only while it owns focus)
         confirm_kb = KeyBindings()
@@ -246,7 +265,7 @@ class NshApp:
             ],
         )
 
-        return Application(
+        application = Application(
             layout=Layout(root, focused_element=self.explorer.control),
             key_bindings=merge_key_bindings([load_key_bindings(), kb]),
             style=self.style,
@@ -254,6 +273,18 @@ class NshApp:
             mouse_support=True,  # enables mouse-wheel scrolling of the log/list
             refresh_interval=1.0,  # keep the title-bar clock ticking
         )
+        # Make ESC feel instant. Two separate waits delay it by default:
+        #  - ttimeoutlen (0.5s): a lone ESC might begin a terminal escape
+        #    sequence (arrows, F-keys) — matters in explorer mode.
+        #  - timeoutlen (1.0s): ESC is the prefix of the command line's Alt-key
+        #    chords (Alt+b/f/d …), so it waits for a possible second key —
+        #    this is the delay felt in shell mode.
+        # Locally, multi-byte sequences / Alt-combos arrive in one read, so a
+        # short timeout keeps them working. Raise these if keys misbehave over
+        # slow/remote links.
+        application.ttimeoutlen = 0.05
+        application.timeoutlen = 0.05
+        return application
 
     # -- title / status -------------------------------------------------------
     def _fill(self, segs, style):
@@ -308,7 +339,8 @@ class NshApp:
         else:
             hints = [
                 ("Tab", "complete"), ("↵", "run"), ("↑↓", "history"),
-                ("PgUp/PgDn", "scroll"), ("ESC", "explorer"),
+                ("PgUp/PgDn", "scroll"), ("^C", "stop"), ("^D", "quit"),
+                ("ESC", "explorer"),
             ]
         segs = []
         for key, label in hints:
