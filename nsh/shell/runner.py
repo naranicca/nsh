@@ -141,12 +141,20 @@ class CommandRunner:
 
     async def run_in_term(self, command: str):
         """Run an interactive command with the full-screen app suspended."""
-        argv = [self.shell, *self.shell_args, command]
         cwd = str(self.app.cwd)
+        # Windows: pass the raw command string via shell=True so cmd.exe parses
+        # the quotes itself. Building a [cmd, "/c", command] list instead lets
+        # Python's list2cmdline escape the inner quotes (e.g. a quoted path) into
+        # \" , which cmd then mis-parses. Unix has no such re-quoting: argv goes
+        # straight to execve and ``$SHELL -c`` handles the quoting.
+        if os.name == "nt":
+            argv, kwargs = command, {"shell": True}
+        else:
+            argv, kwargs = [self.shell, *self.shell_args, command], {}
 
         def _run():
             try:
-                subprocess.run(argv, cwd=cwd)
+                subprocess.run(argv, cwd=cwd, **kwargs)
             except Exception as exc:  # noqa: BLE001 - surfaced to the user
                 print(f"nsh: {exc}")
 
