@@ -27,7 +27,10 @@ def match(query, text):
         return (0.0, ())
     q = query.lower()
     t = text.lower()
-    base_start = max(t.rfind("/"), t.rfind("\\")) + 1
+    # locate the basename, ignoring a directory's trailing separator so its real
+    # name (not an empty string) gets the basename bonus
+    base = t.rstrip("/\\")
+    base_start = max(base.rfind("/"), base.rfind("\\")) + 1
     positions = []
     score = 0.0
     prev = -2
@@ -64,28 +67,40 @@ def search(query, items, limit=500):
 
 
 def gather(root, show_hidden=False, limit=50000):
-    """Walk ``root`` and return relative paths of files and directories.
+    """Relative paths of files and directories under ``root`` (directories get a
+    trailing separator), gathered **breadth-first** and capped at ``limit``.
 
-    Directories carry a trailing separator so the caller can tell them apart.
-    Pruned at ``limit`` entries to stay responsive on huge trees.
+    Breadth-first matters: a depth-first walk dives fully into the first subtree,
+    so one huge directory (e.g. Windows' ``AppData``) exhausts ``limit`` before
+    any sibling like ``source/`` is reached. Breadth-first indexes every branch
+    at a shallow depth first, so nearby paths show up even in a giant home dir.
     """
     items = []
     root = os.fspath(root)
-    for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = [
-            d for d in dirnames
-            if d not in SKIP_DIRS and (show_hidden or not d.startswith("."))
-        ]
-        for d in dirnames:
-            rel = os.path.relpath(os.path.join(dirpath, d), root)
-            items.append(rel + os.sep)
-            if len(items) >= limit:
-                return items
-        for name in filenames:
+    queue = [root]
+    while queue:
+        current = queue.pop(0)
+        try:
+            with os.scandir(current) as it:
+                entries = sorted(it, key=lambda e: e.name.lower())
+        except OSError:
+            continue
+        for e in entries:
+            name = e.name
             if not show_hidden and name.startswith("."):
                 continue
-            rel = os.path.relpath(os.path.join(dirpath, name), root)
-            items.append(rel)
+            try:
+                is_dir = e.is_dir()
+            except OSError:
+                is_dir = False
+            rel = os.path.relpath(e.path, root)
+            if is_dir:
+                if name in SKIP_DIRS:
+                    continue
+                items.append(rel + os.sep)
+                queue.append(e.path)
+            else:
+                items.append(rel)
             if len(items) >= limit:
                 return items
     return items
