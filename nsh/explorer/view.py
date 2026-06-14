@@ -30,6 +30,7 @@ class ExplorerView:
         self.show_hidden = False
         self.selected = set()  # set[Path] of marked entries (multi-select)
         self.clipboard = None  # ([Path, ...], "copy" | "cut")
+        self._signature = ()   # snapshot used to auto-refresh on external change
 
         self.control = WheelScrollControl(
             lambda d: self.move(d * 3),  # mouse wheel moves the cursor
@@ -51,10 +52,48 @@ class ExplorerView:
         )
 
     # -- data -----------------------------------------------------------------
+    @staticmethod
+    def _sig(entries):
+        return tuple((e.name, e.is_dir, e.size, e.mtime) for e in entries)
+
     def load(self):
         self.entries = model.list_dir(self.app.cwd, self.show_hidden)
+        self._signature = self._sig(self.entries)
         if self.cursor >= len(self.entries):
             self.cursor = max(0, len(self.entries) - 1)
+
+    def _apply_listing(self, entries):
+        """Swap in a fresh listing, keeping the cursor on the same entry."""
+        cur = self.current()
+        cur_name = cur.name if cur else None
+        self.entries = entries
+        self._signature = self._sig(entries)
+        if self.selected:  # drop selections that no longer exist
+            self.selected &= {e.path for e in entries}
+        self.cursor = 0
+        if cur_name:
+            for i, e in enumerate(entries):
+                if e.name == cur_name:
+                    self.cursor = i
+                    break
+        if self.cursor >= len(entries):
+            self.cursor = max(0, len(entries) - 1)
+
+    def refresh(self):
+        """Manual refresh (the 'r' key): re-list, keep the cursor, re-check git."""
+        self._apply_listing(model.list_dir(self.app.cwd, self.show_hidden))
+        self.app.preview.clear()
+        self.app.invalidate()
+        asyncio.ensure_future(self.app.refresh_git())
+
+    def check_external_change(self):
+        """Re-list only when the directory changed under us (polled)."""
+        entries = model.list_dir(self.app.cwd, self.show_hidden)
+        if self._sig(entries) == self._signature:
+            return
+        self._apply_listing(entries)
+        self.app.invalidate()
+        asyncio.ensure_future(self.app.refresh_git())
 
     def current(self):
         if 0 <= self.cursor < len(self.entries):
@@ -330,6 +369,40 @@ class ExplorerView:
             ]
         self.app.open_menu(f"Actions · {target}", items)
 
+    # -- help (?) -------------------------------------------------------------
+    _NAV_HELP = [
+        ("↑ ↓  k j", "move cursor"),
+        ("↵  l  →", "open file / enter directory"),
+        ("⌫  h  ←", "parent directory"),
+        ("g  G", "top / bottom"),
+        ("PgUp PgDn", "page up / down"),
+    ]
+    _ACTION_HELP = [
+        ("select", "select / deselect (multi-select)"),
+        ("menu", "action menu (copy, rename, git…)"),
+        ("copy", "copy"), ("cut", "cut"), ("paste", "paste"),
+        ("rename", "rename"), ("new_dir", "new folder"), ("new_file", "new file"),
+        ("delete", "delete"), ("bookmark", "bookmarks"), ("find", "fuzzy find"),
+        ("command", "command-line mode"), ("preview", "toggle preview pane"),
+        ("hidden", "toggle hidden files"), ("refresh", "refresh"),
+        ("help", "this help"), ("quit", "quit"),
+    ]
+
+    @staticmethod
+    def _key_label(key):
+        return {" ": "Space", "tab": "Tab", "escape": "Esc",
+                "enter": "Enter"}.get(key, key)
+
+    def show_help(self):
+        def line(keys, desc):
+            return (f"{keys:<12}{desc}", None)
+        items = [line(k, d) for k, d in self._NAV_HELP]
+        for action, desc in self._ACTION_HELP:
+            key = self.app.keys.get(action)
+            if key:
+                items.append(line(self._key_label(key), desc))
+        self.app.open_menu("Keys", items)
+
     # -- git actions (lazygit-style) ------------------------------------------
     def _require_repo(self):
         if not (self.app.git_status and self.app.git_status.is_repo):
@@ -451,7 +524,8 @@ class ExplorerView:
             "command": lambda: self.app.switch_mode("shell"),
             "preview": lambda: self.app.toggle_preview(),
             "hidden": self.toggle_hidden,
-            "refresh": lambda: self.app.set_cwd(self.app.cwd),
+            "refresh": self.refresh,
+            "help": self.show_help,
             "quit": self.app.exit,
         }
         for action, handler in actions.items():

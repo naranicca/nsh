@@ -73,7 +73,8 @@ The action keys (everything below the navigation block) are remappable in
 | `:` | switch to command-line mode |
 | `P` | toggle the preview pane |
 | `.` | toggle hidden files |
-| `r` | refresh |
+| `r` | refresh (the listing also auto-refreshes when the directory changes) |
+| `?` | show this key list |
 | `ESC` | clear the selection |
 | `q` | quit |
 

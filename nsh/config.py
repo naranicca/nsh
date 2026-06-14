@@ -105,6 +105,7 @@ DEFAULT_KEYS = {
     "preview": "P",
     "hidden": ".",
     "refresh": "r",
+    "help": "?",
     "quit": "q",
 }
 
@@ -188,6 +189,7 @@ DEFAULT_NSHRC = """\
 # preview = P
 # hidden = .
 # refresh = r
+# help = ?
 # quit = q
 """
 

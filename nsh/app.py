@@ -546,6 +546,17 @@ class NshApp:
         except Exception:
             pass
 
+    async def _watch_cwd(self):
+        """Poll the current directory and auto-refresh when it changes."""
+        while True:
+            try:
+                await asyncio.sleep(1.0)
+                self.explorer.check_external_change()
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001 - never let the watcher die
+                pass
+
     async def run_async(self):
         self.explorer.load()
         self.schedule_git()
@@ -553,5 +564,9 @@ class NshApp:
             self.switch_mode(SHELL)
         elif self._start_mode == SEARCH:
             self.enter_search(self._initial_query)
-        await self.application.run_async()
+        watcher = asyncio.ensure_future(self._watch_cwd())
+        try:
+            await self.application.run_async()
+        finally:
+            watcher.cancel()
         return self.search_result

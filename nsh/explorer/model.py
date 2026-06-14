@@ -20,6 +20,7 @@ class Entry:
     is_exec: bool
     is_image: bool
     size: int
+    mtime: int = 0  # st_mtime_ns (files only); used for change detection
 
 
 def _is_exec(dir_entry, name: str) -> bool:
@@ -49,10 +50,13 @@ def list_dir(path, show_hidden: bool = False):
             except OSError:
                 is_link, is_dir = False, False
             ext = os.path.splitext(name)[1].lower()
-            try:
-                size = 0 if is_dir else de.stat(follow_symlinks=False).st_size
-            except OSError:
-                size = 0
+            size = mtime = 0
+            if not is_dir:
+                try:
+                    stat = de.stat(follow_symlinks=False)
+                    size, mtime = stat.st_size, stat.st_mtime_ns
+                except OSError:
+                    pass
             entries.append(
                 Entry(
                     path=Path(de.path),
@@ -62,6 +66,7 @@ def list_dir(path, show_hidden: bool = False):
                     is_exec=(not is_dir) and _is_exec(de, name),
                     is_image=(not is_dir) and ext in IMAGE_EXTS,
                     size=size,
+                    mtime=mtime,
                 )
             )
     entries.sort(key=lambda e: (not e.is_dir, e.name.lower()))
