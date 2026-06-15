@@ -479,7 +479,7 @@ class ExplorerView:
                 if line.startswith("+"):
                     style = "class:git.staged"
                 elif line.startswith("-"):
-                    style = "class:git.untracked"
+                    style = "class:shell.error"
                 elif line.startswith("@@"):
                     style = "class:shell.command"
                 else:

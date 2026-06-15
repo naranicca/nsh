@@ -273,11 +273,14 @@ class NshApp:
         ]
         if self.git_status.is_repo and self.git_status.branch:
             g = self.git_status
-            # behind upstream -> yellow with the count; else dirty -> red; else green
+            # behind upstream -> yellow ↓count; uncommitted changes -> red;
+            # committed-but-unpushed (ahead) -> yellow ↑count; else green
             if g.behind > 0:
                 style, text = "class:titlebar.branch.behind", f"⎇ {g.branch} ↓{g.behind}"
             elif g.dirty:
                 style, text = "class:titlebar.branch.dirty", f"⎇ {g.branch}"
+            elif g.ahead > 0:
+                style, text = "class:titlebar.branch.behind", f"⎇ {g.branch} ↑{g.ahead}"
             else:
                 style, text = "class:titlebar.branch", f"⎇ {g.branch}"
             segs.append(("class:titlebar", " on "))

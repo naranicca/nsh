@@ -35,7 +35,7 @@ STYLE_DEFAULTS = {
         # git overlay
         "git.modified": "#ffaf00",
         "git.staged": "#5fff5f",
-        "git.untracked": "#ff5f5f",
+        "git.untracked": "#808080",
         "git.conflict": "#ff005f bold",
         # preview pane
         "preview": "#c0c0c0",
