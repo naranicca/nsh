@@ -28,6 +28,11 @@ Notable user-facing changes to the Python rewrite. Newest first.
   (e.g. `python -c "..."`).
 
 ### Explorer & Git
+- **Git mode** (`Ctrl+G`): a flat, `git status`-style list of the repo's changed
+  and untracked files (subdirectory changes show their full path, not a tree),
+  with multi-select and a diff in the preview pane. `Tab` opens an action menu
+  (stage/unstage the selection, commit, edit, branches). Left/right are inert
+  (no hierarchy); moving to another directory leaves git mode.
 - **Symlinked directories keep their logical path** (`cd -L`): entering a
   symlinked subdir shows the path you followed (not the link target), and going
   up returns to the directory that holds the link instead of the target's real

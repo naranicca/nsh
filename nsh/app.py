@@ -25,6 +25,7 @@ from prompt_toolkit.layout.menus import CompletionsMenu
 
 from . import config
 from .explorer import git
+from .explorer.gitview import GitView
 from .explorer.preview import PreviewView
 from .explorer.view import ExplorerView
 from .search.view import SearchView
@@ -39,6 +40,7 @@ from .util.width import text_width
 EXPLORER = "explorer"
 SHELL = "shell"
 SEARCH = "search"
+GIT = "git"
 
 # Once the shell output would shrink the explorer below this many rows, the
 # shell takes over the whole screen.
@@ -77,6 +79,9 @@ class NshApp:
     def __init__(self, start_mode=None, query="", picker=False):
         self.cwd = _initial_logical_cwd()
         self.mode = EXPLORER
+        # the mode to return to when leaving the shell (so a shell opened from
+        # git mode goes back to git mode on ESC, not the explorer)
+        self._shell_return = EXPLORER
         self.git_status = git.GitStatus()
         self._git_task = None
 
@@ -101,6 +106,7 @@ class NshApp:
         self.preview = PreviewView(self)
         self.show_preview = True
         self.search = SearchView(self)
+        self.gitview = GitView(self)
 
         # popup action menu (Tab in the explorer)
         self.menu = Menu(self._menu_closed)
@@ -129,9 +135,19 @@ class NshApp:
                 if buff.complete_state:
                     buff.cancel_completion()
                 else:
+                    self.switch_mode(self._shell_return)
+            elif self.mode == GIT:
+                # clear the selection first, then leave git mode
+                if self.gitview.selected:
+                    self.gitview.clear_selection()
+                else:
                     self.switch_mode(EXPLORER)
             else:  # EXPLORER: clear any multi-selection
                 self.explorer.clear_selection()
+
+        @kb.add("c-g", filter=~overlay_open)
+        def _(event):
+            self.toggle_git_mode()
 
         @kb.add("c-q")
         def _(event):
@@ -200,6 +216,20 @@ class NshApp:
             else self.explorer.window
         )
 
+        # git mode: the changed-file list beside the diff preview
+        self._git_split = VSplit(
+            [
+                self.gitview.window,
+                Window(width=1, char="│", style="class:preview.border"),
+                self.preview.window,
+            ]
+        )
+        git_area = DynamicContainer(
+            lambda: self._git_split
+            if (self.show_preview and self._wide_enough())
+            else self.gitview.window
+        )
+
         # shell mode keeps the explorer on top, command line + output below
         self._shell_split = HSplit(
             [
@@ -212,6 +242,8 @@ class NshApp:
         def _body():
             if self.mode == SEARCH:
                 return self.search.container
+            if self.mode == GIT:
+                return git_area
             if self.mode == SHELL:
                 # grow with output, then take the whole screen at the cap
                 return self.shell.container if self.shell_fullscreen() else self._shell_split
@@ -313,9 +345,14 @@ class NshApp:
                 style, text = "class:titlebar.branch", f"⎇ {g.branch}"
             segs.append(("class:titlebar", " on "))
             segs.append((style, text))
-        if self.mode == EXPLORER and self.explorer.selected:
+        if self.mode == GIT:
             segs.append(("class:titlebar", "   "))
-            segs.append(("class:titlebar.sel", f"● {len(self.explorer.selected)} selected"))
+            segs.append(("class:titlebar.branch", "● git"))
+        selected = (self.explorer.selected if self.mode == EXPLORER
+                    else self.gitview.selected if self.mode == GIT else None)
+        if selected:
+            segs.append(("class:titlebar", "   "))
+            segs.append(("class:titlebar.sel", f"● {len(selected)} selected"))
         clock = [("class:titlebar.clock", f" {datetime.now().strftime('%H:%M:%S')} ")]
         return self._fill_with_right(segs, "class:titlebar", clock)
 
@@ -330,6 +367,11 @@ class NshApp:
             hints = [
                 ("type", "filter"), ("↑↓", "move"), ("↵", "select"),
                 ("ESC", "cancel"),
+            ]
+        elif self.mode == GIT:
+            hints = [
+                ("↑↓", "move"), ("Space", "select"), ("Tab", "actions"),
+                ("b", "marks"), (":", "cmd"), ("^G/ESC", "exit"), ("q", "quit"),
             ]
         else:
             hints = [
@@ -350,6 +392,9 @@ class NshApp:
         self.switch_mode(EXPLORER if self.mode == SHELL else SHELL)
 
     def switch_mode(self, mode):
+        # remember where the shell was opened from, to return there on ESC
+        if mode == SHELL and self.mode in (EXPLORER, GIT):
+            self._shell_return = self.mode
         self.mode = mode
         if mode == SHELL:
             self.application.layout.focus(self.shell.command_buffer)
@@ -357,9 +402,22 @@ class NshApp:
             self.search.start(self._pending_query)
             self._pending_query = ""
             self.application.layout.focus(self.search.query_buffer)
+        elif mode == GIT:
+            self.gitview.load()
+            self.application.layout.focus(self.gitview.control)
+            asyncio.ensure_future(self.refresh_git())  # pull fresh status on entry
         else:
             self.application.layout.focus(self.explorer.control)
         self.invalidate()
+
+    def toggle_git_mode(self):
+        if self.mode == GIT:
+            self.switch_mode(EXPLORER)
+            return
+        if not self.git_status.is_repo:
+            self.set_message("not a git repository")
+            return
+        self.switch_mode(GIT)
 
     # -- fuzzy search ---------------------------------------------------------
     def enter_search(self, query=""):
@@ -517,6 +575,12 @@ class NshApp:
         self.preview.clear()
         self.message = ""
         self.schedule_git()
+        # a directory change drops any pending "return to git mode" (e.g. a cd
+        # run from a shell opened in git mode) — git mode was for the old dir
+        self._shell_return = EXPLORER
+        # changing directory is meaningless in git mode (it's repo-wide); leave it
+        if self.mode == GIT:
+            self.switch_mode(EXPLORER)
         self.invalidate()
 
     def schedule_git(self):
@@ -529,16 +593,20 @@ class NshApp:
         status = await git.query(path)
         if path == self.cwd:  # ignore results for a directory we already left
             self.git_status = status
+            self.gitview.on_status_changed()
             self.invalidate()
 
     async def refresh_git(self):
         self.git_status = await git.query(self.cwd)
+        self.gitview.on_status_changed()
         self.invalidate()
 
     # -- focus / overlays -----------------------------------------------------
     def _restore_focus(self):
         if self.mode == SHELL:
             self.application.layout.focus(self.shell.command_buffer)
+        elif self.mode == GIT:
+            self.application.layout.focus(self.gitview.control)
         else:
             self.application.layout.focus(self.explorer.control)
 
@@ -619,7 +687,10 @@ class NshApp:
         while True:
             try:
                 await asyncio.sleep(1.0)
-                self.explorer.check_external_change()
+                if self.mode == GIT:
+                    await self.refresh_git()  # reflect external edits in the list/diff
+                else:
+                    self.explorer.check_external_change()
             except asyncio.CancelledError:
                 raise
             except Exception:  # noqa: BLE001 - never let the watcher die

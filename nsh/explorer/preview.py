@@ -16,7 +16,7 @@ from prompt_toolkit.layout.dimension import Dimension
 from .. import config
 from ..util.aio import run_in_thread
 from ..util.paths import human_size, norm
-from . import model
+from . import git, model
 
 READ_BYTES = 64 * 1024   # cap how much of a file we pull in for preview
 MAX_LINES = 400
@@ -100,6 +100,8 @@ class PreviewView:
 
     # -- reactive text --------------------------------------------------------
     def _text(self):
+        if self.app.mode == "git":
+            return self._git_text()
         entry = self.app.explorer.current()
         if entry is None:
             return [("class:preview.dim", " (nothing selected)")]
@@ -110,6 +112,84 @@ class PreviewView:
             self._inflight.add(key)
             asyncio.ensure_future(self._load(entry, key))
         return [("class:preview.dim", " loading…")]
+
+    # -- git-mode diff preview ------------------------------------------------
+    def _git_text(self):
+        entry = self.app.gitview.current()
+        if entry is None:
+            return [("class:preview.dim", " (no changes)")]
+        key = self._git_key(entry)
+        if key in self._cache:
+            return self._cache[key]
+        if key not in self._inflight:
+            self._inflight.add(key)
+            asyncio.ensure_future(self._load_git(entry, key))
+        return [("class:preview.dim", " loading diff…")]
+
+    def _git_key(self, entry):
+        try:
+            st = entry.path.stat()
+            return ("git", norm(entry.path), entry.code, st.st_mtime_ns, st.st_size)
+        except OSError:
+            return ("git", norm(entry.path), entry.code, 0, 0)
+
+    async def _load_git(self, entry, key):
+        try:
+            if entry.code == "?":  # untracked: git diff is empty, show the content
+                frags = await run_in_thread(self._build_untracked, entry)
+            else:
+                text = await git.diff(entry.path, self.app.cwd)
+                frags = self._build_diff(entry, text)
+        except Exception as exc:  # noqa: BLE001 - shown in the pane
+            frags = [("class:preview.dim", f" diff error: {exc}")]
+        self._cache[key] = frags
+        self._inflight.discard(key)
+        self.app.invalidate()
+
+    _DIFF_LABEL = {"M": "modified", "S": "staged", "C": "conflict", "?": "untracked"}
+
+    def _diff_header(self, entry):
+        label = self._DIFF_LABEL.get(entry.code, "")
+        return [("class:preview.header", f" {entry.rel}"),
+                ("class:preview.dim", f"  [{label}]\n\n")]
+
+    def _build_diff(self, entry, text):
+        frags = self._diff_header(entry)
+        if not text:
+            return frags + [("class:preview.dim", " (no diff)\n")]
+        for line in text.splitlines():
+            if line.startswith("+"):
+                style = "class:git.staged"     # additions: green
+            elif line.startswith("-"):
+                style = "class:shell.error"     # deletions: red
+            elif line.startswith("@@"):
+                style = "class:preview.meta"    # hunk header
+            elif line.startswith(("diff ", "index ", "new file", "deleted file")):
+                style = "class:preview.dim"
+            else:
+                style = "class:preview"
+            frags.append((style, _sanitize(line) + "\n"))
+        return frags
+
+    def _build_untracked(self, entry):
+        try:
+            with open(entry.path, "rb") as f:
+                chunk = f.read(READ_BYTES)
+        except OSError as exc:
+            return [("class:preview.dim", f" cannot read: {exc}")]
+        frags = self._diff_header(entry)
+        if not chunk:
+            return frags + [("class:preview.dim", " (empty file)\n")]
+        if b"\x00" in chunk:
+            return frags + [("class:preview.dim", " (binary file)\n")]
+        text = self._decode(chunk)
+        if text is None:
+            return frags + [("class:preview.dim", " (binary file)\n")]
+        for ln in text.splitlines()[:MAX_LINES]:
+            frags.append(("class:git.staged", "+" + _sanitize(ln) + "\n"))  # all new
+        if len(text.splitlines()) > MAX_LINES or len(chunk) >= READ_BYTES:
+            frags.append(("class:preview.dim", "\n … (truncated)\n"))
+        return frags
 
     async def _load(self, entry, key):
         try:

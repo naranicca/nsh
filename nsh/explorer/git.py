@@ -19,6 +19,9 @@ class GitStatus:
     root: Optional[Path] = None
     # normalised abspath -> porcelain code in {"M","S","?","C"}
     files: Dict[str, str] = field(default_factory=dict)
+    # changed files in original case/order: [(abspath Path, code)] — used by git
+    # mode, which displays real paths (``files`` keys are normcased for matching)
+    entries: list = field(default_factory=list)
     behind: int = 0  # commits the upstream has that we don't
     ahead: int = 0   # commits we have that the upstream doesn't
 
@@ -83,7 +86,7 @@ async def query(directory) -> GitStatus:
             if " -> " in path:  # rename: keep the destination
                 path = path.split(" -> ", 1)[1]
             path = path.strip().strip('"')
-            key = norm(st.root / path.rstrip("/"))
+            abspath = st.root / path.rstrip("/")
             x, y = code[0], code[1]
             if "U" in code or code in ("AA", "DD"):
                 c = "C"
@@ -93,7 +96,8 @@ async def query(directory) -> GitStatus:
                 c = "S" if y == " " else "M"  # staged vs. staged+modified
             else:
                 c = "M"
-            st.files[key] = c
+            st.files[norm(abspath)] = c
+            st.entries.append((abspath, c))
     return st
 
 

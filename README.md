@@ -72,6 +72,7 @@ The action keys (everything below the navigation block) are remappable in
 | `D` | delete (asks to confirm) |
 | `b` | bookmarks — add/remove this directory, or jump to a saved one |
 | `/` | fuzzy-find a file |
+| `Ctrl+G` | **git mode** — the repository's changed files (see below) |
 | `:` | switch to command-line mode |
 | `P` | toggle the preview pane |
 | `.` | toggle hidden files |
@@ -83,6 +84,17 @@ The action keys (everything below the navigation block) are remappable in
 Git actions (stage / unstage, commit, diff, and a **Branches** submenu that
 lists branches to check out plus a `+ New Branch` entry) live in the `Tab`
 action menu when the directory is a repository.
+
+### Git mode
+
+`Ctrl+G` opens a flat, `git status`-style list of the repository's changed and
+untracked files — a change in a subdirectory shows as its full path (not a
+tree). `↑`/`↓` move, `Space` multi-selects, and the preview pane shows the file's
+diff (untracked files show their new content). `Tab` opens an action menu
+(stage / unstage — applied to the whole selection — commit, edit, branches).
+There is no directory hierarchy, so the left/right keys are inert; `Ctrl+G` or
+`ESC` returns to the explorer, and jumping elsewhere (e.g. via a bookmark)
+leaves git mode automatically.
 
 ### Command-line mode
 | Key | Action |
@@ -150,8 +162,9 @@ nsh/
   explorer/
     model.py          os.scandir directory listing
     git.py            async git status / branch / stage / commit / diff
+    gitview.py        git mode: flat changed-file list (Ctrl+G)
     fileops.py        copy / move / delete / rename / mkdir (threaded)
-    preview.py        side preview pane (text / dir / image dims / hexdump)
+    preview.py        side preview pane (text / dir / image dims / hexdump / diff)
     view.py           file-list rendering, navigation, multi-select, action menu
   search/
     fuzzy.py          fzf-style scorer + directory indexer
