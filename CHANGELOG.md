@@ -5,6 +5,10 @@ Notable user-facing changes to the Python rewrite. Newest first.
 ## Unreleased
 
 ### Command-line (shell) mode
+- **Running-time in the prompt.** While a tab's command is still running, the
+  prompt is prefixed with the live elapsed time (e.g. `[9s]`), ticking each
+  second. After it finishes the time stays, tinted green (exit 0) or red
+  (failure) — shown even for sub-second commands — until the next command.
 - **Shell tabs / multiple sessions.** Entering a command while the current one
   is still running opens it in a new shell tab instead of interleaving output;
   each tab has its own scrollback and process. Switch with Alt+←/→, open a tab
@@ -20,7 +24,6 @@ Notable user-facing changes to the Python rewrite. Newest first.
   visible lines, so input and cursor movement stay fast no matter how much
   output has accumulated.
 - **Alt+Up / Alt+Down** scroll the output one line at a time.
-- **Exit codes.** A command that exits non-zero prints `[exit code N]`.
 - **Correct non-UTF-8 output.** Output is decoded as UTF-8 with a fallback to
   the OS OEM code page (e.g. cp949), so localized tool/`cmd` messages render
   correctly.

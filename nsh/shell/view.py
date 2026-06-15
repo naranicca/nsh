@@ -27,6 +27,20 @@ _CSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 SCROLL_BUFFER = 5
 
 
+def _fmt_elapsed(seconds):
+    """Compact running time, e.g. ``0.3s`` / ``5s`` / ``2m03s`` / ``1h04m``."""
+    if seconds < 1:
+        return f"{seconds:.1f}s"  # sub-second (used by the finished-command tint)
+    s = int(seconds)
+    if s < 60:
+        return f"{s}s"
+    m, sec = divmod(s, 60)
+    if m < 60:
+        return f"{m}m{sec:02d}s"
+    h, m = divmod(m, 60)
+    return f"{h}h{m:02d}m"
+
+
 class ShellView:
     """One shell session: its own scrollback, input line and running process.
 
@@ -182,7 +196,25 @@ class ShellView:
         self.app.invalidate()
 
     def _prompt_text(self):
-        return [("class:shell.prompt", f"{shorten_home(self.app.cwd)} $ ")]
+        prompt = ("class:shell.prompt", f"{shorten_home(self.app.cwd)} $ ")
+        el = self.runner.elapsed()
+        if el is not None:
+            # running: prefix the live elapsed time, ticking each second (the app
+            # repaints every second). Skip the first second — too brief to show.
+            if el > 1:
+                # keep the trailing gap outside the badge so its background
+                # (none here, but a tint when finished) doesn't bleed past the ]
+                return [("class:shell.elapsed", f"[{_fmt_elapsed(el)}]"),
+                        ("", " "), prompt]
+            return [prompt]
+        # finished: keep the run time on the prompt until the next command, tinted
+        # green on success / red on failure (shown even for sub-second commands).
+        result = self.runner.last_result()
+        if result is not None:
+            duration, rc = result
+            style = "class:shell.elapsed.ok" if rc == 0 else "class:shell.elapsed.err"
+            return [(style, f"[{_fmt_elapsed(duration)}]"), ("", " "), prompt]
+        return [prompt]
 
     @staticmethod
     def _last_segment(text):

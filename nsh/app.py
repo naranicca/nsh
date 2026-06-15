@@ -522,6 +522,7 @@ class NshApp:
             return
         if session.busy():
             session = self.shells.new_session()
+        session.runner.reset_result()  # clear the previous command's status tint
         session.title = self._cmd_title(cmd)
         session.append_command(cmd)
         if not self._handle_builtin(session, cmd):

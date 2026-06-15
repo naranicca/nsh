@@ -115,9 +115,10 @@ marking which sessions are still running.
 
 Built-ins handled internally: `cd`, `clear`/`cls`, `exit`/`quit`. The output pane
 grows with its content and goes full-screen once it fills up. Long lines wrap,
-non-zero exit codes are reported, and interactive commands that need a real
-terminal — editors/pagers, plus network git (`push`/`pull`/`fetch`/`clone`) and
-`sudo` that may prompt for credentials — run with the UI briefly suspended.
+the prompt shows each command's run time tinted by its exit status, and
+interactive commands that need a real terminal — editors/pagers, plus network
+git (`push`/`pull`/`fetch`/`clone`) and `sudo` that may prompt for credentials
+— run with the UI briefly suspended.
 
 ### Fuzzy search mode
 Type to filter, `↑`/`↓` to move, `↵` to select, `ESC` to cancel. Launched with

@@ -10,6 +10,7 @@ import codecs
 import os
 import signal
 import subprocess
+import time
 
 from prompt_toolkit.application import run_in_terminal
 
@@ -133,6 +134,11 @@ class CommandRunner:
         self._fallback_encoding = _oem_fallback()  # OEM code page, for non-UTF-8 output
         self._proc = None  # the currently streaming subprocess, if any
         self._interrupted = False  # set when the user kills the command (Ctrl-C)
+        self._started_at = None  # monotonic clock when the current command began
+        # the last finished command's (duration, exit code), kept so the prompt
+        # can show its run time tinted by success/failure until the next command
+        self._last_duration = None
+        self._last_rc = None
 
     @property
     def _sink(self):
@@ -141,12 +147,29 @@ class CommandRunner:
     def is_running(self) -> bool:
         return self._proc is not None and self._proc.returncode is None
 
+    def elapsed(self):
+        """Seconds the current streaming command has been running, or ``None``."""
+        if self._started_at is None or not self.is_running():
+            return None
+        return time.monotonic() - self._started_at
+
+    def last_result(self):
+        """``(duration_seconds, exit_code)`` of the last finished command, or None."""
+        if self._last_duration is None:
+            return None
+        return self._last_duration, self._last_rc
+
+    def reset_result(self):
+        """Drop the finished-command status (a new command is being entered)."""
+        self._last_duration = None
+        self._last_rc = None
+
     def interrupt(self) -> bool:
         """Kill the running command and its children. True if one was running."""
         proc = self._proc
         if proc is None or proc.returncode is not None:
             return False
-        self._interrupted = True  # so run() doesn't also report the exit code
+        self._interrupted = True  # so run() tints the badge as a failure
         try:
             if os.name == "nt":
                 # taskkill /T terminates the whole tree (cmd + the real command)
@@ -235,6 +258,7 @@ class CommandRunner:
     async def run(self, command: str):
         """Stream a non-interactive command's stdout+stderr into scrollback."""
         self._interrupted = False
+        self._started_at = time.monotonic()
         kwargs = dict(
             cwd=str(self.app.cwd),
             env=self._child_env(),
@@ -258,6 +282,8 @@ class CommandRunner:
                 )
         except (FileNotFoundError, NotADirectoryError, OSError) as exc:
             self._sink.append(f"nsh: cannot run shell: {exc}", "class:shell.error")
+            self._last_duration, self._last_rc = 0.0, 127  # show as a failure
+            self._started_at = None
             return
         self._proc = proc
         try:
@@ -278,13 +304,16 @@ class CommandRunner:
                 self._sink.feed_output(tail)
             self._sink.flush_output()
             await proc.wait()
-            # report a non-zero exit (unless the user interrupted it themselves)
+            # record the run time + outcome for the prompt's status indicator
+            if self._started_at is not None:
+                self._last_duration = time.monotonic() - self._started_at
             rc = proc.returncode
-            if rc and not self._interrupted:
-                self._sink.append(f"[exit code {rc}]", "class:shell.error")
+            self._last_rc = -1 if self._interrupted else rc
+            # (a non-zero exit is shown by the prompt's red time badge, not a line)
             self.app.invalidate()
         finally:
             self._proc = None
+            self._started_at = None
 
     async def run_in_term(self, command: str):
         """Run an interactive command with the full-screen app suspended.

@@ -67,6 +67,10 @@ STYLE_DEFAULTS = {
         "shell.string": "#ffff87",
         "shell.path": "#5fffff",
         "shell.error": "#ff5f5f",
+        "shell.elapsed": "#ffaf00",  # running-time counter before the prompt
+        # finished-command run time, tinted by exit status (green ok / red fail)
+        "shell.elapsed.ok": "bg:#5faf5f #000000 bold",
+        "shell.elapsed.err": "bg:#ff5f5f #000000 bold",
         # shell tab bar (multiple sessions)
         "shell.tabbar": "bg:#1c1c1c",
         "shell.tab": "bg:#1c1c1c #999999",
