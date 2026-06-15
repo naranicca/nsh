@@ -8,6 +8,7 @@ from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
 from prompt_toolkit.layout.dimension import Dimension
 
 from ..util.paths import shorten_home
+from ..util.width import text_width
 from ..util.widgets import WheelScrollControl
 from .completer import ShellCompleter
 from .lexer import ShellLexer, lex_line
@@ -39,8 +40,10 @@ class ShellView:
             accept_handler=app.accept_command,
         )
 
-        # wrap_lines=False so prompt_toolkit honours get_vertical_scroll (it is
-        # ignored when line-wrapping); this gives deterministic line scrolling.
+        # wrap_lines=True so long output stays readable. prompt_toolkit ignores
+        # get_vertical_scroll while wrapping and scrolls to the cursor instead, so
+        # _cursor_position pins the viewport: to the newest line (follow) or to
+        # the slice top (scrolled up). See _cursor_position / _output_text.
         output_control = WheelScrollControl(
             lambda d: self.scroll(d * 3),  # mouse wheel: 3 lines per notch
             text=self._output_text,
@@ -49,8 +52,7 @@ class ShellView:
         )
         self.output_window = Window(
             output_control,
-            wrap_lines=False,
-            get_vertical_scroll=self._vertical_scroll,
+            wrap_lines=True,
             height=self._output_height,
             style="class:shell.output",
         )
@@ -116,16 +118,28 @@ class ShellView:
             return self._bottom_top()
         return max(0, min(self.scroll_top, max(0, self.line_count() - 1)))
 
-    def _cursor_position(self):
-        # _output_text feeds only the visible slice, so the top visible line is
-        # always content row 0. Pinning the cursor there keeps do_scroll from
-        # nudging the (already correct) vertical scroll.
-        return Point(0, 0)
+    def _slice(self):
+        """``(top, committed, include_live)`` for the currently visible window.
 
-    def _vertical_scroll(self, _window):
-        # The content is pre-sliced to start at the first visible line, so the
-        # window always renders from its top.
-        return 0
+        Only these lines are materialised by :meth:`_output_text`; everything is
+        bounded by the window height so a long scrollback never slows rendering.
+        """
+        top = self._view_top()
+        end = top + self._visible_height() + SCROLL_BUFFER
+        n = len(self.lines)
+        committed = max(0, min(end, n) - top)
+        include_live = bool(self._live_open()) and top <= n < end
+        return top, committed, include_live
+
+    def _cursor_position(self):
+        # While wrapping, prompt_toolkit scrolls to keep the cursor visible. The
+        # content is the visible slice only, so pin the cursor to the newest line
+        # (follow: bottom of the window) or to the slice top (scrolled up).
+        top, committed, include_live = self._slice()
+        if self.scroll_top is None:
+            count = committed + (1 if include_live else 0)
+            return Point(0, max(0, count - 1))
+        return Point(0, 0)
 
     def _page(self):
         ri = self.output_window.render_info
@@ -166,18 +180,40 @@ class ShellView:
         # hashes the entire fragment list each frame. Slicing to the viewport
         # keeps that cost bounded by the window height no matter how much has
         # scrolled past.
-        top = self._view_top()
-        end = top + self._visible_height() + SCROLL_BUFFER
-        n = len(self.lines)
+        top, committed, include_live = self._slice()
         result = []
-        for idx in range(top, min(end, n)):
+        for idx in range(top, top + committed):
             result.extend(self.lines[idx])
             result.append(("", "\n"))
-        live = self._live_open()
-        if live and top <= n < end:  # the live line sits at index n (after lines)
-            result.extend(to_formatted_text(ANSI(live.expandtabs(4))))
+        if include_live:
+            result.extend(to_formatted_text(ANSI(self._live_open().expandtabs(4))))
             result.append(("", "\n"))
         return result
+
+    @staticmethod
+    def _wrapped_rows(text, cols):
+        """Screen rows a single logical line occupies once wrapped to ``cols``."""
+        return max(1, -(-text_width(text) // cols))  # ceil, at least one row
+
+    def display_rows(self, cols, limit=None):
+        """Total wrapped screen rows for the whole log.
+
+        Used to size the split layout in row units (a long wrapped line must
+        reserve more than one row). ``limit`` short-circuits once the running
+        total passes it, so the fullscreen check stays O(visible) rather than
+        O(scrollback).
+        """
+        cols = max(1, cols)
+        total = 0
+        for fragments in self.lines:
+            total += self._wrapped_rows("".join(t for _, t in fragments), cols)
+            if limit is not None and total > limit:
+                return total
+        live = self._live_open()
+        if live:
+            text = "".join(t for _, t in to_formatted_text(ANSI(live.expandtabs(4))))
+            total += self._wrapped_rows(text, cols)
+        return total
 
     def _push(self, fragments):
         self.lines.append(fragments)

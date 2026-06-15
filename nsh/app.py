@@ -374,13 +374,22 @@ class NshApp:
         # leave room for the input line (1), the separator (1) and the explorer
         return max(1, body - 2 - SHELL_MIN_EXPLORER)
 
+    def _term_cols(self):
+        try:
+            return max(1, get_app().output.get_size().columns)
+        except Exception:
+            return 80
+
     def shell_fullscreen(self):
         """True once the output no longer fits the shared (split) layout."""
-        return self.shell.line_count() > self._shell_cap()
+        cap = self._shell_cap()
+        # Count wrapped rows (a long line spans several), short-circuiting at cap.
+        return self.shell.display_rows(self._term_cols(), limit=cap) > cap
 
     def shell_split_output_rows(self):
         """Output rows in split mode: grows with content up to the cap."""
-        return max(0, min(self.shell.line_count(), self._shell_cap()))
+        cap = self._shell_cap()
+        return max(0, min(self.shell.display_rows(self._term_cols(), limit=cap), cap))
 
     # -- command line ---------------------------------------------------------
     def accept_command(self, buff):
