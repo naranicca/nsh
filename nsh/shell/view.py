@@ -14,6 +14,10 @@ from .lexer import ShellLexer, lex_line
 
 MAX_SCROLLBACK = 2000
 
+# A few extra lines are sliced below the estimated viewport so a one-frame-stale
+# height estimate (render_info lags a frame) never blanks the bottom edge.
+SCROLL_BUFFER = 5
+
 
 class ShellView:
     def __init__(self, app):
@@ -101,18 +105,27 @@ class ShellView:
         """The top line index when the very bottom of the log is shown."""
         return max(0, self.line_count() - self._visible_height())
 
-    def _cursor_position(self):
-        # Keep the "cursor" on the top visible line so do_scroll leaves the
-        # preferred vertical scroll (above) untouched.
-        last = max(0, self.line_count() - 1)
-        if self.scroll_top is None:
-            return Point(0, last)
-        return Point(0, min(self.scroll_top, last))
+    def _view_top(self):
+        """First visible line index into the full log.
 
-    def _vertical_scroll(self, _window):
+        Follows the bottom (``_bottom_top``) unless the user scrolled up, in
+        which case the viewport is pinned to ``scroll_top``. This is the slice
+        origin used by :meth:`_output_text`.
+        """
         if self.scroll_top is None:
             return self._bottom_top()
         return max(0, min(self.scroll_top, max(0, self.line_count() - 1)))
+
+    def _cursor_position(self):
+        # _output_text feeds only the visible slice, so the top visible line is
+        # always content row 0. Pinning the cursor there keeps do_scroll from
+        # nudging the (already correct) vertical scroll.
+        return Point(0, 0)
+
+    def _vertical_scroll(self, _window):
+        # The content is pre-sliced to start at the first visible line, so the
+        # window always renders from its top.
+        return 0
 
     def _page(self):
         ri = self.output_window.render_info
@@ -147,12 +160,21 @@ class ShellView:
         return self._last_segment(self._open) if self._open else ""
 
     def _output_text(self):
+        # Only materialise the lines that can be on screen. Feeding prompt_toolkit
+        # the whole scrollback makes every render — and thus every keystroke,
+        # since each invalidates — O(total output): it rebuilds, splits and
+        # hashes the entire fragment list each frame. Slicing to the viewport
+        # keeps that cost bounded by the window height no matter how much has
+        # scrolled past.
+        top = self._view_top()
+        end = top + self._visible_height() + SCROLL_BUFFER
+        n = len(self.lines)
         result = []
-        for fragments in self.lines:
-            result.extend(fragments)
+        for idx in range(top, min(end, n)):
+            result.extend(self.lines[idx])
             result.append(("", "\n"))
         live = self._live_open()
-        if live:
+        if live and top <= n < end:  # the live line sits at index n (after lines)
             result.extend(to_formatted_text(ANSI(live.expandtabs(4))))
             result.append(("", "\n"))
         return result
