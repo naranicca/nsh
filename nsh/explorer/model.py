@@ -1,7 +1,21 @@
 """Directory listing model."""
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
+
+_DIGITS_RE = re.compile(r"(\d+)")
+
+
+def natural_key(name: str):
+    """Sort key for natural/human ordering: ``2.txt`` sorts before ``10.txt``.
+
+    Splits into alternating text / number runs and compares numbers by value.
+    re.split always yields text at even indices and digits at odd ones, so two
+    keys compare element-wise without mixing ``str`` and ``int``.
+    """
+    parts = _DIGITS_RE.split(name.lower())
+    return [int(p) if p.isdigit() else p for p in parts]
 
 IMAGE_EXTS = {
     ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp",
@@ -93,5 +107,5 @@ def list_dir(path, show_hidden: bool = False):
                     mtime=mtime,
                 )
             )
-    entries.sort(key=lambda e: (not e.is_dir, e.name.lower()))
+    entries.sort(key=lambda e: (not e.is_dir, natural_key(e.name)))
     return entries
