@@ -428,7 +428,11 @@ class NshApp:
     async def _exec(self, cmd):
         try:
             if self.runner.is_interactive(cmd):
-                await self.runner.run_in_term(cmd)
+                rc = await self.runner.run_in_term(cmd)
+                # network git ran on the suspended terminal (its output isn't in
+                # the scrollback); leave a one-line note of how it ended.
+                if self.runner.is_git_network(cmd):
+                    self.shell.append(*self.runner.git_summary(cmd, rc))
             else:
                 await self.runner.run(cmd)
         except Exception as exc:  # noqa: BLE001 - surfaced to the user

@@ -168,6 +168,28 @@ class CommandRunner:
             return tok
         return None
 
+    def is_git_network(self, command: str) -> bool:
+        """True for git subcommands that contact a remote (may prompt for auth)."""
+        parts = command.strip().split()
+        if not parts or os.path.basename(parts[0]) != "git":
+            return False
+        return self._git_subcommand(parts) in GIT_NETWORK
+
+    def git_summary(self, command: str, rc):
+        """A one-line scrollback note for a network git command.
+
+        Its real output went to the suspended terminal (run_in_term), so leave a
+        trace of how it ended. Returns ``(text, style)``.
+        """
+        parts = command.strip().split()
+        sub = self._git_subcommand(parts) if parts else None
+        label = f"git {sub}" if sub else "git"
+        if rc == 0:
+            return f"{label}: done", "class:shell.prompt"
+        if rc is None:
+            return f"{label}: failed", "class:shell.error"
+        return f"{label}: exit code {rc}", "class:shell.error"
+
     def is_interactive(self, command: str) -> bool:
         parts = command.strip().split()
         if not parts:
@@ -177,7 +199,7 @@ class CommandRunner:
             return True
         if cmd == "sudo":  # prompts for a password on the terminal
             return True
-        if cmd == "git" and self._git_subcommand(parts) in GIT_NETWORK:
+        if self.is_git_network(command):
             return True
         if cmd in REPL:
             args = parts[1:]
@@ -257,7 +279,10 @@ class CommandRunner:
             self._proc = None
 
     async def run_in_term(self, command: str):
-        """Run an interactive command with the full-screen app suspended."""
+        """Run an interactive command with the full-screen app suspended.
+
+        Returns the command's exit code (``None`` if it could not be launched).
+        """
         cwd = str(self.app.cwd)
         # Windows: pass the raw command string via shell=True so cmd.exe parses
         # the quotes itself. Building a [cmd, "/c", command] list instead lets
@@ -269,10 +294,13 @@ class CommandRunner:
         else:
             argv, kwargs = [self.shell, *self.shell_args, command], {}
 
+        result = {"rc": None}
+
         def _run():
             try:
-                subprocess.run(argv, cwd=cwd, **kwargs)
+                result["rc"] = subprocess.run(argv, cwd=cwd, **kwargs).returncode
             except Exception as exc:  # noqa: BLE001 - surfaced to the user
                 print(f"nsh: {exc}")
 
         await run_in_terminal(_run)
+        return result["rc"]
