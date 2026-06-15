@@ -8,6 +8,7 @@ are run with prompt_toolkit's ``run_in_terminal`` instead.
 import asyncio
 import codecs
 import os
+import shutil
 import signal
 import subprocess
 import time
@@ -112,15 +113,25 @@ class _StreamDecoder:
 
 
 def detect_shell():
-    """Return ``(executable, prefix_args)`` for the host's default shell."""
+    """Return ``(executable, prefix_args, is_posix)`` for the host's shell.
+
+    ``is_posix`` means invoke the shell directly (``sh -c CMD``) instead of via
+    cmd.exe. On Windows nsh honours a Git Bash / MSYS2 session (``MSYSTEM`` is
+    set) so ``./script.sh`` and other POSIX commands run as expected; otherwise
+    it uses cmd.exe / PowerShell.
+    """
     if os.name == "nt":
+        if os.environ.get("MSYSTEM"):  # launched from Git Bash / MSYS2
+            bash = shutil.which("bash")
+            if bash:
+                return bash, ["-c"], True
         comspec = os.environ.get("COMSPEC", "cmd.exe")
         base = os.path.basename(comspec).lower()
         if "powershell" in base or "pwsh" in base:
-            return comspec, ["-NoProfile", "-Command"]
-        return comspec, ["/c"]
+            return comspec, ["-NoProfile", "-Command"], False
+        return comspec, ["/c"], False
     shell = os.environ.get("SHELL", "/bin/sh")
-    return shell, ["-c"]
+    return shell, ["-c"], True
 
 
 class CommandRunner:
@@ -130,7 +141,7 @@ class CommandRunner:
         # writing to its own tab even after the user switches away). ``None`` for
         # the app-level runner that only ever drives run_in_term (editors, etc.).
         self.session = session
-        self.shell, self.shell_args = detect_shell()
+        self.shell, self.shell_args, self._is_posix = detect_shell()
         self._fallback_encoding = _oem_fallback()  # OEM code page, for non-UTF-8 output
         self._proc = None  # the currently streaming subprocess, if any
         self._interrupted = False  # set when the user kills the command (Ctrl-C)
@@ -266,20 +277,19 @@ class CommandRunner:
             stderr=asyncio.subprocess.STDOUT,
         )
         try:
-            if os.name == "nt":
-                # Run through the shell so cmd.exe parses the command's own
-                # quotes (e.g. python -c "..."). create_subprocess_exec would
-                # route them through list2cmdline, which escapes the inner
-                # quotes and corrupts the command.
-                proc = await asyncio.create_subprocess_shell(command, **kwargs)
-            else:
-                # Unix: exec the shell directly (execve doesn't re-quote, so the
-                # command's quotes survive) in a new session so Ctrl-C can signal
-                # the whole process group (the shell plus what it spawns).
+            if self._is_posix:
+                # Exec the shell directly (sh/bash -c CMD). On real POSIX, start a
+                # new session so Ctrl-C can signal the whole process group; Git
+                # Bash on Windows is killed via taskkill instead, so skip it there.
+                extra = {"start_new_session": True} if os.name == "posix" else {}
                 proc = await asyncio.create_subprocess_exec(
-                    self.shell, *self.shell_args, command,
-                    start_new_session=True, **kwargs,
+                    self.shell, *self.shell_args, command, **kwargs, **extra,
                 )
+            else:
+                # cmd.exe / PowerShell: pass the raw line so the shell parses its
+                # own quotes (e.g. python -c "..."). create_subprocess_exec would
+                # route them through list2cmdline, corrupting the inner quotes.
+                proc = await asyncio.create_subprocess_shell(command, **kwargs)
         except (FileNotFoundError, NotADirectoryError, OSError) as exc:
             self._sink.append(f"nsh: cannot run shell: {exc}", "class:shell.error")
             self._last_duration, self._last_rc = 0.0, 127  # show as a failure
@@ -321,15 +331,14 @@ class CommandRunner:
         Returns the command's exit code (``None`` if it could not be launched).
         """
         cwd = str(self.app.cwd)
-        # Windows: pass the raw command string via shell=True so cmd.exe parses
-        # the quotes itself. Building a [cmd, "/c", command] list instead lets
-        # Python's list2cmdline escape the inner quotes (e.g. a quoted path) into
-        # \" , which cmd then mis-parses. Unix has no such re-quoting: argv goes
-        # straight to execve and ``$SHELL -c`` handles the quoting.
-        if os.name == "nt":
-            argv, kwargs = command, {"shell": True}
-        else:
+        # POSIX shell (incl. Git Bash): pass argv straight to the shell. cmd.exe /
+        # PowerShell instead get the raw string via shell=True so they parse their
+        # own quotes — a [cmd, "/c", command] list would let list2cmdline escape
+        # the inner quotes (e.g. a quoted path) into \" and mis-parse.
+        if self._is_posix:
             argv, kwargs = [self.shell, *self.shell_args, command], {}
+        else:
+            argv, kwargs = command, {"shell": True}
 
         result = {"rc": None}
 
