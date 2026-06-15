@@ -100,7 +100,7 @@ leaves git mode automatically.
 | Key | Action |
 | --- | --- |
 | typing | live syntax highlighting |
-| `Tab` | completion popup (`↑`/`↓` to navigate, `↵` to pick) |
+| `Tab` | completion popup; `↑`/`↓` or `j`/`k` navigate, `Tab` picks (no space), `Space` picks and adds a space |
 | `↑`/`↓` | command history (when no popup is open) |
 | `↵` | run the command |
 | `PgUp`/`PgDn`, `Alt+↑`/`Alt+↓`, wheel, `Ctrl+End` | scroll the output (the prompt hides while scrolled up) |

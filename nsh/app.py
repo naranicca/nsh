@@ -8,7 +8,7 @@ from pathlib import Path
 
 from prompt_toolkit.application import Application
 from prompt_toolkit.application.current import get_app
-from prompt_toolkit.filters import Condition
+from prompt_toolkit.filters import Condition, has_completions
 from prompt_toolkit.key_binding import KeyBindings, merge_key_bindings
 from prompt_toolkit.key_binding.defaults import load_key_bindings
 from prompt_toolkit.layout.containers import (
@@ -221,6 +221,42 @@ class NshApp:
         @kb.add("c-w", filter=shell_mode)
         def _(event):
             self.close_shell_tab()
+
+        # Tab completion: Tab opens the menu (first item selected); while it is
+        # open the arrows or j/k move, Tab accepts (no trailing space) and Space
+        # accepts and adds a space, ending completion.
+        completing = shell_mode & has_completions
+
+        @kb.add("tab", filter=shell_mode & ~has_completions)
+        def _(event):
+            event.current_buffer.start_completion(select_first=True)
+
+        @kb.add("tab", filter=completing)
+        def _(event):
+            buff = event.current_buffer
+            state = buff.complete_state
+            comp = state.current_completion if state else None
+            buff.complete_state = None  # accept; no trailing space
+            # if the accepted item is a directory (its completion ends in a
+            # separator), reopen the menu so its contents can be drilled into
+            if comp is not None and comp.text.endswith(("/", "\\")):
+                buff.start_completion(select_first=True)
+
+        @kb.add("space", filter=completing)
+        def _(event):
+            buff = event.current_buffer
+            buff.complete_state = None  # accept the highlighted item…
+            buff.insert_text(" ")       # …and end it with a space
+
+        @kb.add("up", filter=completing)
+        @kb.add("k", filter=completing)
+        def _(event):
+            event.current_buffer.complete_previous()
+
+        @kb.add("down", filter=completing)
+        @kb.add("j", filter=completing)
+        def _(event):
+            event.current_buffer.complete_next()
 
         # Ctrl-D on an empty command line closes the current tab (shell
         # convention); with text present the filter is false, so the default

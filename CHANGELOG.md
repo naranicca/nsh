@@ -5,6 +5,9 @@ Notable user-facing changes to the Python rewrite. Newest first.
 ## Unreleased
 
 ### Command-line (shell) mode
+- **Tab-completion menu navigation.** Tab opens the completion menu with the
+  first item selected; the arrows or `j`/`k` move through it, `Tab` accepts the
+  highlighted item (no trailing space) and `Space` accepts it and adds a space.
 - **Running-time in the prompt.** While a tab's command is still running, the
   prompt is prefixed with the live elapsed time (e.g. `[9s]`), ticking each
   second. After it finishes the time stays, tinted green (exit 0) or red
