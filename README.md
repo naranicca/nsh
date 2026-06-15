@@ -104,7 +104,14 @@ leaves git mode automatically.
 | `↑`/`↓` | command history (when no popup is open) |
 | `↵` | run the command |
 | `PgUp`/`PgDn`, `Alt+↑`/`Alt+↓`, wheel, `Ctrl+End` | scroll the output (the prompt hides while scrolled up) |
+| `Ctrl+T` / `Ctrl+W` | open / close a shell tab |
+| `Alt+←` / `Alt+→` (or `F7` / `F8`) | previous / next shell tab |
 | `ESC` | switch back to explorer mode |
+
+Each shell **tab** is an independent session with its own scrollback and process.
+Entering a command while the current one is still running opens it in a new tab
+(rather than mixing the output); a tab bar appears once there is more than one,
+marking which sessions are still running.
 
 Built-ins handled internally: `cd`, `clear`/`cls`, `exit`/`quit`. The output pane
 grows with its content and goes full-screen once it fills up. Long lines wrap,
@@ -170,10 +177,11 @@ nsh/
     fuzzy.py          fzf-style scorer + directory indexer
     view.py           the fuzzy picker
   shell/
-    runner.py         host-shell wrap via asyncio subprocesses
+    runner.py         host-shell wrap via asyncio subprocesses (per session)
+    tabs.py           multiple shell sessions managed as tabs
     completer.py      interactive path + command Tab-completion
     lexer.py          command-line syntax highlighting
-    view.py           scrollback (ANSI / CR / BS-aware, word-wrapped) + prompt
+    view.py           one session: scrollback (ANSI / CR / BS-aware, wrapped) + prompt
 ```
 
 ### Design notes

@@ -14,6 +14,7 @@ from ..util.width import text_width
 from ..util.widgets import WheelScrollControl
 from .completer import ShellCompleter
 from .lexer import ShellLexer, lex_line
+from .runner import CommandRunner
 
 MAX_SCROLLBACK = 2000
 
@@ -27,6 +28,11 @@ SCROLL_BUFFER = 5
 
 
 class ShellView:
+    """One shell session: its own scrollback, input line and running process.
+
+    Several of these are managed as tabs by :class:`~nsh.shell.tabs.ShellTabs`.
+    """
+
     def __init__(self, app):
         self.app = app
         self.lines = []  # list of fragment-lists: [[(style, text), ...], ...]
@@ -36,6 +42,9 @@ class ShellView:
         # Output scroll: None = follow the bottom; otherwise the top visible
         # line the viewport is pinned to (set when the user scrolls up).
         self.scroll_top = None
+        # this session's process runner, and the tab label (last command's name)
+        self.runner = CommandRunner(app, self)
+        self.title = "shell"
 
         self.command_buffer = Buffer(
             name="command",
@@ -43,7 +52,7 @@ class ShellView:
             completer=ShellCompleter(app),
             complete_while_typing=False,
             history=InMemoryHistory(),
-            accept_handler=app.accept_command,
+            accept_handler=self._accept,
         )
 
         # wrap_lines=True so long output stays readable. prompt_toolkit ignores
@@ -76,6 +85,13 @@ class ShellView:
             height=self._input_height,
         )
         self.container = HSplit([self.output_window, self.input_window])
+
+    def _accept(self, buff):
+        self.app.run_in_shell(self, buff.text)
+        return False  # clear the input line
+
+    def busy(self) -> bool:
+        return self.runner.is_running()
 
     # -- auto-grow height -----------------------------------------------------
     def _input_height(self):

@@ -123,12 +123,20 @@ def detect_shell():
 
 
 class CommandRunner:
-    def __init__(self, app):
+    def __init__(self, app, session=None):
         self.app = app
+        # the shell session this runner streams output into (so a command keeps
+        # writing to its own tab even after the user switches away). ``None`` for
+        # the app-level runner that only ever drives run_in_term (editors, etc.).
+        self.session = session
         self.shell, self.shell_args = detect_shell()
         self._fallback_encoding = _oem_fallback()  # OEM code page, for non-UTF-8 output
         self._proc = None  # the currently streaming subprocess, if any
         self._interrupted = False  # set when the user kills the command (Ctrl-C)
+
+    @property
+    def _sink(self):
+        return self.session if self.session is not None else self.app.shell
 
     def is_running(self) -> bool:
         return self._proc is not None and self._proc.returncode is None
@@ -249,7 +257,7 @@ class CommandRunner:
                     start_new_session=True, **kwargs,
                 )
         except (FileNotFoundError, NotADirectoryError, OSError) as exc:
-            self.app.shell.append(f"nsh: cannot run shell: {exc}", "class:shell.error")
+            self._sink.append(f"nsh: cannot run shell: {exc}", "class:shell.error")
             return
         self._proc = proc
         try:
@@ -263,17 +271,17 @@ class CommandRunner:
                     break
                 text = decoder.decode(chunk)
                 if text:
-                    self.app.shell.feed_output(text)
+                    self._sink.feed_output(text)
                     self.app.invalidate()
             tail = decoder.decode(b"", final=True)
             if tail:
-                self.app.shell.feed_output(tail)
-            self.app.shell.flush_output()
+                self._sink.feed_output(tail)
+            self._sink.flush_output()
             await proc.wait()
             # report a non-zero exit (unless the user interrupted it themselves)
             rc = proc.returncode
             if rc and not self._interrupted:
-                self.app.shell.append(f"[exit code {rc}]", "class:shell.error")
+                self._sink.append(f"[exit code {rc}]", "class:shell.error")
             self.app.invalidate()
         finally:
             self._proc = None

@@ -67,6 +67,14 @@ STYLE_DEFAULTS = {
         "shell.string": "#ffff87",
         "shell.path": "#5fffff",
         "shell.error": "#ff5f5f",
+        # shell tab bar (multiple sessions)
+        "shell.tabbar": "bg:#1c1c1c",
+        "shell.tab": "bg:#1c1c1c #999999",
+        "shell.tab.active": "bg:#5f87af #ffffff bold",
+        # the running-dot fg only. Deliberately NOT under the "shell.tab."
+        # namespace: as a child it would re-apply shell.tab's background and
+        # wipe the active tab's highlight when layered on top of it.
+        "shell.running": "#5fff5f bold",
         # completion popup
         "completion-menu.completion": "bg:#303030 #d0d0d0",
         "completion-menu.completion.current": "bg:#5fafff #000000 bold",

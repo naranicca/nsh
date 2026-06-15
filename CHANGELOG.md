@@ -5,6 +5,11 @@ Notable user-facing changes to the Python rewrite. Newest first.
 ## Unreleased
 
 ### Command-line (shell) mode
+- **Shell tabs / multiple sessions.** Entering a command while the current one
+  is still running opens it in a new shell tab instead of interleaving output;
+  each tab has its own scrollback and process. Switch with Alt+←/→, open a tab
+  with Ctrl+T, close with Ctrl+W. A tab bar (shown once there is more than one)
+  marks which sessions are still running.
 - **Word-wrap output.** Long lines now wrap instead of being cut off at the
   right edge, so you can read them in full.
 - **Backspace-aware output.** A `\b` (0x08) in command output is resolved the

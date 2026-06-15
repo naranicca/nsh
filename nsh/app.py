@@ -30,7 +30,7 @@ from .explorer.preview import PreviewView
 from .explorer.view import ExplorerView
 from .search.view import SearchView
 from .shell.runner import CommandRunner
-from .shell.view import ShellView
+from .shell.tabs import ShellTabs
 from .util.bookmarks import Bookmarks
 from .util.dialog import ConfirmDialog, InputDialog
 from .util.menu import Menu
@@ -100,9 +100,10 @@ class NshApp:
         self.picker = picker
         self.search_result = None
 
+        # app-level runner: only drives run_in_term (editors, etc.), no session
         self.runner = CommandRunner(self)
         self.explorer = ExplorerView(self)
-        self.shell = ShellView(self)
+        self.shells = ShellTabs(self)  # the shell sessions, managed as tabs
         self.preview = PreviewView(self)
         self.show_preview = True
         self.search = SearchView(self)
@@ -116,6 +117,14 @@ class NshApp:
         self.confirm_dialog = ConfirmDialog(self._dialog_closed)
 
         self.application = self._build_application()
+
+    @property
+    def shell(self):
+        """The active shell session (most code only ever touches this one)."""
+        return self.shells.current()
+
+    def focus_shell(self):
+        self.application.layout.focus(self.shells.current().command_buffer)
 
     # -- layout ---------------------------------------------------------------
     def _build_application(self):
@@ -155,9 +164,9 @@ class NshApp:
 
         @kb.add("c-c")
         def _(event):
-            # Ctrl-C stops the running command (and its children) but never quits
-            # nsh; with nothing running it just clears the command line.
-            if self.runner.interrupt():
+            # Ctrl-C stops the active session's command (and its children) but
+            # never quits nsh; with nothing running it just clears the input.
+            if self.shell.runner.interrupt():
                 self.shell.append("^C")
             elif self.mode == SHELL:
                 self.shell.command_buffer.reset()
@@ -190,15 +199,39 @@ class NshApp:
         def _(event):
             self.shell.scroll(1)
 
-        # Ctrl-D on an empty command line quits nsh (shell convention); with text
-        # present the filter is false, so the default delete-char still applies.
+        # shell tabs: switch with Alt+Left/Right, new with Ctrl+T, close Ctrl+W.
+        # (Alt+arrow arrives as Escape+arrow on both Win32 and VT100; Ctrl+PgUp/
+        # PgDn is unusable — Windows Terminal forwards it without the Ctrl flag,
+        # making it indistinguishable from a plain PageUp scroll.)
+        @kb.add("escape", "left", filter=shell_mode)
+        @kb.add("f7", filter=shell_mode)
+        def _(event):
+            self.shells.prev()
+
+        @kb.add("escape", "right", filter=shell_mode)
+        @kb.add("f8", filter=shell_mode)
+        def _(event):
+            self.shells.next()
+
+        @kb.add("c-t", filter=shell_mode)
+        def _(event):
+            self.shells.new_session()
+            self.invalidate()
+
+        @kb.add("c-w", filter=shell_mode)
+        def _(event):
+            self.close_shell_tab()
+
+        # Ctrl-D on an empty command line closes the current tab (shell
+        # convention); with text present the filter is false, so the default
+        # delete-char still applies. Closing the last tab leaves shell mode.
         shell_line_empty = shell_mode & Condition(
             lambda: not self.shell.command_buffer.text
         )
 
         @kb.add("c-d", filter=shell_line_empty)
         def _(event):
-            self.exit()
+            self.close_shell_tab()
 
         self._explorer_split = VSplit(
             [
@@ -235,7 +268,7 @@ class NshApp:
             [
                 explorer_area,
                 Window(height=1, char="─", style="class:preview.border"),
-                self.shell.container,
+                self.shells.container,
             ]
         )
 
@@ -246,7 +279,7 @@ class NshApp:
                 return git_area
             if self.mode == SHELL:
                 # grow with output, then take the whole screen at the cap
-                return self.shell.container if self.shell_fullscreen() else self._shell_split
+                return self.shells.container if self.shell_fullscreen() else self._shell_split
             return explorer_area
 
         body = DynamicContainer(_body)
@@ -376,8 +409,8 @@ class NshApp:
         else:
             hints = [
                 ("Tab", "complete"), ("↵", "run"), ("↑↓", "history"),
-                ("PgUp/PgDn", "scroll"), ("^C", "stop"), ("^D", "quit"),
-                ("ESC", "explorer"),
+                ("PgUp/PgDn", "scroll"), ("^T/^W", "tab"), ("Alt+←→/F7·8", "switch"),
+                ("^C", "stop"), ("ESC", "explorer"),
             ]
         segs = []
         for key, label in hints:
@@ -397,7 +430,7 @@ class NshApp:
             self._shell_return = self.mode
         self.mode = mode
         if mode == SHELL:
-            self.application.layout.focus(self.shell.command_buffer)
+            self.focus_shell()
         elif mode == SEARCH:
             self.search.start(self._pending_query)
             self._pending_query = ""
@@ -482,22 +515,30 @@ class NshApp:
         return max(0, min(self.shell.display_rows(self._term_cols(), limit=cap), cap))
 
     # -- command line ---------------------------------------------------------
-    def accept_command(self, buff):
-        cmd = buff.text
+    def run_in_shell(self, session, cmd):
+        """Run ``cmd`` typed in ``session``. If that session is still running a
+        command, the new one opens in a fresh tab instead of interleaving."""
         if not cmd.strip():
-            return False
-        self.shell.append_command(cmd)
-        if not self._handle_builtin(cmd):
-            asyncio.ensure_future(self._exec(cmd))
-        return False  # clear the input line
+            return
+        if session.busy():
+            session = self.shells.new_session()
+        session.title = self._cmd_title(cmd)
+        session.append_command(cmd)
+        if not self._handle_builtin(session, cmd):
+            asyncio.ensure_future(self._exec(session, cmd))
 
-    def _handle_builtin(self, cmd):
+    @staticmethod
+    def _cmd_title(cmd):
+        parts = cmd.split()
+        return os.path.basename(parts[0]) if parts else "shell"
+
+    def _handle_builtin(self, session, cmd):
         stripped = cmd.strip()
         if stripped in ("exit", "quit"):
-            self.exit()
+            self.shells.close(session)  # close this tab (or leave shell mode)
             return True
         if stripped in ("clear", "cls"):
-            self.shell.clear()
+            session.clear()
             return True
         if stripped == "cd" or stripped.startswith("cd "):
             target = stripped[2:].strip() or "~"
@@ -506,23 +547,33 @@ class NshApp:
             if path.is_dir():
                 self.set_cwd(path)
             else:
-                self.shell.append(f"cd: no such directory: {target}", "class:shell.error")
+                session.append(f"cd: no such directory: {target}", "class:shell.error")
             return True
         return False
 
-    async def _exec(self, cmd):
+    async def _exec(self, session, cmd):
+        runner = session.runner
         try:
-            if self.runner.is_interactive(cmd):
-                rc = await self.runner.run_in_term(cmd)
+            if runner.is_interactive(cmd):
+                rc = await runner.run_in_term(cmd)
                 # network git ran on the suspended terminal (its output isn't in
                 # the scrollback); leave a one-line note of how it ended.
-                if self.runner.is_git_network(cmd):
-                    self.shell.append(*self.runner.git_summary(cmd, rc))
+                if runner.is_git_network(cmd):
+                    session.append(*runner.git_summary(cmd, rc))
             else:
-                await self.runner.run(cmd)
+                await runner.run(cmd)
         except Exception as exc:  # noqa: BLE001 - surfaced to the user
-            self.shell.append(f"nsh: {exc}", "class:shell.error")
+            session.append(f"nsh: {exc}", "class:shell.error")
         self.invalidate()
+
+    def close_shell_tab(self):
+        """Ctrl-W: close the active tab, confirming first if it's still busy."""
+        session = self.shells.current()
+        if session.busy():
+            self.confirm("A command is still running. Close this tab?",
+                         lambda ok: self.shells.close(session) if ok else None)
+        else:
+            self.shells.close(session)
 
     def edit_file(self, path):
         """Open ``path`` in a text editor.
@@ -604,7 +655,7 @@ class NshApp:
     # -- focus / overlays -----------------------------------------------------
     def _restore_focus(self):
         if self.mode == SHELL:
-            self.application.layout.focus(self.shell.command_buffer)
+            self.focus_shell()
         elif self.mode == GIT:
             self.application.layout.focus(self.gitview.control)
         else:
@@ -665,15 +716,15 @@ class NshApp:
             pass
 
     def exit(self):
-        # if a shell command is still running, confirm before quitting
-        if self.runner.is_running():
+        # if any shell session is still running, confirm before quitting
+        if self.shells.any_running():
             self.confirm("A command is still running. Quit anyway?", self._confirm_quit)
             return
         self._do_exit()
 
     def _confirm_quit(self, ok):
         if ok:
-            self.runner.interrupt()  # don't leave the command orphaned
+            self.shells.interrupt_all()  # don't leave commands orphaned
             self._do_exit()
 
     def _do_exit(self):
