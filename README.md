@@ -17,6 +17,8 @@ It has three modes:
 3. **Fuzzy search** — an fzf-style file picker (`/` from the explorer, or
    `nsh search` from the command line).
 
+Recent changes are listed in [CHANGELOG.md](CHANGELOG.md).
+
 ## Install / run
 
 Requires Python 3.7+.
@@ -89,11 +91,14 @@ action menu when the directory is a repository.
 | `Tab` | completion popup (`↑`/`↓` to navigate, `↵` to pick) |
 | `↑`/`↓` | command history (when no popup is open) |
 | `↵` | run the command |
-| `PgUp`/`PgDn`, wheel, `Ctrl+End` | scroll the output (the prompt hides while scrolled up) |
+| `PgUp`/`PgDn`, `Alt+↑`/`Alt+↓`, wheel, `Ctrl+End` | scroll the output (the prompt hides while scrolled up) |
 | `ESC` | switch back to explorer mode |
 
 Built-ins handled internally: `cd`, `clear`/`cls`, `exit`/`quit`. The output pane
-grows with its content and goes full-screen once it fills up.
+grows with its content and goes full-screen once it fills up. Long lines wrap,
+non-zero exit codes are reported, and interactive commands that need a real
+terminal — editors/pagers, plus network git (`push`/`pull`/`fetch`/`clone`) and
+`sudo` that may prompt for credentials — run with the UI briefly suspended.
 
 ### Fuzzy search mode
 Type to filter, `↑`/`↓` to move, `↵` to select, `ESC` to cancel. Launched with
@@ -155,7 +160,7 @@ nsh/
     runner.py         host-shell wrap via asyncio subprocesses
     completer.py      interactive path + command Tab-completion
     lexer.py          command-line syntax highlighting
-    view.py           scrollback (ANSI / CR-aware) + prompt
+    view.py           scrollback (ANSI / CR / BS-aware, word-wrapped) + prompt
 ```
 
 ### Design notes
@@ -171,7 +176,9 @@ nsh/
   (`$SHELL -c …` on Unix; `cmd /c …` or `powershell -Command …` on Windows),
   streamed in chunks so a `\r`-only progress bar updates in place. ANSI colour
   codes are interpreted (and colour is forced on via the child environment, since
-  stdout isn't a TTY). Interactive programs (editors, pagers, `top`…) are detected
-  and run with the full-screen UI temporarily suspended.
+  stdout isn't a TTY). Interactive programs (editors, pagers, `top`…) — and
+  commands that may prompt for credentials, like network git and `sudo` — are
+  detected and run with the full-screen UI temporarily suspended so they get a
+  real terminal.
 - **Cross-platform paths.** All path handling uses `pathlib`, so Windows `\` and
   POSIX `/` are handled uniformly.
