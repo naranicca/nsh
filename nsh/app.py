@@ -207,9 +207,10 @@ class NshApp:
                     ycursor=True,
                     content=CompletionsMenu(max_height=16, scroll_offset=1),
                 ),
-                # row 1 = directly under the title bar (row 0); left=1 aligns the
-                # menu with the "nsh" label
-                Float(top=1, left=1, content=self.menu.container),
+                # row 1 = directly under the title bar (row 0). left=0: the menu
+                # rows carry a one-space left pad of their own, so this lands the
+                # text in column 1 — flush under the "n" of the "nsh" label.
+                Float(top=1, left=0, content=self.menu.container),
                 # unpositioned Floats are centered on screen
                 Float(content=self.dialog.container),
                 Float(content=self.confirm_dialog.container),
@@ -279,7 +280,7 @@ class NshApp:
                 style, text = "class:titlebar.branch.dirty", f"⎇ {g.branch}"
             else:
                 style, text = "class:titlebar.branch", f"⎇ {g.branch}"
-            segs.append(("class:titlebar", "  on "))
+            segs.append(("class:titlebar", " on "))
             segs.append((style, text))
         if self.mode == EXPLORER and self.explorer.selected:
             segs.append(("class:titlebar", "   "))

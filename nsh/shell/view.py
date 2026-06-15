@@ -1,4 +1,6 @@
 """Command-line mode UI: a scrollback area above an input prompt."""
+import re
+
 from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.data_structures import Point
 from prompt_toolkit.formatted_text import ANSI, to_formatted_text
@@ -14,6 +16,10 @@ from .completer import ShellCompleter
 from .lexer import ShellLexer, lex_line
 
 MAX_SCROLLBACK = 2000
+
+# CSI escape sequence (e.g. colour SGR "\x1b[31m"); matched so backspace
+# resolution can step over escapes without counting them as printable columns.
+_CSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 
 # A few extra lines are sliced below the estimated viewport so a one-frame-stale
 # height estimate (render_info lags a frame) never blanks the bottom edge.
@@ -170,8 +176,56 @@ class ShellView:
                 return seg
         return ""
 
+    @staticmethod
+    def _apply_backspace(text):
+        r"""Resolve ``\b`` (0x08) the way a terminal does: move the cursor left
+        and let later characters overwrite, instead of showing a literal ``^H``.
+
+        SGR colour state is sticky across the cursor moves (re-emitted per run),
+        so e.g. ``\x1b[31mab\bX`` keeps X red. Lines without a backspace take a
+        fast path and are returned unchanged.
+        """
+        if "\b" not in text:
+            return text
+        cells = []   # (sgr_prefix, char) per visible column
+        cur = 0
+        sgr = ""     # accumulated SGR state, prefixed onto each written char
+        i, n = 0, len(text)
+        while i < n:
+            ch = text[i]
+            if ch == "\b":
+                cur = max(0, cur - 1)
+                i += 1
+            elif ch == "\x1b":
+                m = _CSI_RE.match(text, i)
+                if not m:
+                    i += 1  # lone/again-unrecognised ESC: drop it
+                    continue
+                seq = m.group()
+                if seq.endswith("m"):  # colour/SGR: update sticky state
+                    sgr = "" if seq in ("\x1b[m", "\x1b[0m") else sgr + seq
+                i = m.end()
+            else:  # printable: overwrite at the cursor (or extend the line)
+                if cur < len(cells):
+                    cells[cur] = (sgr, ch)
+                else:
+                    cells.append((sgr, ch))
+                cur += 1
+                i += 1
+        out, last = [], None
+        for pfx, c in cells:
+            if pfx != last:
+                out.append("\x1b[0m")  # clear the previous run's colour first
+                if pfx:
+                    out.append(pfx)
+                last = pfx
+            out.append(c)
+        if last:
+            out.append("\x1b[0m")
+        return "".join(out)
+
     def _live_open(self):
-        return self._last_segment(self._open) if self._open else ""
+        return self._apply_backspace(self._last_segment(self._open)) if self._open else ""
 
     def _output_text(self):
         # Only materialise the lines that can be on screen. Feeding prompt_toolkit
@@ -238,7 +292,7 @@ class ShellView:
             self._open = ""
 
     def _commit_line(self, raw):
-        line = self._last_segment(raw).expandtabs(4)
+        line = self._apply_backspace(self._last_segment(raw)).expandtabs(4)
         self._push(list(to_formatted_text(ANSI(line))) or [("", "")])
 
     # -- internal (already-styled) lines -------------------------------------
