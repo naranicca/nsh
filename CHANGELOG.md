@@ -28,6 +28,10 @@ Notable user-facing changes to the Python rewrite. Newest first.
   (e.g. `python -c "..."`).
 
 ### Explorer & Git
+- **Symlinked directories keep their logical path** (`cd -L`): entering a
+  symlinked subdir shows the path you followed (not the link target), and going
+  up returns to the directory that holds the link instead of the target's real
+  parent.
 - **Untracked marker** (`?`) is now gray instead of red.
 - **Title-bar branch colour** reflects repo state: red when there are
   uncommitted changes, yellow `↓N` when behind the upstream, yellow `↑N` when

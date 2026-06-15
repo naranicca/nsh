@@ -45,9 +45,37 @@ SEARCH = "search"
 SHELL_MIN_EXPLORER = 5
 
 
+def _logical_path(path, base):
+    """Absolute, lexically-normalised ``cd -L`` path: symlinks are NOT resolved.
+
+    Joining ``..`` lexically (``normpath``) instead of letting the kernel walk
+    the real directory tree is what keeps logical paths stable — entering a
+    symlinked dir shows the path you followed, and going up returns to the
+    directory that holds the link rather than the link target's real parent.
+    """
+    p = Path(path)
+    if not p.is_absolute():
+        p = Path(base) / p
+    return Path(os.path.normpath(str(p)))
+
+
+def _initial_logical_cwd():
+    """Logical cwd at launch: honour ``$PWD`` (the shell's logical path) when it
+    names the same directory as the physical cwd, else fall back to it."""
+    here = os.getcwd()
+    pwd = os.environ.get("PWD")
+    if pwd and os.path.isabs(pwd):
+        try:
+            if os.path.samefile(pwd, here):
+                return Path(os.path.normpath(pwd))
+        except OSError:
+            pass
+    return Path(here)
+
+
 class NshApp:
     def __init__(self, start_mode=None, query="", picker=False):
-        self.cwd = Path.cwd().resolve()
+        self.cwd = _initial_logical_cwd()
         self.mode = EXPLORER
         self.git_status = git.GitStatus()
         self._git_task = None
@@ -415,13 +443,8 @@ class NshApp:
             return True
         if stripped == "cd" or stripped.startswith("cd "):
             target = stripped[2:].strip() or "~"
-            path = Path(os.path.expanduser(target))
-            if not path.is_absolute():
-                path = self.cwd / path
-            try:
-                path = path.resolve()
-            except OSError:
-                pass
+            # logical (cd -L) target; set_cwd normalises and keeps symlinks
+            path = _logical_path(os.path.expanduser(target), self.cwd)
             if path.is_dir():
                 self.set_cwd(path)
             else:
@@ -471,13 +494,17 @@ class NshApp:
 
     # -- directory / git ------------------------------------------------------
     def set_cwd(self, path, select_name=None):
-        path = Path(path)
+        # Keep the logical (cd -L) path: don't resolve symlinks. Crucially we
+        # chdir to the lexically-normalised target, not the raw path — chdir-ing
+        # through "<symlink>/.." would let the kernel walk into the link target
+        # and land us in the wrong directory.
+        target = _logical_path(path, self.cwd)
         try:
-            os.chdir(path)
+            os.chdir(target)
         except OSError as exc:
             self.set_message(f"cannot enter: {exc}")
             return
-        self.cwd = path.resolve()
+        self.cwd = target
         self.explorer.selected.clear()
         self.explorer.load()
         # put the cursor on ``select_name`` (e.g. the directory we came up from)
