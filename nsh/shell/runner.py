@@ -25,6 +25,16 @@ INTERACTIVE = {
 # `python -V` / `-c …` / `script.py` just run and print, so those must stream.
 REPL = {"python", "python3", "ipython", "node", "deno", "bun"}
 
+# git subcommands that contact a remote and may prompt for credentials. They
+# must run on a real terminal (run_in_term) so the user can type a username /
+# password: through the streaming pipe git can't read the prompt and dies with
+# "fatal: could not read Username for 'https://…'".
+GIT_NETWORK = {"push", "pull", "fetch", "clone"}
+
+# git global options that take a value, so the real subcommand is the token
+# after them (e.g. `git -C path push`, `git -c k=v pull`).
+_GIT_VALUE_OPTS = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path"}
+
 
 def _oem_fallback():
     """Legacy code page name that Windows console tools emit, or ``None``.
@@ -145,12 +155,29 @@ class CommandRunner:
                 pass
         return True
 
+    @staticmethod
+    def _git_subcommand(parts):
+        """The git subcommand (push/commit/…), skipping global options."""
+        args = iter(parts[1:])
+        for tok in args:
+            if tok in _GIT_VALUE_OPTS:
+                next(args, None)  # consume the option's value
+                continue
+            if tok.startswith("-"):
+                continue
+            return tok
+        return None
+
     def is_interactive(self, command: str) -> bool:
         parts = command.strip().split()
         if not parts:
             return False
         cmd = os.path.basename(parts[0])
         if cmd in INTERACTIVE:
+            return True
+        if cmd == "sudo":  # prompts for a password on the terminal
+            return True
+        if cmd == "git" and self._git_subcommand(parts) in GIT_NETWORK:
             return True
         if cmd in REPL:
             args = parts[1:]
