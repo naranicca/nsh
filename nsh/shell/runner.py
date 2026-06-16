@@ -8,6 +8,8 @@ are run with prompt_toolkit's ``run_in_terminal`` instead.
 import asyncio
 import codecs
 import os
+import re
+import shlex
 import shutil
 import signal
 import subprocess
@@ -175,6 +177,70 @@ class CommandRunner:
         self._last_duration = None
         self._last_rc = None
 
+    def assignment_names(self, command: str):
+        """Variable names of a *pure* assignment line, or ``None``.
+
+        Detects a line that is only assignments (``a=10``, ``export PATH=… b=2``)
+        with no command word after them. A line such as ``a=10 some-cmd`` returns
+        ``None`` — there the assignment is scoped to that one command, which the
+        shell already handles. Compound lines (``a=10; echo $a``) also return
+        ``None``: they run as-is in a single shell invocation and may have side
+        effects we must not re-run.
+        """
+        if not self._is_posix:
+            return None  # cmd/PowerShell use different assignment syntax
+        line = command.strip()
+        if not line or any(c in line for c in ";|&\n`"):
+            return None
+        try:
+            tokens = shlex.split(line)
+        except ValueError:
+            return None
+        if tokens and tokens[0] == "export":
+            tokens = tokens[1:]
+        if not tokens:
+            return None
+        names = []
+        for tok in tokens:
+            m = re.match(r"^([A-Za-z_][A-Za-z0-9_]*)=", tok)
+            if not m:
+                return None  # a non-assignment token -> there's a command word
+            names.append(m.group(1))
+        return names
+
+    async def eval_assignment(self, command: str):
+        """Evaluate a bare assignment line once and store it in nsh's own env.
+
+        ``a=10`` typed on its own would be lost — each command runs in a fresh
+        subprocess. Instead we let the shell evaluate the line a single time
+        (so quoting, ``$other`` expansion and ``$(…)`` all work), read the
+        resulting values back NUL-delimited, and store them in ``app.shell_vars``
+        (not ``os.environ``, which upper-cases keys on Windows). Every later
+        subprocess inherits them via :meth:`_child_env`, so the variables are
+        simply *there* — no per-command prefix to grow or re-run. They live for
+        the nsh session (a child process cannot write its parent shell's env).
+        """
+        names = self.assignment_names(command)
+        if not names:
+            return
+        line = command.strip()
+        # after the assignment, print each assigned value + a NUL terminator;
+        # NUL can't appear in a value, so this round-trips any spaces/newlines.
+        dump = "printf '%s\\0' " + " ".join(f'"${n}"' for n in names)
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                self.shell, *self.shell_args, f"{line}; {dump}",
+                cwd=str(self.app.cwd), env=self._child_env(),
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
+            )
+            out, _ = await proc.communicate()
+        except OSError:
+            return
+        store = self.app.shell_vars
+        values = out.split(b"\0")
+        for name, value in zip(names, values):
+            store[name] = value.decode("utf-8", "replace")
+
     def interrupt(self) -> bool:
         """Kill the running command and its children. True if one was running."""
         proc = self._proc
@@ -248,15 +314,21 @@ class CommandRunner:
             return not args or "-i" in args  # bare prompt (or forced) only
         return False
 
-    @staticmethod
-    def _child_env():
-        """Environment that nudges tools to emit ANSI colour through the pipe.
+    def _child_env(self):
+        """Environment for a child command: nsh's own env, the user's shell
+        variables, and colour hints.
 
-        Their stdout is not a TTY, so colour is normally suppressed; nsh parses
-        the escape codes itself, so we ask for it. ``setdefault`` lets the user
-        override any of these from their own environment.
+        Variables set in the shell (``a=10``) live in ``app.shell_vars`` rather
+        than ``os.environ`` — on Windows ``os.environ`` upper-cases its keys, so
+        a lower-case ``a`` would never reach a case-sensitive (Git Bash) shell.
+        We merge them here and pass the result explicitly to every subprocess.
+
+        The colour hints make tools emit ANSI even though their stdout is not a
+        TTY (nsh parses the escape codes itself); ``setdefault`` lets the user
+        override any of them from their own environment.
         """
         env = dict(os.environ)
+        env.update(getattr(self.app, "shell_vars", {}))
         env.setdefault("CLICOLOR_FORCE", "1")
         env.setdefault("CLICOLOR", "1")
         env.setdefault("FORCE_COLOR", "1")
@@ -331,6 +403,7 @@ class CommandRunner:
         Returns the command's exit code (``None`` if it could not be launched).
         """
         cwd = str(self.app.cwd)
+        env = self._child_env()  # carry the user's shell variables in too
         # POSIX shell (incl. Git Bash): pass argv straight to the shell. cmd.exe /
         # PowerShell instead get the raw string via shell=True so they parse their
         # own quotes — a [cmd, "/c", command] list would let list2cmdline escape
@@ -344,7 +417,7 @@ class CommandRunner:
 
         def _run():
             try:
-                result["rc"] = subprocess.run(argv, cwd=cwd, **kwargs).returncode
+                result["rc"] = subprocess.run(argv, cwd=cwd, env=env, **kwargs).returncode
             except Exception as exc:  # noqa: BLE001 - surfaced to the user
                 print(f"nsh: {exc}")
 

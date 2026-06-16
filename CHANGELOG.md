@@ -5,6 +5,11 @@ Notable user-facing changes to the Python rewrite. Newest first.
 ## Unreleased
 
 ### Command-line (shell) mode
+- **Variable assignments persist.** A line that only sets variables (`a=10`,
+  `export PATH=…`) is now evaluated once and kept in nsh's environment for the
+  rest of the session, so later commands — in any tab — inherit it (`echo $a`
+  prints `10`). Quoting, `$other` expansion and `$(…)` all work. (POSIX shells /
+  Git Bash.)
 - **Tab-completion menu navigation.** Tab opens the completion menu with the
   first item selected; the arrows or `j`/`k` move through it, `Tab` accepts the
   highlighted item (no trailing space) and `Space` accepts it and adds a space.

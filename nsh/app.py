@@ -102,6 +102,9 @@ class NshApp:
 
         # app-level runner: only drives run_in_term (editors, etc.), no session
         self.runner = CommandRunner(self)
+        # shell variables set with a bare `a=10` line; shared by every tab and
+        # passed to each child command's environment (see CommandRunner).
+        self.shell_vars = {}
         self.explorer = ExplorerView(self)
         self.shells = ShellTabs(self)  # the shell sessions, managed as tabs
         self.preview = PreviewView(self)
@@ -585,6 +588,11 @@ class NshApp:
                 self.set_cwd(path)
             else:
                 session.append(f"cd: no such directory: {target}", "class:shell.error")
+            return True
+        # a bare `a=10` line: evaluate it once and store it in nsh's own env so
+        # every later subprocess inherits it (each command runs in its own one).
+        if session.runner.assignment_names(cmd):
+            asyncio.ensure_future(session.runner.eval_assignment(cmd))
             return True
         return False
 
