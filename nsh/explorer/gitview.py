@@ -164,6 +164,9 @@ class GitView:
         items = []
         if self.selected:
             items.append(("Git: Stage / Unstage", self.git_stage))
+            # revert is offered when the selection has tracked changes to discard
+            if any(e.code != "?" for e in self.entries if e.path in self.selected):
+                items.append(("Git: Revert", self.git_revert))
         elif cur.code == "?":
             if model.is_text_file(cur.path):
                 items.append(("Edit", self.edit))
@@ -172,6 +175,7 @@ class GitView:
             if model.is_text_file(cur.path):
                 items.append(("Edit", self.edit))
             items.append(("Git: Stage / Unstage", self.git_stage))
+            items.append(("Git: Revert", self.git_revert))
         items.append(("Git: Commit", self.app.explorer.git_commit))
         items.append(("Git: Branches", self.app.explorer.git_branches))
         self.app.open_menu(f"Actions · {target}", items)
@@ -186,6 +190,40 @@ class GitView:
             for path in targets:
                 await git.stage_toggle(path, gs, self.app.cwd)
             self.selected.clear()
+            await self.app.refresh_git()
+        asyncio.ensure_future(do())
+
+    def git_revert(self):
+        # only tracked changes can be reverted (untracked files have no HEAD
+        # version), so drop any "?" entries from the selection/cursor
+        if self.selected:
+            entries = [e for e in self.entries if e.path in self.selected]
+        else:
+            cur = self.current()
+            entries = [cur] if cur else []
+        targets = [e for e in entries if e.code != "?"]
+        if not targets:
+            self.app.set_message("nothing to revert")
+            return
+        n = len(targets)
+        label = (f"Revert '{targets[0].rel}'? " if n == 1
+                 else f"Revert {n} files? ") + "Uncommitted changes will be lost."
+        paths = [e.path for e in targets]
+        self.app.confirm(label, lambda ok: self._do_revert(paths, ok))
+
+    def _do_revert(self, paths, ok):
+        if not ok:
+            self.app.set_message("revert cancelled")
+            return
+
+        async def do():
+            done = 0
+            for path in paths:
+                rc, _ = await git.revert(path, self.app.cwd)
+                if rc == 0:
+                    done += 1
+            self.selected.clear()
+            self.app.set_message(f"reverted {done}/{len(paths)} file(s)")
             await self.app.refresh_git()
         asyncio.ensure_future(do())
 
