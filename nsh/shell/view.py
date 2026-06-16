@@ -207,16 +207,17 @@ class ShellView:
         frags = [("class:explorer.dir", shorten_home(self.app.cwd))]
         gs = self.app.git_status
         if gs and gs.is_repo and gs.branch:
-            # same precedence as the title bar: behind, then dirty, then ahead
+            # same precedence as the title bar: behind shows -count, uncommitted
+            # changes show red (no count), ahead shows +count, else green
             if gs.behind > 0:
-                style = "class:shell.branch.behind"
+                style, suffix = "class:shell.branch.behind", f" -{gs.behind}"
             elif gs.dirty:
-                style = "class:shell.branch.dirty"
+                style, suffix = "class:shell.branch.dirty", ""
             elif gs.ahead > 0:
-                style = "class:shell.branch.behind"
+                style, suffix = "class:shell.branch.behind", f" +{gs.ahead}"
             else:
-                style = "class:shell.branch"
-            frags.append((style, f" ({gs.branch})"))
+                style, suffix = "class:shell.branch", ""
+            frags.append((style, f" ({gs.branch}{suffix})"))
         frags.append(("", "$ "))
         return frags
 
