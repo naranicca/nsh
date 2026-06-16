@@ -5,9 +5,7 @@ on top lists the others and marks which ones still have a command running. A new
 session is spawned automatically when a command is entered while the active
 session is busy, or explicitly with Ctrl-T.
 """
-from prompt_toolkit.filters import Condition
 from prompt_toolkit.layout.containers import (
-    ConditionalContainer,
     DynamicContainer,
     HSplit,
     Window,
@@ -32,10 +30,7 @@ class ShellTabs:
             style="class:shell.tabbar",
         )
         self.container = HSplit([
-            # the bar only appears once there is more than one tab
-            ConditionalContainer(
-                self._tabbar, filter=Condition(lambda: len(self.sessions) > 1)
-            ),
+            self._tabbar,  # always shown, even with a single tab
             DynamicContainer(lambda: self.current().container),
         ])
 
@@ -71,6 +66,19 @@ class ShellTabs:
     def prev(self):
         self.select((self.active - 1) % len(self.sessions))
 
+    def rename(self, session=None):
+        """Prompt for a custom label for a tab (default: the active one)."""
+        session = session or self.current()
+        current = session.custom_title or ""
+
+        def _apply(name):
+            name = name.strip()
+            # an empty name clears the override, reverting to the auto title
+            session.custom_title = name or None
+            self.app.invalidate()
+
+        self.app.open_input_dialog("Rename tab", current, len(current), _apply)
+
     def close(self, session=None):
         """Close a tab (default: the active one); its process is killed.
 
@@ -96,7 +104,7 @@ class ShellTabs:
         for i, s in enumerate(self.sessions):
             active = i == self.active
             base = "class:shell.tab.active" if active else "class:shell.tab"
-            label = cut_to_width(s.title or "shell", MAX_TAB_LABEL)
+            label = cut_to_width(s.custom_title or s.title or "shell", MAX_TAB_LABEL)
             frags.append((base, f" {i + 1}:{label} "))
             # running indicator: a green dot, or a blank to keep the width steady.
             # Layer the dot's green fg (shell.running carries no background) over

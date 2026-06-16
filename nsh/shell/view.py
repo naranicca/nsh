@@ -59,6 +59,9 @@ class ShellView:
         # this session's process runner, and the tab label (last command's name)
         self.runner = CommandRunner(app, self)
         self.title = "shell"
+        # a name set by the user (tab rename); when present it overrides the
+        # auto title so a later command doesn't clobber it.
+        self.custom_title = None
 
         self.command_buffer = Buffer(
             name="command",

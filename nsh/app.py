@@ -221,6 +221,10 @@ class NshApp:
             self.shells.new_session()
             self.invalidate()
 
+        @kb.add("f2", filter=shell_mode)
+        def _(event):
+            self.shells.rename()
+
         @kb.add("c-w", filter=shell_mode)
         def _(event):
             self.close_shell_tab()
