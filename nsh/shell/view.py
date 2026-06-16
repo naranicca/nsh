@@ -200,13 +200,11 @@ class ShellView:
         el = self.runner.elapsed()
         if el is not None:
             # running: prefix the live elapsed time, ticking each second (the app
-            # repaints every second). Skip the first second — too brief to show.
-            if el > 1:
-                # keep the trailing gap outside the badge so its background
-                # (none here, but a tint when finished) doesn't bleed past the ]
-                return [("class:shell.elapsed", f"[{_fmt_elapsed(el)}]"),
-                        ("", " "), prompt]
-            return [prompt]
+            # repaints every second).
+            # keep the trailing gap outside the badge so its background
+            # (none here, but a tint when finished) doesn't bleed past the ]
+            return [("class:shell.elapsed", f"[{_fmt_elapsed(el)}]"),
+                    ("", " "), prompt]
         # finished: keep the run time on the prompt until the next command, tinted
         # green on success / red on failure (shown even for sub-second commands).
         result = self.runner.last_result()
@@ -350,10 +348,22 @@ class ShellView:
             self._push([(style, line)])
 
     def append_command(self, cmd):
-        """Echo an entered command: green prompt + lexer-highlighted command."""
+        """Echo an entered command: the previous command's run-time badge, the
+        green prompt, then the lexer-highlighted command.
+
+        The badge mirrors what the live prompt showed before Enter, so pressing
+        Enter scrolls that line up intact instead of dropping the badge. (Read
+        ``last_result`` before the caller resets it for the new command.)"""
         self.flush_output()
         prompt = f"{shorten_home(self.app.cwd)} $ "
-        self._push([("class:shell.prompt", prompt)] + lex_line(cmd))
+        line = []
+        result = self.runner.last_result()
+        if result is not None:
+            duration, rc = result
+            style = "class:shell.elapsed.ok" if rc == 0 else "class:shell.elapsed.err"
+            line += [(style, f"[{_fmt_elapsed(duration)}]"), ("", " ")]
+        line += [("class:shell.prompt", prompt)] + lex_line(cmd)
+        self._push(line)
         self.scroll_top = None  # a new command jumps the view back to the bottom
 
     def clear(self):

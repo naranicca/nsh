@@ -561,9 +561,11 @@ class NshApp:
             return
         if session.busy():
             session = self.shells.new_session()
-        session.runner.reset_result()  # clear the previous command's status tint
         session.title = self._cmd_title(cmd)
+        # echo the command first: it bakes the previous command's run-time badge
+        # into the scrolled-up line, so reset only clears the live prompt below.
         session.append_command(cmd)
+        session.runner.reset_result()  # clear the previous command's status tint
         if not self._handle_builtin(session, cmd):
             asyncio.ensure_future(self._exec(session, cmd))
 
