@@ -528,6 +528,7 @@ class ExplorerView:
                     ("Git: Stage / Unstage", self.git_stage),
                     ("Git: Commit", self.git_commit),
                     ("Git: Diff", self.git_diff),
+                    ("Git: Revert", self.git_revert),
                 ]
             # clean tracked file (code is None): nothing to stage/commit/diff
             items.append(("Git: Branches", self.git_branches))
@@ -623,6 +624,30 @@ class ExplorerView:
                     style = "class:shell.output"
                 self.app.shell.append(line, style)
             self.app.switch_mode("shell")
+        asyncio.ensure_future(do())
+
+    def git_revert(self):
+        entry = self.current()
+        if entry is None or not self._require_repo():
+            return
+        self.app.confirm(
+            f"Revert '{entry.name}'? Uncommitted changes will be lost.",
+            lambda ok: self._do_revert(entry, ok),
+        )
+
+    def _do_revert(self, entry, ok):
+        if not ok:
+            self.app.set_message("revert cancelled")
+            return
+
+        async def do():
+            rc, out = await git.revert(entry.path, self.app.cwd)
+            if rc == 0:
+                self.app.set_message(f"reverted: {entry.name}")
+            else:
+                self.app.set_message(f"revert failed: {out.strip()}")
+            self.refresh_listing(select_name=entry.name)  # file changed on disk
+            await self.app.refresh_git()
         asyncio.ensure_future(do())
 
     def git_new_branch(self):

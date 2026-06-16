@@ -109,6 +109,15 @@ async def stage_toggle(path, status: GitStatus, cwd):
     return await run_git(["add", "--", str(path)], cwd)
 
 
+async def revert(path, cwd):
+    """Discard a tracked file's changes, restoring it to HEAD.
+
+    ``git checkout HEAD -- <path>`` resets both the index and the working tree
+    for ``path``, so any staged *and* unstaged changes are dropped.
+    """
+    return await run_git(["checkout", "HEAD", "--", str(path)], cwd)
+
+
 async def diff(path, cwd):
     """Return the combined unstaged + staged diff text for ``path``."""
     _, unstaged = await run_git(

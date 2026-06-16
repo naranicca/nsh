@@ -73,7 +73,8 @@ Notable user-facing changes to the Python rewrite. Newest first.
 - **Git action menu** adapts to the file's status (untracked shows only
   *Git: Add*; unmodified files hide stage/commit/diff) and includes a
   **Branches** submenu: checkout, `+ New Branch`, and delete (local/remote)
-  with a confirmation.
+  with a confirmation. A changed file also offers **Git: Revert** — discards its
+  staged and unstaged changes back to HEAD (with a confirmation).
 - **Edit action** for text files, with a configurable editor
   (`[general] editor` in nshrc, else `$EDITOR`/`$VISUAL`, else notepad/vi).
 - **Auto-refresh** when the directory changes; `?` shows the key list.
