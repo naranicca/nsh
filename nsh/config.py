@@ -127,6 +127,7 @@ DEFAULT_KEYS = {
     "paste": "p",
     "delete": "D",
     "rename": "f2",
+    "expand": "e",
     "new_dir": "m",
     "new_file": "N",
     "bookmark": "b",
@@ -224,6 +225,7 @@ DEFAULT_NSHRC = """\
 # paste = p
 # delete = D
 # rename = f2
+# expand = e
 # new_dir = m
 # new_file = N
 # bookmark = b

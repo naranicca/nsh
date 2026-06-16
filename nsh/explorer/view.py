@@ -31,6 +31,7 @@ class ExplorerView:
         self.cursor = 0
         self.show_hidden = False
         self.selected = set()  # set[Path] of marked entries (multi-select)
+        self.expanded = set()  # set[Path] of directories expanded inline (tree)
         self.clipboard = None  # ([Path, ...], "copy" | "cut")
         self._signature = ()   # snapshot used to auto-refresh on external change
         # inline rename state: edits the cursor row's name in place (no dialog)
@@ -63,8 +64,23 @@ class ExplorerView:
     def _sig(entries):
         return tuple((e.name, e.is_dir, e.size, e.mtime) for e in entries)
 
+    def _list(self):
+        """The cwd listing flattened into a tree: each expanded directory's
+        contents follow it, indented one level deeper."""
+        return self._flatten(self.app.cwd, 0)
+
+    def _flatten(self, directory, depth):
+        out = []
+        for e in model.list_dir(directory, self.show_hidden):
+            e.depth = depth
+            out.append(e)
+            # recurse into expanded directories (not symlinks — avoid cycles)
+            if e.is_dir and not e.is_link and e.path in self.expanded:
+                out.extend(self._flatten(e.path, depth + 1))
+        return out
+
     def load(self):
-        self.entries = model.list_dir(self.app.cwd, self.show_hidden)
+        self.entries = self._list()
         self._signature = self._sig(self.entries)
         if self.cursor >= len(self.entries):
             self.cursor = max(0, len(self.entries) - 1)
@@ -72,15 +88,15 @@ class ExplorerView:
     def _apply_listing(self, entries):
         """Swap in a fresh listing, keeping the cursor on the same entry."""
         cur = self.current()
-        cur_name = cur.name if cur else None
+        cur_path = cur.path if cur else None
         self.entries = entries
         self._signature = self._sig(entries)
         if self.selected:  # drop selections that no longer exist
             self.selected &= {e.path for e in entries}
         self.cursor = 0
-        if cur_name:
+        if cur_path is not None:
             for i, e in enumerate(entries):
-                if e.name == cur_name:
+                if e.path == cur_path:
                     self.cursor = i
                     break
         if self.cursor >= len(entries):
@@ -88,14 +104,14 @@ class ExplorerView:
 
     def refresh(self):
         """Manual refresh (the 'r' key): re-list, keep the cursor, re-check git."""
-        self._apply_listing(model.list_dir(self.app.cwd, self.show_hidden))
+        self._apply_listing(self._list())
         self.app.preview.clear()
         self.app.invalidate()
         asyncio.ensure_future(self.app.refresh_git())
 
     def check_external_change(self):
         """Re-list only when the directory changed under us (polled)."""
-        entries = model.list_dir(self.app.cwd, self.show_hidden)
+        entries = self._list()
         if self._sig(entries) == self._signature:
             return
         self._apply_listing(entries)
@@ -160,19 +176,25 @@ class ExplorerView:
             # the right edge; elsewhere the size keeps its grey (directories, which
             # have no size, already fall back to the row style).
             size_style = estyle if on else ("class:explorer.size" if size else estyle)
+            # tree indent (2 cells per level) sits before the icon; the name cell
+            # shrinks to match so the size column stays put.
+            indent = "  " * e.depth
+            nw = max(4, name_w - len(indent))
+            # expanded directories get a down-pointing caret instead of ▸
+            icon = "▾" if (e.is_dir and e.path in self.expanded) else config.entry_icon(e)
             # the row being renamed shows an editable name cell instead of the name
             if self._renaming and on:
-                name_frags = self._rename_name_fragments(name_w)
+                name_frags = self._rename_name_fragments(nw)
             else:
-                name_frags = [(self._cursor_style(estyle, on), pad_to_width(name, name_w))]
+                name_frags = [(self._cursor_style(estyle, on), pad_to_width(name, nw))]
             result += [
                 (self._cursor_style("class:explorer.selected" if sel else "", on),
                  "● " if sel else "  "),
                 # the trailing gap uses the row style, not the mark's — otherwise
                 # the cursor-row "reverse" paints the mark colour one cell too far
                 (self._cursor_style(mstyle, on), marker),
-                (self._cursor_style(estyle, on), " "),
-                (self._cursor_style(estyle, on), f"{config.entry_icon(e)} "),
+                (self._cursor_style(estyle, on), " " + indent),
+                (self._cursor_style(estyle, on), f"{icon} "),
                 *name_frags,
                 (self._cursor_style(estyle, on), " "),
                 (self._cursor_style(size_style, on),
@@ -197,6 +219,48 @@ class ExplorerView:
             self.app.set_cwd(entry.path)
         else:
             self.app.open_file(entry.path)
+
+    def toggle_expand(self):
+        """Expand/collapse the directory under the cursor inline (tree view)."""
+        entry = self.current()
+        if entry is None or not entry.is_dir or entry.is_link:
+            return
+        if entry.path in self.expanded:
+            self.expanded.discard(entry.path)
+        else:
+            self.expanded.add(entry.path)
+        # rebuild the flattened listing, keeping the cursor on this directory
+        self._apply_listing(self._list())
+        self.app.preview.clear()
+        self.app.invalidate()
+
+    def collapse_or_up(self):
+        """Left/h/backspace: fold the tree where possible, else go up a level.
+
+        - on an expanded directory  -> collapse it
+        - inside an expanded subtree -> collapse its parent and move there
+        - otherwise (top level)      -> change to the parent directory
+        """
+        entry = self.current()
+        if entry is not None and entry.is_dir and entry.path in self.expanded:
+            self.expanded.discard(entry.path)
+            self._apply_listing(self._list())  # cursor stays on this directory
+            self.app.preview.clear()
+            self.app.invalidate()
+            return
+        if entry is not None and entry.depth > 0:
+            parent = entry.path.parent
+            self.expanded.discard(parent)
+            self._apply_listing(self._list())  # the child is gone now
+            for i, e in enumerate(self.entries):
+                if e.path == parent:
+                    self.cursor = i
+                    break
+            self.app.preview.clear()
+            self.app.invalidate()
+            return
+        # going up: land the cursor on the directory we're leaving
+        self.app.set_cwd(self.app.cwd.parent, select_name=self.app.cwd.name)
 
     # -- selection ------------------------------------------------------------
     def toggle_select(self):
@@ -728,8 +792,7 @@ class ExplorerView:
         @kb.add("left")
         @kb.add("backspace")
         def _(event):
-            # going up: land the cursor on the directory we're leaving
-            self.app.set_cwd(self.app.cwd.parent, select_name=self.app.cwd.name)
+            self.collapse_or_up()
 
         # Configurable action keys (remappable via the [keys] section of nshrc).
         actions = {
@@ -738,6 +801,7 @@ class ExplorerView:
             "paste": self.paste,
             "delete": self.delete_entry,
             "rename": self.rename_entry,
+            "expand": self.toggle_expand,
             "new_dir": self.new_dir,
             "new_file": self.new_file,
             "select": self.toggle_select,

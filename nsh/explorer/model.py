@@ -35,6 +35,7 @@ class Entry:
     is_image: bool
     size: int
     mtime: int = 0  # st_mtime_ns (files only); used for change detection
+    depth: int = 0  # indentation level when the listing is shown as a tree
 
 
 def _is_exec(dir_entry, name: str) -> bool:

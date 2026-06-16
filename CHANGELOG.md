@@ -49,6 +49,11 @@ Notable user-facing changes to the Python rewrite. Newest first.
   (e.g. `python -c "..."`).
 
 ### Explorer & Git
+- **Expand folders inline** (`e`): press `e` on a directory to expand its
+  contents as an indented tree under it (and again to collapse); the caret turns
+  from `▸` to `▾`. Inside an expanded tree, Left/`h` collapses the directory
+  (jumping to it) instead of leaving for the parent. Expansions reset when you
+  change directory.
 - **Inline rename** (`F2`): the cursor row's name becomes editable in place —
   no dialog — with the cursor placed before the extension. Type to edit, Enter
   commits, Esc cancels. (The rename key moved from `R` to `F2`.)

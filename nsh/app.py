@@ -666,6 +666,7 @@ class NshApp:
             return
         self.cwd = target
         self.explorer.selected.clear()
+        self.explorer.expanded.clear()  # the tree is relative to the old cwd
         self.explorer.load()
         # put the cursor on ``select_name`` (e.g. the directory we came up from)
         self.explorer.cursor = 0
