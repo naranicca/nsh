@@ -5,6 +5,10 @@ Notable user-facing changes to the Python rewrite. Newest first.
 ## Unreleased
 
 ### Command-line (shell) mode
+- **Prompt shows the path, git branch and `$`.** The directory uses the
+  explorer's directory colour, the current git branch follows as ` (branch)`
+  tinted by repo state like the title bar (green in sync, yellow behind/ahead,
+  red with uncommitted changes), and the `$` is the default text colour.
 - **Variable assignments persist.** A line that only sets variables (`a=10`,
   `export PATH=…`) is now evaluated once and kept in nsh's environment for the
   rest of the session, so later commands — in any tab — inherit it (`echo $a`

@@ -198,8 +198,30 @@ class ShellView:
         self.scroll_top = None
         self.app.invalidate()
 
+    def _prompt_fragments(self):
+        """The prompt as fragments: the cwd in the explorer's directory colour,
+        the git branch as ` (branch)`, then ``$`` in the default text colour.
+
+        The branch is coloured by repo state like the title bar: yellow when
+        behind/ahead the upstream, red with uncommitted changes, else green."""
+        frags = [("class:explorer.dir", shorten_home(self.app.cwd))]
+        gs = self.app.git_status
+        if gs and gs.is_repo and gs.branch:
+            # same precedence as the title bar: behind, then dirty, then ahead
+            if gs.behind > 0:
+                style = "class:shell.branch.behind"
+            elif gs.dirty:
+                style = "class:shell.branch.dirty"
+            elif gs.ahead > 0:
+                style = "class:shell.branch.behind"
+            else:
+                style = "class:shell.branch"
+            frags.append((style, f" ({gs.branch})"))
+        frags.append(("", "$ "))
+        return frags
+
     def _prompt_text(self):
-        prompt = ("class:shell.prompt", f"{shorten_home(self.app.cwd)} $ ")
+        prompt = self._prompt_fragments()
         el = self.runner.elapsed()
         if el is not None:
             # running: prefix the live elapsed time, ticking each second (the app
@@ -207,15 +229,15 @@ class ShellView:
             # keep the trailing gap outside the badge so its background
             # (none here, but a tint when finished) doesn't bleed past the ]
             return [("class:shell.elapsed", f"[{_fmt_elapsed(el)}]"),
-                    ("", " "), prompt]
+                    ("", " "), *prompt]
         # finished: keep the run time on the prompt until the next command, tinted
         # green on success / red on failure (shown even for sub-second commands).
         result = self.runner.last_result()
         if result is not None:
             duration, rc = result
             style = "class:shell.elapsed.ok" if rc == 0 else "class:shell.elapsed.err"
-            return [(style, f"[{_fmt_elapsed(duration)}]"), ("", " "), prompt]
-        return [prompt]
+            return [(style, f"[{_fmt_elapsed(duration)}]"), ("", " "), *prompt]
+        return prompt
 
     @staticmethod
     def _last_segment(text):
@@ -358,14 +380,13 @@ class ShellView:
         Enter scrolls that line up intact instead of dropping the badge. (Read
         ``last_result`` before the caller resets it for the new command.)"""
         self.flush_output()
-        prompt = f"{shorten_home(self.app.cwd)} $ "
         line = []
         result = self.runner.last_result()
         if result is not None:
             duration, rc = result
             style = "class:shell.elapsed.ok" if rc == 0 else "class:shell.elapsed.err"
             line += [(style, f"[{_fmt_elapsed(duration)}]"), ("", " ")]
-        line += [("class:shell.prompt", prompt)] + lex_line(cmd)
+        line += self._prompt_fragments() + lex_line(cmd)
         self._push(line)
         self.scroll_top = None  # a new command jumps the view back to the bottom
 

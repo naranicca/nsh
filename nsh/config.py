@@ -65,6 +65,11 @@ STYLE_DEFAULTS = {
         # shell
         "shell.output": "#d0d0d0",
         "shell.prompt": "#5fff5f bold",
+        # git branch in the prompt, coloured by repo state (like the title bar):
+        # green in sync, yellow behind/ahead, red with uncommitted changes
+        "shell.branch": "#87ff87",
+        "shell.branch.behind": "#ffaf00",
+        "shell.branch.dirty": "#ff5f5f",
         "shell.command": "#5fafff bold",
         "shell.option": "#ffaf00",
         "shell.string": "#ffff87",
