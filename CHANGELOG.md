@@ -67,6 +67,9 @@ Notable user-facing changes to the Python rewrite. Newest first.
 - **Edit action** for text files, with a configurable editor
   (`[general] editor` in nshrc, else `$EDITOR`/`$VISUAL`, else notepad/vi).
 - **Auto-refresh** when the directory changes; `?` shows the key list.
+- **Cleaner cursor-row highlight**: the git mark no longer tints the cell after
+  it, and the file size now blends into the row highlight instead of showing a
+  grey block at the right edge.
 
 ### UI & dialogs
 - Title bar: a single space before `on <branch>`; the action menu lines up

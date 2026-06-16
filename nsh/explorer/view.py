@@ -155,10 +155,11 @@ class ExplorerView:
             estyle = "class:explorer.selected" if sel else config.entry_style(e)
             name = e.name + ("/" if e.is_dir else "")
             size = "" if e.is_dir else human_size(e.size)
-            # an empty size (directories) blends into the row instead of showing
-            # the grey size colour — otherwise the cursor highlight leaves a grey
-            # block where the size would be.
-            size_style = "class:explorer.size" if size else estyle
+            # on the cursor row the size uses the row (name) style so the "reverse"
+            # highlight stays one solid colour instead of a darker grey block at
+            # the right edge; elsewhere the size keeps its grey (directories, which
+            # have no size, already fall back to the row style).
+            size_style = estyle if on else ("class:explorer.size" if size else estyle)
             # the row being renamed shows an editable name cell instead of the name
             if self._renaming and on:
                 name_frags = self._rename_name_fragments(name_w)
@@ -167,7 +168,10 @@ class ExplorerView:
             result += [
                 (self._cursor_style("class:explorer.selected" if sel else "", on),
                  "● " if sel else "  "),
-                (self._cursor_style(mstyle, on), f"{marker} "),
+                # the trailing gap uses the row style, not the mark's — otherwise
+                # the cursor-row "reverse" paints the mark colour one cell too far
+                (self._cursor_style(mstyle, on), marker),
+                (self._cursor_style(estyle, on), " "),
                 (self._cursor_style(estyle, on), f"{config.entry_icon(e)} "),
                 *name_frags,
                 (self._cursor_style(estyle, on), " "),
