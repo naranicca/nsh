@@ -715,16 +715,23 @@ class ExplorerView:
 
         async def do():
             if remote:
+                # Deleting a remote branch contacts the server and may prompt for
+                # a username/password. Run it on a real terminal (like the shell
+                # does for push/pull) — a piped run_git would hang or fail with
+                # "could not read Username" where credentials are required.
                 self.app.set_message(f"deleting remote branch: {name}…")
-                rc, out = await git.delete_remote_branch(name, self.app.cwd)
-                done = f"deleted remote branch: origin/{name}"
+                rc = await self.app.runner.run_in_term(
+                    f'git push origin --delete "{name}"')
+                if rc == 0:
+                    self.app.set_message(f"deleted remote branch: origin/{name}")
+                else:
+                    self.app.set_message(f"delete remote failed (exit {rc})")
             else:
                 rc, out = await git.delete_local_branch(name, self.app.cwd)
-                done = f"deleted local branch: {name}"
-            if rc == 0:
-                self.app.set_message(done)
-            else:
-                self.app.set_message(f"delete failed: {out.strip()}")
+                if rc == 0:
+                    self.app.set_message(f"deleted local branch: {name}")
+                else:
+                    self.app.set_message(f"delete failed: {out.strip()}")
             await self.app.refresh_git()
         asyncio.ensure_future(do())
 

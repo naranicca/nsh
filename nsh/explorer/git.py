@@ -158,7 +158,7 @@ async def delete_local_branch(name, cwd):
     """Delete a local branch (safe: ``git branch -d`` refuses unmerged work)."""
     return await run_git(["branch", "-d", name], cwd)
 
-
-async def delete_remote_branch(name, cwd, remote="origin"):
-    """Delete the branch on the remote (``git push <remote> --delete <name>``)."""
-    return await run_git(["push", remote, "--delete", name], cwd)
+# Deleting a *remote* branch (git push --delete) contacts the server and may
+# prompt for credentials, so it must run on a real terminal rather than through
+# the piped run_git here; the explorer does that via the shell runner's
+# run_in_term. (No helper here, to avoid a function that would hang on a prompt.)
