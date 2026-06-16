@@ -9,7 +9,9 @@ from pathlib import Path
 
 from prompt_toolkit.application.current import get_app
 from prompt_toolkit.data_structures import Point
+from prompt_toolkit.filters import Condition
 from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.keys import Keys
 from prompt_toolkit.layout.containers import ScrollOffsets, Window
 from prompt_toolkit.layout.dimension import Dimension
 
@@ -31,6 +33,11 @@ class ExplorerView:
         self.selected = set()  # set[Path] of marked entries (multi-select)
         self.clipboard = None  # ([Path, ...], "copy" | "cut")
         self._signature = ()   # snapshot used to auto-refresh on external change
+        # inline rename state: edits the cursor row's name in place (no dialog)
+        self._renaming = False
+        self._rename_entry = None
+        self._rename_text = ""
+        self._rename_pos = 0   # cursor index within _rename_text
 
         self.control = WheelScrollControl(
             lambda d: self.move(d * 3),  # mouse wheel moves the cursor
@@ -152,12 +159,17 @@ class ExplorerView:
             # the grey size colour — otherwise the cursor highlight leaves a grey
             # block where the size would be.
             size_style = "class:explorer.size" if size else estyle
+            # the row being renamed shows an editable name cell instead of the name
+            if self._renaming and on:
+                name_frags = self._rename_name_fragments(name_w)
+            else:
+                name_frags = [(self._cursor_style(estyle, on), pad_to_width(name, name_w))]
             result += [
                 (self._cursor_style("class:explorer.selected" if sel else "", on),
                  "● " if sel else "  "),
                 (self._cursor_style(mstyle, on), f"{marker} "),
                 (self._cursor_style(estyle, on), f"{config.entry_icon(e)} "),
-                (self._cursor_style(estyle, on), pad_to_width(name, name_w)),
+                *name_frags,
                 (self._cursor_style(estyle, on), " "),
                 (self._cursor_style(size_style, on),
                  pad_to_width(size, SIZE_COL, align="right")),
@@ -293,20 +305,58 @@ class ExplorerView:
         asyncio.ensure_future(do())
 
     def rename_entry(self):
+        """Begin editing the cursor row's name in place (no dialog)."""
         entry = self.current()
         if entry is None:
             return
-        # cursor at the end of the name minus its extension
-        stem_len = len(Path(entry.name).stem)
-        self.app.open_input_dialog(
-            "Rename", entry.name, stem_len,
-            lambda name: self._do_rename(entry, name),
-        )
+        self._rename_entry = entry
+        self._rename_text = entry.name
+        self._rename_pos = len(Path(entry.name).stem)  # before the extension
+        self._renaming = True
+        self.app.invalidate()
 
-    def _do_rename(self, entry, name):
-        name = name.strip()
-        if not name or name == entry.name:
+    # -- inline rename editing ------------------------------------------------
+    def _rename_insert(self, text):
+        p = self._rename_pos
+        self._rename_text = self._rename_text[:p] + text + self._rename_text[p:]
+        self._rename_pos += len(text)
+        self.app.invalidate()
+
+    def _rename_backspace(self):
+        if self._rename_pos > 0:
+            p = self._rename_pos
+            self._rename_text = self._rename_text[:p - 1] + self._rename_text[p:]
+            self._rename_pos -= 1
+            self.app.invalidate()
+
+    def _rename_delete(self):
+        p = self._rename_pos
+        if p < len(self._rename_text):
+            self._rename_text = self._rename_text[:p] + self._rename_text[p + 1:]
+            self.app.invalidate()
+
+    def _rename_move(self, delta):
+        self._rename_pos = max(0, min(len(self._rename_text), self._rename_pos + delta))
+        self.app.invalidate()
+
+    def _rename_set_pos(self, pos):
+        self._rename_pos = max(0, min(len(self._rename_text), pos))
+        self.app.invalidate()
+
+    def _rename_cancel(self):
+        self._renaming = False
+        self._rename_entry = None
+        self.app.set_message("rename cancelled")
+        self.app.invalidate()
+
+    def _rename_commit(self):
+        entry = self._rename_entry
+        name = self._rename_text.strip()
+        self._renaming = False
+        self._rename_entry = None
+        if entry is None or not name or name == entry.name:
             self.app.set_message("rename cancelled")
+            self.app.invalidate()
             return
         try:
             target = fileops.rename(entry.path, name)
@@ -315,6 +365,25 @@ class ExplorerView:
             asyncio.ensure_future(self.app.refresh_git())
         except Exception as exc:  # noqa: BLE001
             self.app.set_message(f"rename failed: {exc}")
+        self.app.invalidate()
+
+    def _rename_name_fragments(self, name_w):
+        """Render the edited name as fragments exactly ``name_w`` cells wide,
+        horizontally scrolled so the block cursor stays visible."""
+        text, pos = self._rename_text, self._rename_pos
+        # keep the cursor within the visible window of width name_w
+        start = pos - (name_w - 1) if pos > name_w - 1 else 0
+        view = text[start:start + name_w]
+        cpos = pos - start
+        before = view[:cpos]
+        at = view[cpos] if cpos < len(view) else " "
+        after = view[cpos + 1:] if cpos < len(view) else ""
+        pad = " " * max(0, name_w - (len(before) + 1 + len(after)))
+        return [
+            ("class:explorer.rename", before),
+            ("class:explorer.rename.cursor", at),
+            ("class:explorer.rename", after + pad),
+        ]
 
     def new_dir(self):
         self.app.open_input_dialog("New folder", "", 0, self._do_new_dir)
@@ -569,6 +638,51 @@ class ExplorerView:
     # -- key bindings ---------------------------------------------------------
     def _build_key_bindings(self):
         kb = KeyBindings()
+
+        # Inline rename: while editing, these eager bindings capture every key so
+        # the normal navigation/action keys (j, D, …) become plain text input.
+        renaming = Condition(lambda: self._renaming)
+
+        @kb.add(Keys.Any, filter=renaming, eager=True)
+        def _(event):
+            data = event.data
+            if data and data.isprintable():
+                self._rename_insert(data)
+
+        @kb.add("backspace", filter=renaming, eager=True)
+        def _(event):
+            self._rename_backspace()
+
+        @kb.add("delete", filter=renaming, eager=True)
+        def _(event):
+            self._rename_delete()
+
+        @kb.add("left", filter=renaming, eager=True)
+        def _(event):
+            self._rename_move(-1)
+
+        @kb.add("right", filter=renaming, eager=True)
+        def _(event):
+            self._rename_move(1)
+
+        @kb.add("home", filter=renaming, eager=True)
+        @kb.add("c-a", filter=renaming, eager=True)
+        def _(event):
+            self._rename_set_pos(0)
+
+        @kb.add("end", filter=renaming, eager=True)
+        @kb.add("c-e", filter=renaming, eager=True)
+        def _(event):
+            self._rename_set_pos(len(self._rename_text))
+
+        @kb.add("enter", filter=renaming, eager=True)
+        def _(event):
+            self._rename_commit()
+
+        @kb.add("escape", filter=renaming, eager=True)
+        @kb.add("c-c", filter=renaming, eager=True)
+        def _(event):
+            self._rename_cancel()
 
         @kb.add("j")
         @kb.add("down")

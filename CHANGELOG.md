@@ -44,6 +44,9 @@ Notable user-facing changes to the Python rewrite. Newest first.
   (e.g. `python -c "..."`).
 
 ### Explorer & Git
+- **Inline rename** (`F2`): the cursor row's name becomes editable in place —
+  no dialog — with the cursor placed before the extension. Type to edit, Enter
+  commits, Esc cancels. (The rename key moved from `R` to `F2`.)
 - **Git mode** (`Ctrl+G`): a flat, `git status`-style list of the repo's changed
   and untracked files (subdirectory changes show their full path, not a tree),
   with multi-select and a diff in the preview pane. `Tab` opens an action menu

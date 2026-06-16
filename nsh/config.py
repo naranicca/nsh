@@ -32,6 +32,9 @@ STYLE_DEFAULTS = {
         "explorer.image": "#ff5fff",
         "explorer.selected": "#ffff5f bold",
         "explorer.size": "#808080",
+        # inline rename field (the edited name cell + its block cursor)
+        "explorer.rename": "bg:#005f87 #ffffff",
+        "explorer.rename.cursor": "bg:#d0d0d0 #000000",
         # git overlay
         "git.modified": "#ffaf00",
         "git.staged": "#5fff5f",
@@ -118,7 +121,7 @@ DEFAULT_KEYS = {
     "cut": "x",
     "paste": "p",
     "delete": "D",
-    "rename": "R",
+    "rename": "f2",
     "new_dir": "m",
     "new_file": "N",
     "bookmark": "b",
@@ -215,7 +218,7 @@ DEFAULT_NSHRC = """\
 # cut = x
 # paste = p
 # delete = D
-# rename = R
+# rename = f2
 # new_dir = m
 # new_file = N
 # bookmark = b
