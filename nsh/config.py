@@ -131,6 +131,8 @@ DEFAULT_KEYS = {
     "new_dir": "m",
     "new_file": "N",
     "bookmark": "b",
+    "home": "~",
+    "visited": "-",
     "find": "/",
     "command": ":",
     "preview": "P",
@@ -239,6 +241,8 @@ DEFAULT_NSHRC = """\
 # new_dir = m
 # new_file = N
 # bookmark = b
+# home = ~          (jump to your home directory)
+# visited = -       (menu of recently visited directories)
 # find = /
 # command = :
 # preview = P

@@ -860,6 +860,8 @@ class ExplorerView:
             "select": self.toggle_select,
             "menu": self.open_command_menu,
             "bookmark": lambda: self.app.open_bookmark_menu(),
+            "home": lambda: self.app.go_home(),
+            "visited": lambda: self.app.open_visited_menu(),
             "find": lambda: self.app.enter_search(),
             "command": lambda: self.app.switch_mode("shell"),
             "preview": lambda: self.app.toggle_preview(),

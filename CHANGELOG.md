@@ -59,6 +59,9 @@ Notable user-facing changes to the Python rewrite. Newest first.
   parent. Expansions reset when you change directory. Set
   `[general] right_expand = false` in nshrc to swap the two — then the Right
   arrow enters a directory and `e` expands it (Enter always opens / enters).
+- **Jump home / recent directories**: `~` changes to your home directory, and
+  `-` opens a menu of recently visited directories to jump back to one. Both
+  keys are remappable in the `[keys]` section of nshrc.
 - **Inline rename** (`F2`): the cursor row's name becomes editable in place —
   no dialog — with the cursor placed before the extension. Type to edit, Enter
   commits, Esc cancels. (The rename key moved from `R` to `F2`.)

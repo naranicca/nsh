@@ -115,6 +115,7 @@ class NshApp:
         # popup action menu (Tab in the explorer)
         self.menu = Menu(self._menu_closed)
         self.bookmarks = Bookmarks()
+        self.visited = []  # most-recent-first history of directories we've left
         # centered modal dialogs: text input (rename/new) and yes/no confirm
         self.dialog = InputDialog(self._dialog_closed)
         self.confirm_dialog = ConfirmDialog(self._dialog_closed)
@@ -680,6 +681,13 @@ class NshApp:
         except OSError as exc:
             self.set_message(f"cannot enter: {exc}")
             return
+        old, new = str(self.cwd), str(target)
+        if old != new:
+            # keep a most-recent-first history of the directories we leave (for
+            # the "recent directories" menu); drop the one we're entering, cap it
+            self.visited = [d for d in self.visited if d not in (old, new)]
+            self.visited.insert(0, old)
+            del self.visited[50:]
         self.cwd = target
         self.explorer.selected.clear()
         self.explorer.expanded.clear()  # the tree is relative to the old cwd
@@ -771,6 +779,19 @@ class NshApp:
     def _toggle_bookmark(self):
         added = self.bookmarks.toggle(str(self.cwd))
         self.set_message("bookmarked" if added else "bookmark removed")
+
+    # -- navigation shortcuts -------------------------------------------------
+    def go_home(self):
+        self.set_cwd(str(Path.home()))
+
+    def open_visited_menu(self):
+        """A menu of recently visited directories (jump back to one)."""
+        if not self.visited:
+            self.set_message("no visited directories yet")
+            return
+        items = [(f"  {shorten_home(p)}", lambda p=p: self.set_cwd(p))
+                 for p in self.visited]
+        self.open_menu("Recent directories", items)
 
     # -- misc -----------------------------------------------------------------
     def set_message(self, message):
