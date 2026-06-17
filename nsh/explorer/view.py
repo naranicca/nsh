@@ -559,6 +559,10 @@ class ExplorerView:
             # '.', the whole directory); avoid duplicating it for M/S/C above
             if gs.dirty and code not in ("M", "S", "C"):
                 items.append(("Git: Commit", self.git_commit))
+            # offer push when there are commits to push (ahead of the upstream,
+            # or an unpushed branch on a repo that has a remote)
+            if gs.can_push:
+                items.append(("Git: Push", self.git_push))
             items.append(("Git: Branches", self.git_branches))
         self.app.open_menu(f"Actions · {target}", items)
 
@@ -651,6 +655,24 @@ class ExplorerView:
                 self.app.set_message(f"commit failed: {reason}" if reason
                                      else "commit failed")
             await self.app.refresh_git()
+        asyncio.ensure_future(do())
+
+    def git_push(self):
+        if not self._require_repo():
+            return
+        gs = self.app.git_status
+
+        async def do():
+            # no upstream yet -> set it on this first push; otherwise plain push.
+            if gs and not gs.has_upstream and gs.branch and gs.branch != "(detached)":
+                cmd = f'git push -u origin "{gs.branch}"'
+            else:
+                cmd = "git push"
+            # push can need credentials, so run it on a real terminal (like the
+            # remote-branch delete) instead of through the piped runner
+            rc = await self.app.runner.run_in_term(cmd)
+            self.app.set_message("pushed" if rc == 0 else "push failed")
+            await self.app.refresh_git()  # ahead count -> 0 after a clean push
         asyncio.ensure_future(do())
 
     def git_diff(self):

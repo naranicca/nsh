@@ -24,11 +24,24 @@ class GitStatus:
     entries: list = field(default_factory=list)
     behind: int = 0  # commits the upstream has that we don't
     ahead: int = 0   # commits we have that the upstream doesn't
+    has_upstream: bool = False  # the branch has a configured @{upstream}
+    has_remote: bool = False    # at least one git remote is configured
+    has_commits: bool = False   # HEAD points at a commit (not an unborn branch)
 
     @property
     def dirty(self) -> bool:
         """True when there are tracked changes to commit (untracked files excluded)."""
         return any(code != "?" for code in self.files.values())
+
+    @property
+    def can_push(self) -> bool:
+        """True when pushing is meaningful: there are commits ahead of the
+        upstream, or — when no upstream is set yet — a remote exists and the
+        branch has commits (the push will set the upstream)."""
+        if self.ahead > 0:
+            return True
+        return (self.has_remote and not self.has_upstream and self.has_commits
+                and self.branch not in (None, "(detached)"))
 
 
 async def run_git(args, cwd):
@@ -73,6 +86,11 @@ async def query(directory) -> GitStatus:
         parts = counts.split()
         if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
             st.behind, st.ahead = int(parts[0]), int(parts[1])
+    # @{upstream} only resolves when a tracking branch is configured
+    st.has_upstream = counts is not None
+    remotes = await _out(["remote"], directory)
+    st.has_remote = bool(remotes and remotes.strip())
+    st.has_commits = await _out(["rev-parse", "--verify", "-q", "HEAD"], directory) is not None
 
     # core.quotepath=false keeps CJK / unicode filenames intact in the output.
     porcelain = await _out(
