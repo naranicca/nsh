@@ -128,6 +128,7 @@ class LogView:
             ("Revert to this commit", self.revert_to),
             ("Amend message (reword)", self.reword),
             ("Squash to here", self.squash),
+            ("Interactive rebase", self.interactive_rebase),
         ])
 
     def _run(self, coro, ok_msg, fail_label):
@@ -206,6 +207,26 @@ class LogView:
             self.app.set_message("squash cancelled")
             return
         self._run(git.squash_onto(h, msg, self.app.cwd), "squashed", "squash")
+
+    def interactive_rebase(self):
+        """``git rebase -i`` from the selected commit's parent, on a real
+        terminal so the user edits the todo list (and resolves conflicts) in
+        their own editor — unlike the scripted reword/squash above."""
+        h = self.current_hash()
+        if not h:
+            return
+
+        async def start():
+            if not await git.is_clean(self.app.cwd):
+                self.app.set_message("commit or stash your changes first")
+                return
+            base = await git.rebase_base(h, self.app.cwd)
+            rc = await self.app.runner.run_in_term(f"git rebase -i {base}")
+            self.app.set_message("rebased" if rc == 0
+                                 else f"rebase exited (code {rc})")
+            await self.app.refresh_git()
+            self.load()
+        asyncio.ensure_future(start())
 
     # -- keys -----------------------------------------------------------------
     def _build_key_bindings(self):

@@ -76,9 +76,11 @@ Notable user-facing changes to the Python rewrite. Newest first.
   move between commits (graph-only lines are skipped) and the preview pane shows
   the selected commit's detail and diff. Enter opens an action menu — **check
   out** the commit (detached HEAD), **revert to** it (roll the branch back with
-  `reset --hard`), **amend its message** (reword), or **squash** it together with
-  the commits after it into one. Reword/squash rewrite history through a
-  non-interactive rebase, so they need a clean working tree. Esc/`q` leaves.
+  `reset --hard`), **amend its message** (reword), **squash** it together with
+  the commits after it into one, or start an **interactive rebase** from it
+  (`git rebase -i` on a real terminal, so you edit the todo list and resolve
+  conflicts in your own editor). Reword/squash/rebase rewrite history, so they
+  need a clean working tree. Esc/`q` leaves.
 - **Symlinked directories keep their logical path** (`cd -L`): entering a
   symlinked subdir shows the path you followed (not the link target), and going
   up returns to the directory that holds the link instead of the target's real

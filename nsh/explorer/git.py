@@ -247,6 +247,12 @@ async def _has_parent(commit, cwd):
     return rc == 0
 
 
+async def rebase_base(commit, cwd):
+    """Base ref for a rebase that includes ``commit`` and every commit after it:
+    ``<commit>~1``, or ``--root`` when it is the repository's first commit."""
+    return commit + "~1" if await _has_parent(commit, cwd) else "--root"
+
+
 # Editors driving a non-interactive rebase: one rewrites the todo list, the
 # other supplies the new message. Invoked as "<python> <script> <file>"; the
 # message is passed through the NSH_REBASE_MSG environment variable. They must
@@ -291,8 +297,8 @@ async def reword(commit, message, cwd):
     marks it ``reword`` and feeds the new message — no tree change, so it never
     conflicts. Rewrites history from ``commit`` onward."""
     env = _rebase_env(message)
-    base = ["--root"] if not await _has_parent(commit, cwd) else [commit + "~1"]
-    return await run_git(["rebase", "-i", *base], cwd, env=env)
+    return await run_git(
+        ["rebase", "-i", await rebase_base(commit, cwd)], cwd, env=env)
 
 
 async def squash_onto(commit, message, cwd):
