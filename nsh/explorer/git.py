@@ -30,6 +30,7 @@ class GitStatus:
     has_remote: bool = False    # at least one git remote is configured
     has_commits: bool = False   # HEAD points at a commit (not an unborn branch)
     has_stash: bool = False     # the stash stack is non-empty
+    in_progress: Optional[str] = None  # "merge"/"rebase"/"cherry-pick"/"revert" or None
 
     @property
     def dirty(self) -> bool:
@@ -108,6 +109,7 @@ async def query(directory) -> GitStatus:
     st.has_commits = await _out(["rev-parse", "--verify", "-q", "HEAD"], directory) is not None
     stash = await _out(["stash", "list"], directory)
     st.has_stash = bool(stash and stash.strip())
+    st.in_progress = await _operation_in_progress(st.root)
 
     # core.quotepath=false keeps CJK / unicode filenames intact in the output.
     porcelain = await _out(
@@ -357,3 +359,44 @@ async def stash_apply(cwd, ref=None):
 
 async def stash_drop(cwd, ref):
     return await run_git(["stash", "drop", ref], cwd)
+
+
+# -- merge/rebase conflicts ---------------------------------------------------
+async def _operation_in_progress(root):
+    """Which multi-step operation (if any) is mid-flight: a marker file in the
+    git dir tells us — used to offer Continue/Abort and conflict resolution."""
+    if root is None:
+        return None
+    gitdir = await _out(["rev-parse", "--git-dir"], root)
+    if not gitdir:
+        return None
+    g = Path(gitdir.strip())
+    if not g.is_absolute():
+        g = Path(root) / g
+    if (g / "rebase-merge").exists() or (g / "rebase-apply").exists():
+        return "rebase"
+    if (g / "MERGE_HEAD").exists():
+        return "merge"
+    if (g / "CHERRY_PICK_HEAD").exists():
+        return "cherry-pick"
+    if (g / "REVERT_HEAD").exists():
+        return "revert"
+    return None
+
+
+async def conflicted_files(cwd):
+    """Paths with unresolved merge conflicts (unmerged in the index)."""
+    out = await _out(
+        ["-c", "core.quotepath=false", "diff", "--name-only", "--diff-filter=U"], cwd)
+    return [ln.strip() for ln in (out or "").splitlines() if ln.strip()]
+
+
+async def abort_operation(cwd, op):
+    """Abort the in-progress ``op`` (rebase/merge/cherry-pick/revert)."""
+    if op == "rebase":
+        return await run_git(["rebase", "--abort"], cwd)
+    if op == "cherry-pick":
+        return await run_git(["cherry-pick", "--abort"], cwd)
+    if op == "revert":
+        return await run_git(["revert", "--abort"], cwd)
+    return await run_git(["merge", "--abort"], cwd)

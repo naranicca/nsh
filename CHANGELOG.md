@@ -96,6 +96,11 @@ Notable user-facing changes to the Python rewrite. Newest first.
 - **Git stash** (action menu): *Git: Stash* shelves your changes; *Git: Stashes…*
   lists the stash stack, and picking one offers Pop (apply + drop), Apply (keep)
   or Drop. Handy with the reword/squash/rebase actions, which need a clean tree.
+- **Resolve a merge/rebase in progress.** When a merge, rebase, cherry-pick or
+  revert stops on a conflict, the title bar flags it (`⚠ rebase`) and the action
+  menu adds *Git: Continue* (commit / `--continue`, on a real terminal) and
+  *Git: Abort*. Edit the conflicted files (shown in git mode), stage them, then
+  continue.
 - **Symlinked directories keep their logical path** (`cd -L`): entering a
   symlinked subdir shows the path you followed (not the link target), and going
   up returns to the directory that holds the link instead of the target's real

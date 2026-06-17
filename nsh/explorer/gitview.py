@@ -191,6 +191,9 @@ class GitView:
             items.append(("Git: Pull", self.app.explorer.git_pull))
         if gs and gs.can_push:
             items.append(("Git: Push", self.app.explorer.git_push))
+        if gs and gs.in_progress:  # a merge/rebase is mid-flight: resolve it
+            items.append((f"Git: Continue {gs.in_progress}", self.app.explorer.git_continue))
+            items.append((f"Git: Abort {gs.in_progress}", self.app.explorer.git_abort))
         if gs and gs.dirty:
             items.append(("Git: Stash", self.app.explorer.git_stash))
         if gs and gs.has_stash:

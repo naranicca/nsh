@@ -447,6 +447,9 @@ class NshApp:
                 style, text = "class:titlebar.branch", f"⎇ {g.branch}"
             segs.append(("class:titlebar", " on "))
             segs.append((style, text))
+            if g.in_progress:  # mid merge/rebase: flag it (resolve via git mode)
+                segs.append(("class:titlebar", " "))
+                segs.append(("class:titlebar.branch.dirty", f"⚠ {g.in_progress}"))
         if self.mode == GIT:
             segs.append(("class:titlebar", "   "))
             segs.append(("class:titlebar.branch", "● git"))

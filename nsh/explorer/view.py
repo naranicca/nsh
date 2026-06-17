@@ -576,6 +576,9 @@ class ExplorerView:
                 items.append(("Git: Pull", self.git_pull))
             if gs.can_push:
                 items.append(("Git: Push", self.git_push))
+            if gs.in_progress:  # a merge/rebase is mid-flight: resolve it
+                items.append((f"Git: Continue {gs.in_progress}", self.git_continue))
+                items.append((f"Git: Abort {gs.in_progress}", self.git_abort))
             if gs.dirty:
                 items.append(("Git: Stash", self.git_stash))
             if gs.has_stash:
@@ -752,6 +755,32 @@ class ExplorerView:
                  lambda ok: self._git_run(git.stash_drop(cwd, ref), "dropped",
                                           "stash drop") if ok else None)),
         ])
+
+    # -- merge/rebase in progress ---------------------------------------------
+    def git_continue(self):
+        op = self.app.git_status.in_progress if self.app.git_status else None
+        if not op:
+            return
+
+        async def do():
+            # continuing a merge is a commit; a rebase/cherry-pick/revert uses
+            # --continue. Either may open an editor, so run on a real terminal.
+            cmd = "git commit" if op == "merge" else f"git {op} --continue"
+            rc = await self.app.runner.run_in_term(cmd)
+            self.app.set_message(
+                "continued" if rc == 0
+                else f"{op} still in progress — resolve conflicts and stage them")
+            await self.app.refresh_git()
+        asyncio.ensure_future(do())
+
+    def git_abort(self):
+        op = self.app.git_status.in_progress if self.app.git_status else None
+        if not op:
+            return
+        self.app.confirm(
+            f"Abort the {op}? Conflict resolution so far will be discarded.",
+            lambda ok: self._git_run(git.abort_operation(self.app.cwd, op),
+                                     f"{op} aborted", "abort") if ok else None)
 
     def git_diff(self):
         entry = self.current()
