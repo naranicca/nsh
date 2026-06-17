@@ -18,6 +18,11 @@ Notable user-facing changes to the Python rewrite. Newest first.
 - **Tab-completion menu navigation.** Tab opens the completion menu with the
   first item selected; the arrows or `j`/`k` move through it, `Tab` accepts the
   highlighted item (no trailing space) and `Space` accepts it and adds a space.
+- **Fuzzy path completion.** After the exact (prefix) path matches, Tab also
+  offers pseudo-fuzzy matches — the typed characters need only appear in order
+  (`abc` matches `a…b…c`). Every path component is matched this way, not just the
+  last, so `sou/re/n` completes to `source/repos/nsh` (and `…/nnn`, …). A leading
+  `~` or `/` stays anchored. (Commands stay prefix-only.)
 - **Running-time in the prompt.** While a tab's command is still running, the
   prompt is prefixed with the live elapsed time (e.g. `[9s]`), ticking each
   second. After it finishes the time stays, tinted green (exit 0) or red
