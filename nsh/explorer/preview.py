@@ -9,6 +9,7 @@ scrolling the listing never blocks the UI.
 import asyncio
 import struct
 
+from prompt_toolkit.formatted_text import ANSI, to_formatted_text
 from prompt_toolkit.layout.containers import Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.layout.dimension import Dimension
@@ -100,6 +101,8 @@ class PreviewView:
 
     # -- reactive text --------------------------------------------------------
     def _text(self):
+        if self.app.mode == "gitlog":
+            return self._log_text()
         if self.app.mode == "git":
             return self._git_text()
         entry = self.app.explorer.current()
@@ -132,6 +135,41 @@ class PreviewView:
             return ("git", norm(entry.path), entry.code, st.st_mtime_ns, st.st_size)
         except OSError:
             return ("git", norm(entry.path), entry.code, 0, 0)
+
+    # -- git-log commit preview ----------------------------------------------
+    def _log_text(self):
+        h = self.app.logview.current_hash()
+        if not h:
+            return [("class:preview.dim", " (no commit)")]
+        key = ("gitlog", h)
+        if key in self._cache:
+            return self._cache[key]
+        if key not in self._inflight:
+            self._inflight.add(key)
+            asyncio.ensure_future(self._load_commit(h, key))
+        return [("class:preview.dim", " loading…")]
+
+    async def _load_commit(self, h, key):
+        try:
+            text = await git.commit_show(h, self.app.cwd)
+            frags = self._build_commit(text)
+        except Exception as exc:  # noqa: BLE001 - shown in the pane
+            frags = [("class:preview.dim", f" error: {exc}")]
+        self._cache[key] = frags
+        self._inflight.discard(key)
+        self.app.invalidate()
+
+    def _build_commit(self, text):
+        # render git's own ANSI colours (commit header, the --stat histogram and
+        # the diff are all coloured by git) rather than re-colouring by prefix,
+        # which left the stat's +/- counts uncoloured.
+        if not text:
+            return [("class:preview.dim", " (no commit)")]
+        frags = []
+        for line in text.splitlines()[:MAX_LINES * 2]:
+            frags += to_formatted_text(ANSI(line))
+            frags.append(("", "\n"))
+        return frags
 
     async def _load_git(self, entry, key):
         try:

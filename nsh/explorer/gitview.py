@@ -186,6 +186,8 @@ class GitView:
             items.append(("Git: Pull", self.app.explorer.git_pull))
         if gs and gs.can_push:
             items.append(("Git: Push", self.app.explorer.git_push))
+        if gs and gs.has_commits:
+            items.append(("Git: Log", self.app.open_log))
         items.append(("Git: Branches", self.app.explorer.git_branches))
         self.app.open_menu(f"Actions · {target}", items)
 

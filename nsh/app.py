@@ -26,6 +26,7 @@ from prompt_toolkit.layout.menus import CompletionsMenu
 from . import config
 from .explorer import git
 from .explorer.gitview import GitView
+from .explorer.logview import LogView
 from .explorer.preview import PreviewView
 from .explorer.view import ExplorerView
 from .search.view import SearchView
@@ -41,6 +42,7 @@ EXPLORER = "explorer"
 SHELL = "shell"
 SEARCH = "search"
 GIT = "git"
+LOG = "gitlog"
 
 # Once the shell output would shrink the explorer below this many rows, the
 # shell takes over the whole screen.
@@ -111,6 +113,8 @@ class NshApp:
         self.show_preview = True
         self.search = SearchView(self)
         self.gitview = GitView(self)
+        self.logview = LogView(self)
+        self._log_return = EXPLORER  # the mode "Git: Log" was opened from
 
         # popup action menu (Tab in the explorer)
         self.menu = Menu(self._menu_closed)
@@ -155,6 +159,8 @@ class NshApp:
                     self.gitview.clear_selection()
                 else:
                     self.switch_mode(EXPLORER)
+            elif self.mode == LOG:
+                self.close_log()
             else:  # EXPLORER: clear any multi-selection
                 self.explorer.clear_selection()
 
@@ -307,6 +313,20 @@ class NshApp:
             else self.gitview.window
         )
 
+        # git log mode: the graph/oneline history beside the commit preview
+        self._log_split = VSplit(
+            [
+                self.logview.window,
+                Window(width=1, char="│", style="class:preview.border"),
+                self.preview.window,
+            ]
+        )
+        log_area = DynamicContainer(
+            lambda: self._log_split
+            if (self.show_preview and self._wide_enough())
+            else self.logview.window
+        )
+
         # shell mode keeps the explorer on top, command line + output below
         self._shell_split = HSplit(
             [
@@ -321,6 +341,8 @@ class NshApp:
                 return self.search.container
             if self.mode == GIT:
                 return git_area
+            if self.mode == LOG:
+                return log_area
             if self.mode == SHELL:
                 # grow with output, then take the whole screen at the cap
                 return self.shells.container if self.shell_fullscreen() else self._shell_split
@@ -425,6 +447,9 @@ class NshApp:
         if self.mode == GIT:
             segs.append(("class:titlebar", "   "))
             segs.append(("class:titlebar.branch", "● git"))
+        if self.mode == LOG:
+            segs.append(("class:titlebar", "   "))
+            segs.append(("class:titlebar.branch", "● log"))
         selected = self.active_selection()
         if selected:
             segs.append(("class:titlebar", "   "))
@@ -448,6 +473,10 @@ class NshApp:
             hints = [
                 ("↑↓", "move"), ("Space", "select"), ("Tab", "actions"),
                 ("b", "marks"), (":", "cmd"), ("^G/ESC", "exit"), ("q", "quit"),
+            ]
+        elif self.mode == LOG:
+            hints = [
+                ("↑↓", "move"), ("↵", "actions"), ("ESC", "back"), ("q", "quit"),
             ]
         else:
             hints = [
@@ -482,6 +511,9 @@ class NshApp:
             self.gitview.load()
             self.application.layout.focus(self.gitview.control)
             asyncio.ensure_future(self.refresh_git())  # pull fresh status on entry
+        elif mode == LOG:
+            self.logview.load()
+            self.application.layout.focus(self.logview.control)
         else:
             self.application.layout.focus(self.explorer.control)
         self.invalidate()
@@ -494,6 +526,16 @@ class NshApp:
             self.set_message("not a git repository")
             return
         self.switch_mode(GIT)
+
+    def open_log(self):
+        if not self.git_status.is_repo:
+            self.set_message("not a git repository")
+            return
+        self._log_return = self.mode if self.mode in (EXPLORER, GIT) else EXPLORER
+        self.switch_mode(LOG)
+
+    def close_log(self):
+        self.switch_mode(self._log_return)
 
     # -- fuzzy search ---------------------------------------------------------
     def enter_search(self, query=""):
@@ -733,6 +775,8 @@ class NshApp:
             self.focus_shell()
         elif self.mode == GIT:
             self.application.layout.focus(self.gitview.control)
+        elif self.mode == LOG:
+            self.application.layout.focus(self.logview.control)
         else:
             self.application.layout.focus(self.explorer.control)
 

@@ -5,6 +5,8 @@ never blocks while status is computed for a large repository.
 """
 import asyncio
 import os
+import sys
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, Optional
@@ -51,12 +53,17 @@ class GitStatus:
         return self.has_upstream
 
 
-async def run_git(args, cwd):
-    """Run ``git <args>`` in ``cwd``; return ``(returncode, combined_output)``."""
+async def run_git(args, cwd, env=None):
+    """Run ``git <args>`` in ``cwd``; return ``(returncode, combined_output)``.
+
+    ``env`` overrides the child environment (used by the scripted rebase below);
+    ``None`` inherits nsh's own environment.
+    """
     try:
         proc = await asyncio.create_subprocess_exec(
             "git", *args,
             cwd=str(cwd),
+            env=env,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
         )
@@ -199,3 +206,113 @@ async def delete_local_branch(name, cwd):
 # prompt for credentials, so it must run on a real terminal rather than through
 # the piped run_git here; the explorer does that via the shell runner's
 # run_in_term. (No helper here, to avoid a function that would hang on a prompt.)
+
+
+# -- history view & commit editing -------------------------------------------
+# Each commit line is "<graph art>\x00<full hash>\x00<coloured oneline>"; graph-
+# only lines (merges) have no \x00. The view splits on \x00 to get the hash.
+_LOG_FORMAT = ("tformat:%x00%H%x00%C(auto)%h%C(reset)%C(auto)%d%C(reset) "
+               "%s %C(dim)(%cr) %C(blue)%an%C(reset)")
+
+
+async def log_graph(cwd):
+    """Raw ``git log --graph`` text (ANSI-coloured) for the history view."""
+    return await _out(["-c", "core.quotepath=false", "log", "--graph",
+                       "--color=always", "--pretty=" + _LOG_FORMAT], cwd) or ""
+
+
+async def commit_show(commit, cwd):
+    """The full detail + diff of one commit (ANSI-coloured), for the preview pane.
+
+    ``--color=always`` keeps git's own colours — including the ``--stat``
+    histogram (``+``/``-`` counts) that a prefix-based colouriser would miss."""
+    rc, out = await run_git(
+        ["-c", "core.quotepath=false", "show", "--color=always", "--stat", "-p",
+         commit], cwd)
+    return out if rc == 0 else ""
+
+
+async def checkout_commit(commit, cwd):
+    """Check out a commit (detached HEAD)."""
+    return await run_git(["checkout", commit], cwd)
+
+
+async def reset_hard(commit, cwd):
+    """Roll the current branch back to ``commit`` (``git reset --hard``)."""
+    return await run_git(["reset", "--hard", commit], cwd)
+
+
+async def _has_parent(commit, cwd):
+    rc, _ = await run_git(["rev-parse", "--verify", "-q", commit + "~1"], cwd)
+    return rc == 0
+
+
+# Editors driving a non-interactive rebase: one rewrites the todo list, the
+# other supplies the new message. Invoked as "<python> <script> <file>"; the
+# message is passed through the NSH_REBASE_MSG environment variable. They must
+# use forward slashes — git runs them through its shell, which mangles
+# backslashes on Windows.
+_SEQ_SCRIPT = (
+    "import sys\n"
+    "p = sys.argv[1]\n"
+    "lines = open(p, encoding='utf-8').read().splitlines()\n"
+    "out, done = [], False\n"
+    "for ln in lines:\n"
+    "    if not done and ln.startswith('pick '):\n"
+    "        ln = 'reword ' + ln[5:]; done = True\n"
+    "    out.append(ln)\n"
+    "open(p, 'w', encoding='utf-8').write('\\n'.join(out) + '\\n')\n"
+)
+_MSG_SCRIPT = (
+    "import os, sys\n"
+    "open(sys.argv[1], 'w', encoding='utf-8').write(os.environ['NSH_REBASE_MSG'])\n"
+)
+
+
+def _rebase_env(message):
+    """Environment + helper-script paths for a scripted, non-interactive rebase."""
+    tmp = Path(tempfile.gettempdir())
+    seq = tmp / "nsh_rebase_seq.py"
+    msg = tmp / "nsh_rebase_msg.py"
+    seq.write_text(_SEQ_SCRIPT, encoding="utf-8")
+    msg.write_text(_MSG_SCRIPT, encoding="utf-8")
+    py = sys.executable.replace("\\", "/")
+    sp = str(seq).replace("\\", "/")
+    mp = str(msg).replace("\\", "/")
+    env = dict(os.environ)
+    env["GIT_SEQUENCE_EDITOR"] = f'"{py}" "{sp}"'
+    env["GIT_EDITOR"] = f'"{py}" "{mp}"'
+    env["NSH_REBASE_MSG"] = message
+    return env
+
+
+async def reword(commit, message, cwd):
+    """Change just ``commit``'s message (log only), via a scripted rebase that
+    marks it ``reword`` and feeds the new message — no tree change, so it never
+    conflicts. Rewrites history from ``commit`` onward."""
+    env = _rebase_env(message)
+    base = ["--root"] if not await _has_parent(commit, cwd) else [commit + "~1"]
+    return await run_git(["rebase", "-i", *base], cwd, env=env)
+
+
+async def squash_onto(commit, message, cwd):
+    """Combine ``commit`` and every commit after it (up to HEAD) into a single
+    commit with ``message`` — soft-reset to its parent, then commit."""
+    if not await _has_parent(commit, cwd):
+        return 1, "cannot squash the root commit"
+    rc, out = await run_git(["reset", "--soft", commit + "~1"], cwd)
+    if rc != 0:
+        return rc, out
+    return await run_git(["commit", "-m", message], cwd)
+
+
+async def is_clean(cwd):
+    """True when the working tree has no changes (safe to rebase / squash)."""
+    out = await _out(["status", "--porcelain"], cwd)
+    return not (out and out.strip())
+
+
+async def commit_subject(commit, cwd):
+    """The one-line subject of ``commit`` (to prefill the reword dialog)."""
+    out = await _out(["log", "-1", "--format=%s", commit], cwd)
+    return out.strip() if out else ""

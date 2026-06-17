@@ -72,6 +72,13 @@ Notable user-facing changes to the Python rewrite. Newest first.
   first, untracked files last. `Tab` opens an action menu (stage/unstage the
   selection, commit, edit, branches, revert). Left/right are inert (no
   hierarchy); moving to another directory leaves git mode.
+- **Git log** (action menu → *Git: Log*): a graph + one-line history; Up/Down
+  move between commits (graph-only lines are skipped) and the preview pane shows
+  the selected commit's detail and diff. Enter opens an action menu — **check
+  out** the commit (detached HEAD), **revert to** it (roll the branch back with
+  `reset --hard`), **amend its message** (reword), or **squash** it together with
+  the commits after it into one. Reword/squash rewrite history through a
+  non-interactive rebase, so they need a clean working tree. Esc/`q` leaves.
 - **Symlinked directories keep their logical path** (`cd -L`): entering a
   symlinked subdir shows the path you followed (not the link target), and going
   up returns to the directory that holds the link instead of the target's real

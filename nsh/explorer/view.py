@@ -576,6 +576,8 @@ class ExplorerView:
                 items.append(("Git: Pull", self.git_pull))
             if gs.can_push:
                 items.append(("Git: Push", self.git_push))
+            if gs.has_commits:
+                items.append(("Git: Log", self.app.open_log))
             items.append(("Git: Branches", self.git_branches))
         self.app.open_menu(f"Actions · {target}", items)
 
