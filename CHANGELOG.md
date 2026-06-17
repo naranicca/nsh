@@ -93,6 +93,9 @@ Notable user-facing changes to the Python rewrite. Newest first.
   (`git rebase -i` on a real terminal, so you edit the todo list and resolve
   conflicts in your own editor). Reword/squash/rebase rewrite history, so they
   need a clean working tree. Esc/`q` leaves.
+- **Git stash** (action menu): *Git: Stash* shelves your changes; *Git: Stashes…*
+  lists the stash stack, and picking one offers Pop (apply + drop), Apply (keep)
+  or Drop. Handy with the reword/squash/rebase actions, which need a clean tree.
 - **Symlinked directories keep their logical path** (`cd -L`): entering a
   symlinked subdir shows the path you followed (not the link target), and going
   up returns to the directory that holds the link instead of the target's real

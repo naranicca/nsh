@@ -29,6 +29,7 @@ class GitStatus:
     has_upstream: bool = False  # the branch has a configured @{upstream}
     has_remote: bool = False    # at least one git remote is configured
     has_commits: bool = False   # HEAD points at a commit (not an unborn branch)
+    has_stash: bool = False     # the stash stack is non-empty
 
     @property
     def dirty(self) -> bool:
@@ -105,6 +106,8 @@ async def query(directory) -> GitStatus:
     remotes = await _out(["remote"], directory)
     st.has_remote = bool(remotes and remotes.strip())
     st.has_commits = await _out(["rev-parse", "--verify", "-q", "HEAD"], directory) is not None
+    stash = await _out(["stash", "list"], directory)
+    st.has_stash = bool(stash and stash.strip())
 
     # core.quotepath=false keeps CJK / unicode filenames intact in the output.
     porcelain = await _out(
@@ -322,3 +325,35 @@ async def commit_subject(commit, cwd):
     """The one-line subject of ``commit`` (to prefill the reword dialog)."""
     out = await _out(["log", "-1", "--format=%s", commit], cwd)
     return out.strip() if out else ""
+
+
+# -- stash --------------------------------------------------------------------
+async def stash_push(cwd, message=None):
+    """Stash the tracked changes (``git stash push``)."""
+    args = ["stash", "push"]
+    if message:
+        args += ["-m", message]
+    return await run_git(args, cwd)
+
+
+async def stash_list(cwd):
+    """Return the stash stack as ``[(ref, description)]`` (newest first)."""
+    out = await _out(["stash", "list"], cwd)
+    entries = []
+    for line in (out or "").splitlines():
+        ref = line.split(":", 1)[0].strip()
+        if ref:
+            entries.append((ref, line.strip()))
+    return entries
+
+
+async def stash_pop(cwd, ref=None):
+    return await run_git(["stash", "pop"] + ([ref] if ref else []), cwd)
+
+
+async def stash_apply(cwd, ref=None):
+    return await run_git(["stash", "apply"] + ([ref] if ref else []), cwd)
+
+
+async def stash_drop(cwd, ref):
+    return await run_git(["stash", "drop", ref], cwd)

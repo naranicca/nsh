@@ -18,7 +18,7 @@ from prompt_toolkit.layout.dimension import Dimension
 from .. import config
 from ..util.paths import human_size, norm
 from ..util.widgets import WheelScrollControl
-from ..util.width import pad_to_width
+from ..util.width import cut_to_width, pad_to_width
 from . import fileops, git, model
 
 SIZE_COL = 8
@@ -576,6 +576,10 @@ class ExplorerView:
                 items.append(("Git: Pull", self.git_pull))
             if gs.can_push:
                 items.append(("Git: Push", self.git_push))
+            if gs.dirty:
+                items.append(("Git: Stash", self.git_stash))
+            if gs.has_stash:
+                items.append(("Git: Stashes…", self.git_stash_menu))
             if gs.has_commits:
                 items.append(("Git: Log", self.app.open_log))
             items.append(("Git: Branches", self.git_branches))
@@ -701,6 +705,53 @@ class ExplorerView:
             self.app.set_message("pushed" if rc == 0 else "push failed")
             await self.app.refresh_git()  # ahead count -> 0 after a clean push
         asyncio.ensure_future(do())
+
+    # -- stash ----------------------------------------------------------------
+    def _git_run(self, coro, ok_msg, fail_label):
+        """Await a git op, report the outcome and refresh."""
+        async def do():
+            rc, out = await coro
+            if rc == 0:
+                self.app.set_message(ok_msg)
+            else:
+                reason = _git_error_summary(out)
+                self.app.set_message(f"{fail_label} failed: {reason}" if reason
+                                     else f"{fail_label} failed")
+            await self.app.refresh_git()
+        asyncio.ensure_future(do())
+
+    def git_stash(self):
+        if not self._require_repo():
+            return
+        self._git_run(git.stash_push(self.app.cwd), "stashed", "stash")
+
+    def git_stash_menu(self):
+        if not self._require_repo():
+            return
+
+        async def build():
+            entries = await git.stash_list(self.app.cwd)
+            if not entries:
+                self.app.set_message("no stashes")
+                return
+            items = [(desc, lambda ref=ref, desc=desc: self._stash_actions(ref, desc))
+                     for ref, desc in entries]
+            self.app.open_menu("Stashes", items)
+        asyncio.ensure_future(build())
+
+    def _stash_actions(self, ref, desc):
+        cwd = self.app.cwd
+        self.app.open_menu(cut_to_width(desc, 48), [
+            ("Pop (apply + drop)",
+             lambda: self._git_run(git.stash_pop(cwd, ref), "popped", "stash pop")),
+            ("Apply (keep)",
+             lambda: self._git_run(git.stash_apply(cwd, ref), "applied", "stash apply")),
+            ("Drop",
+             lambda: self.app.confirm(
+                 f"Drop {ref}?",
+                 lambda ok: self._git_run(git.stash_drop(cwd, ref), "dropped",
+                                          "stash drop") if ok else None)),
+        ])
 
     def git_diff(self):
         entry = self.current()
