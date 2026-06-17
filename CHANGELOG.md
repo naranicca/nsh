@@ -70,14 +70,17 @@ Notable user-facing changes to the Python rewrite. Newest first.
   and untracked files (subdirectory changes show their full path, not a tree),
   with multi-select and a diff in the preview pane. Tracked changes are listed
   first, untracked files last. `Tab` opens an action menu (stage/unstage the
-  selection, commit, edit, branches, revert). Left/right are inert (no
-  hierarchy); moving to another directory leaves git mode.
+  selection, commit, edit, branches, revert) — and with no changed files it
+  still offers the repo-wide actions (log, pull, push, branches). Left/right are
+  inert (no hierarchy); moving to another directory leaves git mode.
 - **Git log** (action menu → *Git: Log*): a graph + one-line history; Up/Down
   move between commits (graph-only lines are skipped) and the preview pane shows
-  the selected commit's detail and diff. Enter opens an action menu — **check
+  the selected commit's detail and diff. `/` searches the log (by hash, subject
+  or author) and `n`/`N` jump to the next/previous match. Enter opens an action
+  menu — **check
   out** the commit (detached HEAD), **revert to** it (roll the branch back with
   `reset --hard`), **amend its message** (reword), **squash** it together with
-  the commits after it into one, or start an **interactive rebase** from it
+  the commits after it into one, or **interactively edit** from it
   (`git rebase -i` on a real terminal, so you edit the todo list and resolve
   conflicts in your own editor). Reword/squash/rebase rewrite history, so they
   need a clean working tree. Esc/`q` leaves.

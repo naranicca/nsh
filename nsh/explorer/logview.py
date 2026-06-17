@@ -8,6 +8,7 @@ the commits after it. Reword/squash rewrite history via a non-interactive
 rebase, so they require a clean working tree.
 """
 import asyncio
+import re
 
 from prompt_toolkit.data_structures import Point
 from prompt_toolkit.formatted_text import ANSI, to_formatted_text
@@ -22,13 +23,16 @@ from . import git
 # log's own colours stay readable)
 CURSOR_BG = "bg:#005f87"
 
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
 
 class LogLine:
-    __slots__ = ("display", "hash")
+    __slots__ = ("display", "hash", "plain")
 
     def __init__(self, display, commit):
         self.display = display  # ANSI-coloured text (hash sentinel stripped)
         self.hash = commit      # full commit hash, or None for a graph-only line
+        self.plain = _ANSI_RE.sub("", display)  # uncoloured text, for searching
 
 
 class LogView:
@@ -36,6 +40,7 @@ class LogView:
         self.app = app
         self.lines = []
         self.cursor = 0
+        self._search_query = ""
 
         self.control = WheelScrollControl(
             lambda d: self.move(d * 3),
@@ -118,6 +123,41 @@ class LogView:
     def refresh(self):
         self.load()
 
+    # -- search ---------------------------------------------------------------
+    def search(self):
+        """Prompt for a term and jump to the next matching commit; n/N repeat.
+        Matches the uncoloured log text (hash, refs, subject, date, author)."""
+        self.app.open_input_dialog(
+            "Search log", self._search_query, len(self._search_query),
+            self._do_search)
+
+    def _do_search(self, query):
+        q = (query or "").strip()
+        if not q:
+            return
+        self._search_query = q
+        self._find(1, include_current=True)
+
+    def _find(self, direction, include_current=False):
+        q = (self._search_query or "").lower()
+        rows = self._commit_rows()
+        if not q or not rows:
+            return
+        try:
+            pos = rows.index(self.cursor)
+        except ValueError:
+            pos = 0
+        n = len(rows)
+        offsets = range(0, n) if include_current else range(1, n + 1)
+        for off in offsets:
+            i = rows[(pos + direction * off) % n]
+            if q in self.lines[i].plain.lower():
+                self.cursor = i
+                self.app.set_message(f"/{self._search_query}")
+                self.app.invalidate()
+                return
+        self.app.set_message(f"no match: {self._search_query}")
+
     # -- action menu ----------------------------------------------------------
     def open_action_menu(self):
         h = self.current_hash()
@@ -128,7 +168,7 @@ class LogView:
             ("Revert to this commit", self.revert_to),
             ("Amend message (reword)", self.reword),
             ("Squash to here", self.squash),
-            ("Interactive rebase", self.interactive_rebase),
+            ("Interactive edit", self.interactive_rebase),
         ])
 
     def _run(self, coro, ok_msg, fail_label):
@@ -263,6 +303,18 @@ class LogView:
         @kb.add("enter")
         def _(event):
             self.open_action_menu()
+
+        @kb.add("/")
+        def _(event):
+            self.search()
+
+        @kb.add("n")
+        def _(event):
+            self._find(1)
+
+        @kb.add("N")
+        def _(event):
+            self._find(-1)
 
         # configurable action keys (a bad key spec in nshrc is skipped, as elsewhere)
         def bind(action, fn):

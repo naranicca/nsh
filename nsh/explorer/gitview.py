@@ -161,27 +161,32 @@ class GitView:
     # -- action menu (Tab) ----------------------------------------------------
     def open_action_menu(self):
         cur = self.current()
-        if cur is None and not self.selected:
-            return
-        target = (f"{len(self.selected)} selected" if self.selected else cur.rel)
+        gs = self.app.git_status
         items = []
+        # file-specific actions (only when the cursor is on / there is a selection)
         if self.selected:
+            target = f"{len(self.selected)} selected"
             items.append(("Git: Stage / Unstage", self.git_stage))
             # revert is offered when the selection has tracked changes to discard
             if any(e.code != "?" for e in self.entries if e.path in self.selected):
                 items.append(("Git: Revert", self.git_revert))
-        elif cur.code == "?":
-            if model.is_text_file(cur.path):
-                items.append(("Edit", self.edit))
-            items.append(("Git: Add", self.git_stage))
-        else:  # M / S / C
-            if model.is_text_file(cur.path):
-                items.append(("Edit", self.edit))
-            items.append(("Git: Stage / Unstage", self.git_stage))
-            items.append(("Git: Revert", self.git_revert))
-        items.append(("Git: Commit", self.app.explorer.git_commit))
+        elif cur is not None:
+            target = cur.rel
+            if cur.code == "?":
+                if model.is_text_file(cur.path):
+                    items.append(("Edit", self.edit))
+                items.append(("Git: Add", self.git_stage))
+            else:  # M / S / C
+                if model.is_text_file(cur.path):
+                    items.append(("Edit", self.edit))
+                items.append(("Git: Stage / Unstage", self.git_stage))
+                items.append(("Git: Revert", self.git_revert))
+        else:
+            target = "repo"  # no changed files: still offer the repo-wide actions
+        # repo-level actions, available even when there are no changed files
+        if gs and gs.dirty:
+            items.append(("Git: Commit", self.app.explorer.git_commit))
         # pull when there's an upstream; push when there are commits to push
-        gs = self.app.git_status
         if gs and gs.can_pull:
             items.append(("Git: Pull", self.app.explorer.git_pull))
         if gs and gs.can_push:
