@@ -85,6 +85,12 @@ Notable user-facing changes to the Python rewrite. Newest first.
   git can prompt for a username/password where credentials are required (it used
   to hang/fail). A changed file also offers **Git: Revert** — discards its
   staged and unstaged changes back to HEAD (with a confirmation).
+- **Commit works without staging first**: Git: Commit now commits by pathspec
+  like the original nsh — the selected files, or the whole current directory
+  (`git commit .`) when nothing is selected — instead of only the staged index,
+  so it no longer fails with *no changes added to commit*. Selected untracked
+  files are staged first so they commit too; with nothing selected, untracked
+  files are left alone.
 - **Git commit shows why it failed**: a failed commit now puts git's real reason
   in the status bar (e.g. *nothing to commit*, *unable to auto-detect email
   address*) instead of a bare *commit failed* — the full output still goes to the

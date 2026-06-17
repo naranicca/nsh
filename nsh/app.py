@@ -425,8 +425,7 @@ class NshApp:
         if self.mode == GIT:
             segs.append(("class:titlebar", "   "))
             segs.append(("class:titlebar.branch", "● git"))
-        selected = (self.explorer.selected if self.mode == EXPLORER
-                    else self.gitview.selected if self.mode == GIT else None)
+        selected = self.active_selection()
         if selected:
             segs.append(("class:titlebar", "   "))
             segs.append(("class:titlebar.sel", f"● {len(selected)} selected"))
@@ -792,6 +791,14 @@ class NshApp:
         items = [(f"  {shorten_home(p)}", lambda p=p: self.set_cwd(p))
                  for p in self.visited]
         self.open_menu("Recent directories", items)
+
+    def active_selection(self):
+        """The marked-paths set for the current mode (explorer / git), else None."""
+        if self.mode == EXPLORER:
+            return self.explorer.selected
+        if self.mode == GIT:
+            return self.gitview.selected
+        return None
 
     # -- misc -----------------------------------------------------------------
     def set_message(self, message):

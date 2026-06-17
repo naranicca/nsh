@@ -129,8 +129,20 @@ async def diff(path, cwd):
     return (unstaged + staged).strip()
 
 
-async def commit(message, cwd):
-    return await run_git(["commit", "-m", message], cwd)
+async def add_paths(paths, cwd):
+    """Stage the given paths, so an explicitly selected untracked file can be
+    committed by pathspec (``git commit -- <path>`` rejects untracked files)."""
+    return await run_git(["add", "--"] + [str(p) for p in paths], cwd)
+
+
+async def commit(message, cwd, paths=None):
+    """Commit by pathspec, like the original nsh's ``git commit <files|.>``:
+    take the current contents of ``paths`` regardless of what's staged. With no
+    ``paths`` it commits the staged index instead."""
+    args = ["commit", "-m", message]
+    if paths:
+        args += ["--"] + [str(p) for p in paths]
+    return await run_git(args, cwd)
 
 
 async def create_branch(name, cwd):

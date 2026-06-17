@@ -612,21 +612,35 @@ class ExplorerView:
     def git_commit(self):
         if not self._require_repo():
             return
-        self.app.open_input_dialog("Commit message", "", 0, self._do_commit)
+        # capture the commit target now (the modal dialog can't change it):
+        # the selected files, or '.' (the whole cwd) when nothing is selected
+        sel = self.app.active_selection()
+        paths = [str(p) for p in sel] if sel else ["."]
+        self.app.open_input_dialog(
+            "Commit message", "", 0, lambda msg: self._do_commit(msg, paths))
 
-    def _do_commit(self, message):
+    def _do_commit(self, message, paths):
         if not message.strip():
             self.app.set_message("commit cancelled")
             return
 
         async def do():
-            rc, out = await git.commit(message, self.app.cwd)
+            # commit by pathspec, like the original nsh (`git commit <files|.>`):
+            # selected files, else '.'. Explicitly selected files are staged
+            # first so an untracked selection commits too; '.' is left as-is so
+            # it doesn't sweep in untracked files.
+            if paths != ["."]:
+                await git.add_paths(paths, self.app.cwd)
+            rc, out = await git.commit(message, self.app.cwd, paths)
             if rc == 0:
                 self.app.shell.append(out.strip() or "committed", "class:shell.output")
                 self.app.set_message("committed")
+                sel = self.app.active_selection()  # consumed: clear the marks
+                if sel:
+                    sel.clear()
             else:
-                # surface the real reason (identity unset, nothing staged, hook…)
-                # in the status bar; the full output still goes to the scrollback
+                # surface the real reason (identity unset, nothing to commit,
+                # hook…) in the status bar; full output goes to the scrollback
                 self.app.shell.append(out.strip() or "git commit failed",
                                       "class:shell.error")
                 reason = _git_error_summary(out)
