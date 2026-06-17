@@ -605,17 +605,33 @@ class NshApp:
     async def _exec(self, session, cmd):
         runner = session.runner
         try:
-            if runner.is_interactive(cmd):
-                rc = await runner.run_in_term(cmd)
-                # network git ran on the suspended terminal (its output isn't in
-                # the scrollback); leave a one-line note of how it ended.
-                if runner.is_git_network(cmd):
-                    session.append(*runner.git_summary(cmd, rc))
+            if runner.is_git_network(cmd):
+                await self._exec_git_network(session, runner, cmd)
+            elif runner.is_interactive(cmd):
+                await runner.run_in_term(cmd)
             else:
                 await runner.run(cmd)
         except Exception as exc:  # noqa: BLE001 - surfaced to the user
             session.append(f"nsh: {exc}", "class:shell.error")
         self.invalidate()
+
+    async def _exec_git_network(self, session, runner, cmd):
+        """Run a remote git command (push/pull/fetch/clone) optimistically.
+
+        With credential prompts disabled it streams through the pipe like any
+        other command — so its output lands in the scrollback — whenever the
+        credentials are already cached. If git can't get them it fails fast; we
+        then retry on a real terminal, where it can prompt for a username /
+        password, and leave a one-line note of how it ended (its terminal output
+        isn't captured in the scrollback).
+        """
+        await runner.run(cmd, allow_prompt=False)
+        if runner.auth_prompt_needed():
+            session.append("git: credentials required — retrying on the terminal…",
+                           "class:preview.dim")
+            rc = await runner.run_in_term(cmd)
+            runner.adopt_term_result(rc)  # prompt badge reflects the real outcome
+            session.append(*runner.git_summary(cmd, rc))
 
     def close_shell_tab(self):
         """Ctrl-W: close the active tab, confirming first if it's still busy."""

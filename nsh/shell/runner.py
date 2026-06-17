@@ -29,11 +29,24 @@ INTERACTIVE = {
 # `python -V` / `-c …` / `script.py` just run and print, so those must stream.
 REPL = {"python", "python3", "ipython", "node", "deno", "bun"}
 
-# git subcommands that contact a remote and may prompt for credentials. They
-# must run on a real terminal (run_in_term) so the user can type a username /
-# password: through the streaming pipe git can't read the prompt and dies with
-# "fatal: could not read Username for 'https://…'".
+# git subcommands that contact a remote and may prompt for credentials. We run
+# them optimistically through the streaming pipe (so their output lands in the
+# scrollback) with prompting disabled; if the credentials aren't cached git
+# fails fast and the caller retries on a real terminal so the user can type a
+# username / password.
 GIT_NETWORK = {"push", "pull", "fetch", "clone"}
+
+# Output fingerprints that mean a piped git/ssh command bailed out because it
+# needed to prompt for credentials we suppressed — the cue to retry on a real
+# terminal rather than report a plain failure.
+_AUTH_SIGNATURES = (
+    "terminal prompts disabled",     # GIT_TERMINAL_PROMPT=0 blocked a git prompt
+    "could not read Username",
+    "could not read Password",
+    "Authentication failed",
+    "Permission denied (publickey",  # ssh: no usable key / agent
+    "Host key verification failed",  # ssh: unknown host needs an interactive yes
+)
 
 # git global options that take a value, so the real subcommand is the token
 # after them (e.g. `git -C path push`, `git -c k=v pull`).
@@ -152,6 +165,7 @@ class CommandRunner:
         # can show its run time tinted by success/failure until the next command
         self._last_duration = None
         self._last_rc = None
+        self._tail = ""  # rolling buffer of recent output, for auth detection
 
     @property
     def _sink(self):
@@ -176,6 +190,19 @@ class CommandRunner:
         """Drop the finished-command status (a new command is being entered)."""
         self._last_duration = None
         self._last_rc = None
+
+    def adopt_term_result(self, rc):
+        """After a piped command was retried on the terminal, make the prompt's
+        status badge reflect the terminal outcome instead of the failed pipe."""
+        self._last_rc = rc
+
+    def auth_prompt_needed(self) -> bool:
+        """True when the last piped command failed because git/ssh wanted to
+        prompt for credentials we suppressed — the cue to retry on a real
+        terminal. A plain non-zero exit (e.g. a rejected push) is *not* this."""
+        if self._last_rc in (0, None):
+            return False
+        return any(sig in self._tail for sig in _AUTH_SIGNATURES)
 
     def assignment_names(self, command: str):
         """Variable names of a *pure* assignment line, or ``None``.
@@ -314,7 +341,7 @@ class CommandRunner:
             return not args or "-i" in args  # bare prompt (or forced) only
         return False
 
-    def _child_env(self):
+    def _child_env(self, allow_prompt=True):
         """Environment for a child command: nsh's own env, the user's shell
         variables, and colour hints.
 
@@ -326,6 +353,10 @@ class CommandRunner:
         The colour hints make tools emit ANSI even though their stdout is not a
         TTY (nsh parses the escape codes itself); ``setdefault`` lets the user
         override any of them from their own environment.
+
+        ``allow_prompt=False`` forbids git/ssh from prompting for credentials, so
+        a piped network command fails fast (and we retry it on a real terminal)
+        instead of hanging on a prompt the user can't see.
         """
         env = dict(os.environ)
         env.update(getattr(self.app, "shell_vars", {}))
@@ -336,15 +367,27 @@ class CommandRunner:
         param = "'color.ui=always'"
         existing = env.get("GIT_CONFIG_PARAMETERS")
         env["GIT_CONFIG_PARAMETERS"] = f"{existing} {param}" if existing else param
+        if not allow_prompt:
+            env["GIT_TERMINAL_PROMPT"] = "0"  # no built-in username/password prompt
+            # ssh otherwise tries the shared console for a passphrase / host-key
+            # confirmation, which would corrupt the full-screen UI; make it fail
+            # fast instead. Respect a GIT_SSH_COMMAND the user already set.
+            env.setdefault("GIT_SSH_COMMAND", "ssh -o BatchMode=yes")
         return env
 
-    async def run(self, command: str):
-        """Stream a non-interactive command's stdout+stderr into scrollback."""
+    async def run(self, command: str, allow_prompt=True):
+        """Stream a non-interactive command's stdout+stderr into scrollback.
+
+        ``allow_prompt=False`` disables git/ssh credential prompts so a remote
+        git command fails fast when its credentials aren't cached; the caller
+        checks :meth:`auth_prompt_needed` and retries it on a real terminal.
+        """
         self._interrupted = False
         self._started_at = time.monotonic()
+        self._tail = ""
         kwargs = dict(
             cwd=str(self.app.cwd),
-            env=self._child_env(),
+            env=self._child_env(allow_prompt=allow_prompt),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
         )
@@ -380,10 +423,12 @@ class CommandRunner:
                 text = decoder.decode(chunk)
                 if text:
                     self._sink.feed_output(text)
+                    self._tail = (self._tail + text)[-2048:]
                     self.app.invalidate()
             tail = decoder.decode(b"", final=True)
             if tail:
                 self._sink.feed_output(tail)
+                self._tail = (self._tail + tail)[-2048:]
             self._sink.flush_output()
             await proc.wait()
             # record the run time + outcome for the prompt's status indicator

@@ -40,11 +40,14 @@ Notable user-facing changes to the Python rewrite. Newest first.
 - **Correct non-UTF-8 output.** Output is decoded as UTF-8 with a fallback to
   the OS OEM code page (e.g. cp949), so localized tool/`cmd` messages render
   correctly.
-- **Interactive credentials work.** Network git commands (`push`/`pull`/
-  `fetch`/`clone`) and `sudo` now run on a real terminal, so git can prompt for
-  a username/password instead of failing with *"could not read Username"*.
-  A one-line result (e.g. `git push: done` / `exit code N`) is left in the
-  scrollback afterwards.
+- **Network git runs in the shell when credentials are cached.** `push`/`pull`/
+  `fetch`/`clone` are now tried in the shell first (with prompting disabled), so
+  when the credentials are already stored they stream their output into the
+  scrollback like any other command. Only when git actually needs to ask for a
+  username/password does nsh fall back to a real terminal (leaving a one-line
+  `git push: done` / `exit code N` note); a plain failure such as a rejected
+  push or an unreachable host stays in the shell with its real error. `sudo` and
+  bare interactive tools still go straight to the terminal.
 - **Quoting fix.** Streamed commands keep their own quotes intact
   (e.g. `python -c "..."`).
 
