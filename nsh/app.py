@@ -120,6 +120,9 @@ class NshApp:
         self.menu = Menu(self._menu_closed)
         self.bookmarks = Bookmarks()
         self.visited = []  # most-recent-first history of directories we've left
+        # last directory visited on each Windows drive letter (for "D:" changes)
+        self._drive_dirs = {}
+        self._remember_drive(self.cwd)
         # centered modal dialogs: text input (rename/new) and yes/no confirm
         self.dialog = InputDialog(self._dialog_closed)
         self.confirm_dialog = ConfirmDialog(self._dialog_closed)
@@ -638,6 +641,15 @@ class NshApp:
             else:
                 session.append(f"cd: no such directory: {target}", "class:shell.error")
             return True
+        # Windows drive change: a bare "D:", or a drive-letter path ("D:\\dir"),
+        # typed on its own. We cd to it when it resolves to a directory — a bare
+        # "D:" goes to the last place we were on that drive, else its root. A file
+        # path like "D:\\tool.exe" isn't a directory, so it falls through to run.
+        if os.name == "nt" and self._is_drive_path(stripped):
+            target = self._resolve_drive_path(stripped)
+            if target.is_dir():
+                self.set_cwd(target)
+                return True
         # a bare `a=10` line: evaluate it once and store it in nsh's own env so
         # every later subprocess inherits it (each command runs in its own one).
         if session.runner.assignment_names(cmd):
@@ -685,6 +697,31 @@ class NshApp:
         else:
             self.shells.close(session)
 
+    # -- Windows drive changes ("D:") -----------------------------------------
+    @staticmethod
+    def _is_drive_path(line):
+        """A bare ``X:`` or ``X:\\path`` typed on its own (no command/args)."""
+        return (len(line) >= 2 and line[0].isalpha() and line[1] == ":"
+                and " " not in line and "\t" not in line)
+
+    def _resolve_drive_path(self, line):
+        """Resolve a drive path to a target directory. Bare ``X:`` -> the last
+        directory we were on that drive (else its root); ``X:\\p`` -> that path;
+        ``X:p`` -> ``p`` relative to the remembered directory."""
+        drive, rest = line[0].upper(), line[2:]
+        root = self._drive_dirs.get(drive, Path(f"{drive}:\\"))
+        if not rest:
+            return root
+        if rest[0] in "\\/":
+            return Path(f"{drive}:{rest}")
+        return root / rest
+
+    def _remember_drive(self, path):
+        """Record ``path`` as the latest location on its drive, so a later
+        ``X:`` returns here (like cmd's per-drive current directory)."""
+        if os.name == "nt" and path.drive:
+            self._drive_dirs[path.drive[0].upper()] = path
+
     def edit_file(self, path):
         """Open ``path`` in a text editor.
 
@@ -731,6 +768,7 @@ class NshApp:
             self.visited.insert(0, old)
             del self.visited[50:]
         self.cwd = target
+        self._remember_drive(target)  # so a later "X:" returns to here
         self.explorer.selected.clear()
         self.explorer.expanded.clear()  # the tree is relative to the old cwd
         self.explorer.load()

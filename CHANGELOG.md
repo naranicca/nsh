@@ -10,6 +10,10 @@ Notable user-facing changes to the Python rewrite. Newest first.
   tinted by repo state like the title bar (green in sync, yellow behind/ahead,
   red with uncommitted changes) with a `+N`/`-N` count when ahead/behind the
   upstream, and the `$` is the default text colour.
+- **Windows drive change.** A bare `D:` (or a drive path like `D:\work`) typed
+  on its own changes directory like in cmd — `D:` returns to the last place you
+  were on that drive, or its root the first time. A drive path that points at a
+  file (`D:\tool.exe`) still runs normally.
 - **Variable assignments persist.** A line that only sets variables (`a=10`,
   `export PATH=…`) is now evaluated once and kept in nsh's environment for the
   rest of the session, so later commands — in any tab — inherit it (`echo $a`
