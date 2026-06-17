@@ -89,8 +89,10 @@ class ExplorerView:
         for e in model.list_dir(directory, self.show_hidden):
             e.depth = depth
             out.append(e)
-            # recurse into expanded directories (not symlinks — avoid cycles)
-            if e.is_dir and not e.is_link and e.path in self.expanded:
+            # recurse into expanded directories, including symlinked ones (a
+            # symlinked dir has is_dir=True). This terminates: only paths the
+            # user explicitly expanded are followed, and child paths always grow.
+            if e.is_dir and e.path in self.expanded:
                 out.extend(self._flatten(e.path, depth + 1))
         return out
 
@@ -241,18 +243,22 @@ class ExplorerView:
             self.app.open_file(entry.path)
 
     def expand_or_open(self):
-        """Right arrow (when right_expand is on): fold/unfold a real directory,
-        but open a file or symlinked dir, so the key is never a dead end."""
+        """Right arrow (when right_expand is on): fold/unfold a directory
+        (including a symlinked one), else open a file, so it's never a dead end."""
         entry = self.current()
-        if entry is not None and entry.is_dir and not entry.is_link:
+        if entry is not None and entry.is_dir:
             self.toggle_expand()
         else:
             self.open()
 
     def toggle_expand(self):
-        """Expand/collapse the directory under the cursor inline (tree view)."""
+        """Expand/collapse the directory under the cursor inline (tree view).
+
+        Symlinks to directories (is_dir=True, is_link=True) are expandable too;
+        symlinks to files (is_dir=False) are not.
+        """
         entry = self.current()
-        if entry is None or not entry.is_dir or entry.is_link:
+        if entry is None or not entry.is_dir:
             return
         if entry.path in self.expanded:
             self.expanded.discard(entry.path)
