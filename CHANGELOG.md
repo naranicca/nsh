@@ -85,6 +85,10 @@ Notable user-facing changes to the Python rewrite. Newest first.
   git can prompt for a username/password where credentials are required (it used
   to hang/fail). A changed file also offers **Git: Revert** — discards its
   staged and unstaged changes back to HEAD (with a confirmation).
+- **Git commit shows why it failed**: a failed commit now puts git's real reason
+  in the status bar (e.g. *nothing to commit*, *unable to auto-detect email
+  address*) instead of a bare *commit failed* — the full output still goes to the
+  shell scrollback.
 - **Edit action** for text files, with a configurable editor
   (`[general] editor` in nshrc, else `$EDITOR`/`$VISUAL`, else notepad/vi).
 - **Auto-refresh** when the directory changes; `?` shows the key list.

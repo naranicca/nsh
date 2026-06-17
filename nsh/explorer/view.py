@@ -24,6 +24,21 @@ from . import fileops, git, model
 SIZE_COL = 8
 
 
+def _git_error_summary(output):
+    """A concise one-line reason from a failed git command's output, for the
+    status bar (the full text still goes to the shell scrollback). Prefers a
+    ``fatal:``/``error:`` line, else the last line; trims the noisy prefix."""
+    lines = [ln.strip() for ln in output.splitlines() if ln.strip()]
+    if not lines:
+        return ""
+    reason = next((ln for ln in lines if ln.startswith(("fatal:", "error:"))), lines[-1])
+    for prefix in ("fatal: ", "error: "):
+        if reason.startswith(prefix):
+            reason = reason[len(prefix):]
+            break
+    return reason[:120]
+
+
 class ExplorerView:
     def __init__(self, app):
         self.app = app
@@ -606,10 +621,18 @@ class ExplorerView:
 
         async def do():
             rc, out = await git.commit(message, self.app.cwd)
-            self.app.shell.append(out.strip() or "committed",
-                                  "class:shell.output" if rc == 0 else "class:shell.error")
+            if rc == 0:
+                self.app.shell.append(out.strip() or "committed", "class:shell.output")
+                self.app.set_message("committed")
+            else:
+                # surface the real reason (identity unset, nothing staged, hook…)
+                # in the status bar; the full output still goes to the scrollback
+                self.app.shell.append(out.strip() or "git commit failed",
+                                      "class:shell.error")
+                reason = _git_error_summary(out)
+                self.app.set_message(f"commit failed: {reason}" if reason
+                                     else "commit failed")
             await self.app.refresh_git()
-            self.app.set_message("committed" if rc == 0 else "commit failed")
         asyncio.ensure_future(do())
 
     def git_diff(self):
