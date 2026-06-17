@@ -330,6 +330,8 @@ class LogView:
         bind("command", lambda: self.app.switch_mode("shell"))
         bind("preview", lambda: self.app.toggle_preview())
         bind("refresh", self.refresh)
-        bind("quit", self.app.exit)
+        # in the log, the quit key goes back to where it was opened from
+        # (explorer / git mode) rather than quitting nsh — like Esc
+        bind("quit", self.app.close_log)
 
         return kb

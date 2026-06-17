@@ -483,7 +483,7 @@ class NshApp:
         elif self.mode == LOG:
             hints = [
                 ("↑↓", "move"), ("↵", "actions"), ("/", "search"), ("n", "next"),
-                ("ESC", "back"), ("q", "quit"),
+                ("ESC/q", "back"),
             ]
         else:
             hints = [
