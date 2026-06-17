@@ -67,7 +67,8 @@ class GitView:
                 except ValueError:  # e.g. a different drive on Windows
                     rel = str(abspath)
                 entries.append(GitEntry(abspath, code, rel.replace(os.sep, "/")))
-            entries.sort(key=lambda e: e.rel)
+            # tracked changes first, untracked ('?') last; each group by path
+            entries.sort(key=lambda e: (e.code == "?", e.rel))
         self.entries = entries
 
         self.selected &= {e.path for e in entries}  # drop vanished selections
@@ -109,8 +110,10 @@ class GitView:
             result += [
                 (self._cur("class:explorer.selected" if sel else "", on),
                  "● " if sel else "  "),
-                (self._cur(mstyle, on), f"{symbol} "),
-                (self._cur(name_style, on), e.rel),
+                (self._cur(mstyle, on), symbol),
+                # the space after the marker uses the name style (not the marker
+                # style) so the marker colour doesn't bleed a cell under reverse
+                (self._cur(name_style, on), f" {e.rel}"),
             ]
             if i != last:
                 result.append(("", "\n"))

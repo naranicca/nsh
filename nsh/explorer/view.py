@@ -203,11 +203,16 @@ class ExplorerView:
             else:
                 name_frags = [(self._cursor_style(estyle, on), pad_to_width(name, nw))]
             result += [
-                (self._cursor_style("class:explorer.selected" if sel else "", on),
+                # the leading marker cell uses the row style (not "") when
+                # unselected, so the cursor-row "reverse" tints it the same as the
+                # rest of the row instead of the inherited near-white default
+                (self._cursor_style("class:explorer.selected" if sel else estyle, on),
                  "● " if sel else "  "),
-                # the trailing gap uses the row style, not the mark's — otherwise
-                # the cursor-row "reverse" paints the mark colour one cell too far
-                (self._cursor_style(mstyle, on), marker),
+                # the marker keeps its own colour when there is a git mark; with
+                # no mark it falls back to the row style so the cursor-row
+                # "reverse" doesn't leave a near-white blank cell. The trailing
+                # gap uses the row style too, so the mark colour doesn't bleed.
+                (self._cursor_style(mstyle or estyle, on), marker),
                 (self._cursor_style(estyle, on), " " + indent),
                 (self._cursor_style(estyle, on), f"{icon} "),
                 *name_frags,

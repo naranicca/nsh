@@ -67,9 +67,10 @@ Notable user-facing changes to the Python rewrite. Newest first.
   commits, Esc cancels. (The rename key moved from `R` to `F2`.)
 - **Git mode** (`Ctrl+G`): a flat, `git status`-style list of the repo's changed
   and untracked files (subdirectory changes show their full path, not a tree),
-  with multi-select and a diff in the preview pane. `Tab` opens an action menu
-  (stage/unstage the selection, commit, edit, branches, revert). Left/right are
-  inert (no hierarchy); moving to another directory leaves git mode.
+  with multi-select and a diff in the preview pane. Tracked changes are listed
+  first, untracked files last. `Tab` opens an action menu (stage/unstage the
+  selection, commit, edit, branches, revert). Left/right are inert (no
+  hierarchy); moving to another directory leaves git mode.
 - **Symlinked directories keep their logical path** (`cd -L`): entering a
   symlinked subdir shows the path you followed (not the link target), and going
   up returns to the directory that holds the link instead of the target's real
@@ -105,7 +106,10 @@ Notable user-facing changes to the Python rewrite. Newest first.
 - **Auto-refresh** when the directory changes; `?` shows the key list.
 - **Cleaner cursor-row highlight**: the git mark no longer tints the cell after
   it, and the file size now blends into the row highlight instead of showing a
-  grey block at the right edge.
+  grey block at the right edge. The leading marker cell (and an unmarked file's
+  mark cell) now take the row colour too, so the cursor highlight is a single
+  solid colour instead of a near-white cell at the front — in both the explorer
+  and git mode.
 
 ### UI & dialogs
 - Title bar: a single space before `on <branch>`; the action menu lines up
