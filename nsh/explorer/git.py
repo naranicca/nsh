@@ -43,6 +43,13 @@ class GitStatus:
         return (self.has_remote and not self.has_upstream and self.has_commits
                 and self.branch not in (None, "(detached)"))
 
+    @property
+    def can_pull(self) -> bool:
+        """True when there is an upstream branch to pull from. (Not gated on the
+        behind count, which is stale until a fetch — pulling is how you find out
+        about new upstream commits.)"""
+        return self.has_upstream
+
 
 async def run_git(args, cwd):
     """Run ``git <args>`` in ``cwd``; return ``(returncode, combined_output)``."""

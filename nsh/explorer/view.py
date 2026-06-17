@@ -570,8 +570,10 @@ class ExplorerView:
             # '.', the whole directory); avoid duplicating it for M/S/C above
             if gs.dirty and code not in ("M", "S", "C"):
                 items.append(("Git: Commit", self.git_commit))
-            # offer push when there are commits to push (ahead of the upstream,
-            # or an unpushed branch on a repo that has a remote)
+            # pull when there's an upstream; push when there are commits to push
+            # (ahead of the upstream, or an unpushed branch on a repo with a remote)
+            if gs.can_pull:
+                items.append(("Git: Pull", self.git_pull))
             if gs.can_push:
                 items.append(("Git: Push", self.git_push))
             items.append(("Git: Branches", self.git_branches))
@@ -665,6 +667,18 @@ class ExplorerView:
                 reason = _git_error_summary(out)
                 self.app.set_message(f"commit failed: {reason}" if reason
                                      else "commit failed")
+            await self.app.refresh_git()
+        asyncio.ensure_future(do())
+
+    def git_pull(self):
+        if not self._require_repo():
+            return
+
+        async def do():
+            # pull may need credentials and can open a merge editor / hit
+            # conflicts, so run it on a real terminal
+            rc = await self.app.runner.run_in_term("git pull")
+            self.app.set_message("pulled" if rc == 0 else "pull failed")
             await self.app.refresh_git()
         asyncio.ensure_future(do())
 

@@ -180,9 +180,10 @@ class GitView:
             items.append(("Git: Stage / Unstage", self.git_stage))
             items.append(("Git: Revert", self.git_revert))
         items.append(("Git: Commit", self.app.explorer.git_commit))
-        # offer push when there are commits to push (ahead of the upstream, or
-        # an unpushed branch on a repo that has a remote)
+        # pull when there's an upstream; push when there are commits to push
         gs = self.app.git_status
+        if gs and gs.can_pull:
+            items.append(("Git: Pull", self.app.explorer.git_pull))
         if gs and gs.can_push:
             items.append(("Git: Push", self.app.explorer.git_push))
         items.append(("Git: Branches", self.app.explorer.git_branches))

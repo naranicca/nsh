@@ -85,8 +85,10 @@ Notable user-facing changes to the Python rewrite. Newest first.
   whenever the repo has tracked changes, even on a clean file or directory,
   since it commits the whole directory. **Git: Push** appears when there are
   commits to push — ahead of the upstream, or an unpushed branch on a repo that
-  has a remote (in which case the push sets the upstream, `git push -u`). It runs
-  on a real terminal so it can prompt for credentials. It also includes a
+  has a remote (in which case the push sets the upstream, `git push -u`).
+  **Git: Pull** appears when the branch has an upstream. Both run on a real
+  terminal so they can prompt for credentials (and pull can resolve a merge).
+  It also includes a
   **Branches** submenu: checkout, `+ New Branch`, and delete (local/remote)
   with a confirmation. Deleting a *remote* branch now runs on a real terminal so
   git can prompt for a username/password where credentials are required (it used
