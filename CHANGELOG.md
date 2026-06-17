@@ -79,7 +79,9 @@ Notable user-facing changes to the Python rewrite. Newest first.
   uncommitted changes, yellow `↓N` when behind the upstream, yellow `↑N` when
   ahead (committed but not pushed), green when in sync.
 - **Git action menu** adapts to the file's status (untracked shows only
-  *Git: Add*; unmodified files hide stage/commit/diff) and includes a
+  *Git: Add*; unmodified files hide stage/diff) — but *Git: Commit* is offered
+  whenever the repo has tracked changes, even on a clean file or directory,
+  since it commits the whole directory. It also includes a
   **Branches** submenu: checkout, `+ New Branch`, and delete (local/remote)
   with a confirmation. Deleting a *remote* branch now runs on a real terminal so
   git can prompt for a username/password where credentials are required (it used

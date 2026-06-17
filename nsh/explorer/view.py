@@ -554,7 +554,11 @@ class ExplorerView:
                     ("Git: Diff", self.git_diff),
                     ("Git: Revert", self.git_revert),
                 ]
-            # clean tracked file (code is None): nothing to stage/commit/diff
+            # a repo-wide commit is available whenever the repo has tracked
+            # changes, even if the cursor isn't on a changed file (it commits
+            # '.', the whole directory); avoid duplicating it for M/S/C above
+            if gs.dirty and code not in ("M", "S", "C"):
+                items.append(("Git: Commit", self.git_commit))
             items.append(("Git: Branches", self.git_branches))
         self.app.open_menu(f"Actions · {target}", items)
 
