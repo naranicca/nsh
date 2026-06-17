@@ -189,6 +189,10 @@ def entry_icon(entry) -> str:
 DEFAULT_SETTINGS = {
     # editor for the "Edit" action; empty -> $EDITOR/$VISUAL, then a platform default
     "editor": "",
+    # what the Right arrow / l does on a directory: "true" (the default) folds /
+    # unfolds it inline as a tree and the e key enters it; "false" swaps them, so
+    # Right enters the directory and e expands it.
+    "right_expand": "true",
 }
 
 DEFAULT_NSHRC = """\
@@ -206,6 +210,12 @@ DEFAULT_NSHRC = """\
 # $EDITOR / $VISUAL, then to notepad (Windows) or vi (Linux/macOS).
 # editor = code -w
 # editor = vim
+
+# What the Right arrow / l does on a directory:
+#   true (default) - fold/unfold the folder inline as a tree; e enters it
+#   false          - enter the directory; e expands it
+# (Enter always opens / enters either way.)
+# right_expand = false
 
 [colors]
 # explorer.dir = #5fafff bold

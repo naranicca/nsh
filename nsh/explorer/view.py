@@ -220,6 +220,15 @@ class ExplorerView:
         else:
             self.app.open_file(entry.path)
 
+    def expand_or_open(self):
+        """Right arrow (when right_expand is on): fold/unfold a real directory,
+        but open a file or symlinked dir, so the key is never a dead end."""
+        entry = self.current()
+        if entry is not None and entry.is_dir and not entry.is_link:
+            self.toggle_expand()
+        else:
+            self.open()
+
     def toggle_expand(self):
         """Expand/collapse the directory under the cursor inline (tree view)."""
         entry = self.current()
@@ -814,11 +823,23 @@ class ExplorerView:
             self.cursor = max(0, len(self.entries) - 1)
             self.app.invalidate()
 
+        # [general] right_expand: when true (the default) Right/l fold/unfold a
+        # directory inline and the expand key (e) enters it; when false they swap,
+        # so Right/l enter the directory and e expands it. Enter always opens /
+        # enters regardless.
+        right_expand = (self.app.settings.get("right_expand") or "").strip().lower() \
+            not in ("false", "0", "no", "off")
+        right_handler = self.expand_or_open if right_expand else self.open
+        expand_key_handler = self.open if right_expand else self.toggle_expand
+
         @kb.add("enter")
+        def _(event):
+            self.open()
+
         @kb.add("l")
         @kb.add("right")
         def _(event):
-            self.open()
+            right_handler()
 
         @kb.add("h")
         @kb.add("left")
@@ -833,7 +854,7 @@ class ExplorerView:
             "paste": self.paste,
             "delete": self.delete_entry,
             "rename": self.rename_entry,
-            "expand": self.toggle_expand,
+            "expand": expand_key_handler,
             "new_dir": self.new_dir,
             "new_file": self.new_file,
             "select": self.toggle_select,
