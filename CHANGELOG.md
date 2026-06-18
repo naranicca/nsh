@@ -22,10 +22,17 @@ Notable user-facing changes to the Python rewrite. Newest first.
 - **Tab-completion menu navigation.** When there's a single candidate, Tab
   applies it directly without a menu; a unique directory is entered and the menu
   of its contents opens without pre-selecting an item (the focus stays on the
-  prompt). With several candidates, it opens the completion menu with the first
-  item selected; the arrows or `j`/`k` move through it. `Tab` and `Space` both accept
-  the highlighted item — a directory is reopened so you can keep drilling in (no
-  trailing space), and anything else ends with a trailing space.
+  prompt) — a further Tab then steps into that menu instead of closing it, so you
+  can keep tabbing straight through nested directories. With several candidates,
+  it opens the completion menu with the first item selected; the arrows or `j`/`k`
+  move through it. `Tab` and `Space` both accept the highlighted item — a directory
+  is reopened so you can keep drilling in (no trailing space), and anything else
+  ends with a trailing space.
+- **Completions quote names with spaces.** Tab-completing a file or directory
+  whose path contains a space now wraps it in double quotes so the shell sees
+  one argument (`cat "New folder/my file.txt"`). A directory keeps its quote
+  open (`"New folder/`) so you can keep drilling into it, and `cd` strips the
+  quotes back off.
 - **Fuzzy path completion.** After the exact (prefix) path matches, Tab also
   offers pseudo-fuzzy matches — the typed characters need only appear in order
   (`abc` matches `a…b…c`). Every path component is matched this way, not just the

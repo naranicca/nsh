@@ -50,6 +50,22 @@ LOG = "gitlog"
 SHELL_MIN_EXPLORER = 5
 
 
+def _unquote_arg(s):
+    """Strip a surrounding quote pair from a single shell argument.
+
+    Tab-completion wraps a name with a space in double quotes (a directory keeps
+    its quote open, e.g. ``"New folder/``); ``cd`` gets the raw line, so peel the
+    leading quote and a matching trailing one before treating it as a path.
+    """
+    s = s.strip()
+    if s[:1] in ("'", '"'):
+        q = s[0]
+        s = s[1:]
+        if s.endswith(q):
+            s = s[:-1]
+    return s
+
+
 def _logical_path(path, base):
     """Absolute, lexically-normalised ``cd -L`` path: symlinks are NOT resolved.
 
@@ -301,9 +317,14 @@ class NshApp:
             buff = event.current_buffer
             state = buff.complete_state
             comp = state.current_completion if state else None
-            buff.complete_state = None  # accept the highlighted item
             if comp is None:
+                # the menu is open with nothing selected — the state left after
+                # Tab auto-drilled into a unique directory (which deliberately
+                # doesn't pre-select an item). A further Tab should step into the
+                # menu, not close it, so completion can keep going.
+                buff.complete_next()
                 return
+            buff.complete_state = None  # accept the highlighted item
             # a directory (its completion ends in a separator): reopen the menu so
             # its contents can be drilled into, with no trailing space; anything
             # else ends with a space, like Space.
@@ -696,7 +717,7 @@ class NshApp:
             session.clear()
             return True
         if stripped == "cd" or stripped.startswith("cd "):
-            target = stripped[2:].strip() or "~"
+            target = _unquote_arg(stripped[2:].strip()) or "~"
             # logical (cd -L) target; set_cwd normalises and keeps symlinks
             path = _logical_path(os.path.expanduser(target), self.cwd)
             if path.is_dir():

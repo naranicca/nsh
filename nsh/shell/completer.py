@@ -5,6 +5,11 @@ command completions for the first token. After those exact (prefix) results it
 appends *pseudo-fuzzy* matches — the typed characters with ``*`` inserted
 between them — so e.g. ``abc`` also offers names containing a, b and c in order.
 prompt_toolkit renders the results in a drop-down menu the arrow keys navigate.
+
+A name that contains a space is wrapped in double quotes so the shell sees it as
+one argument. Each completion replaces the *whole* token (including any opening
+quote the user already typed), and a directory keeps its quote left open
+(``"New folder/``) so you can keep drilling into it.
 """
 import fnmatch
 import os
@@ -35,39 +40,81 @@ class ShellCompleter(Completer):
     def __init__(self, app):
         self.app = app
 
+    @staticmethod
+    def _current_token(text):
+        """Return the start index of the token under the cursor, quote-aware: a
+        space inside ``'`` or ``"`` quotes does not start a new token, so a
+        partially typed ``"New fo`` is treated as one token."""
+        start, quote = 0, ""
+        for i, ch in enumerate(text):
+            if quote:
+                if ch == quote:
+                    quote = ""
+            elif ch in ("'", '"'):
+                quote = ch
+            elif ch in (" ", "\t"):
+                start = i + 1
+        return start
+
+    @staticmethod
+    def _quote(full, is_dir):
+        """Wrap ``full`` in double quotes when it contains a space. A directory
+        is left with its quote open (no closing ``"``) and the trailing
+        separator outside nothing, so the menu can be reopened to drill in; a
+        file gets a closing quote."""
+        if " " not in full:
+            return full
+        if is_dir and full.endswith(("/", "\\")):
+            return '"' + full
+        return '"' + full + '"'
+
+    def _completion(self, raw, full, display, is_dir, style):
+        return Completion(
+            self._quote(full, is_dir),
+            start_position=-len(raw),
+            display=display,
+            style=style,
+        )
+
     def get_completions(self, document, complete_event):
         text = document.text_before_cursor
-        boundary = max(text.rfind(" "), text.rfind("\t"))
-        token = text[boundary + 1:]
-        is_first = boundary == -1
-        want_cmd = is_first and token and not any(s in token for s in ("/", "\\"))
+        start = self._current_token(text)
+        raw = text[start:]
+        quoted = raw[:1] in ("'", '"')
+        if quoted:
+            value = raw[1:]
+            if value.endswith(raw[0]):
+                value = value[:-1]
+        else:
+            value = raw
+        is_first = start == 0
+        want_cmd = (
+            is_first and value and not quoted
+            and not any(s in value for s in ("/", "\\"))
+        )
 
         # exact path matches, then the pseudo-fuzzy path matches appended after
         # them, then $PATH commands. (Fuzzy matching is deliberately not applied
         # to commands: over a Windows $PATH full of system DLLs it would bury the
         # useful results under thousands of subsequence hits.)
-        seen = set()  # full resulting paths, so fuzzy doesn't repeat an exact hit
-
-        def full(c):
-            return token[:len(token) + c.start_position] + c.text
-
+        seen = set()  # full (unquoted) paths, so fuzzy doesn't repeat an exact hit
         try:
-            for c in self._path_completions(token):
-                seen.add(full(c))
-                yield c
+            for full, comp in self._path_completions(raw, value):
+                seen.add(full)
+                yield comp
         except OSError:
             pass
         try:
-            for c in self._fuzzy_path_completions(token):
-                if full(c) in seen:
+            for full, comp in self._fuzzy_path_completions(raw, value):
+                if full in seen:
                     continue
-                seen.add(full(c))
-                yield c
+                seen.add(full)
+                yield comp
         except OSError:
             pass
         if want_cmd:
             try:
-                yield from self._command_completions(token)
+                yield from self._command_completions(raw, value)
             except OSError:
                 pass
 
@@ -84,23 +131,10 @@ class ShellCompleter(Completer):
         base = p.parent if p.is_absolute() else self.app.cwd / p.parent
         return base, p.name, ends_sep
 
-    @staticmethod
-    def _path_completion(de, prefix):
-        try:
-            is_dir = de.is_dir()
-        except OSError:
-            is_dir = False
-        comp = de.name + ("/" if is_dir else "")
-        return Completion(
-            comp,
-            start_position=-len(prefix),
-            display=comp,
-            style="fg:ansiblue bold" if is_dir else "",
-        )
-
     # -- paths ----------------------------------------------------------------
-    def _path_completions(self, token):
-        base, prefix, _ = self._split(token)
+    def _path_completions(self, raw, value):
+        base, prefix, _ = self._split(value)
+        head = value[:len(value) - len(prefix)]  # the typed dir portion, verbatim
         count = 0
         for de in sorted(os.scandir(base), key=lambda e: e.name.lower()):
             name = de.name
@@ -109,35 +143,39 @@ class ShellCompleter(Completer):
                     continue
             elif name.startswith("."):
                 continue
-            yield self._path_completion(de, prefix)
+            try:
+                is_dir = de.is_dir()
+            except OSError:
+                is_dir = False
+            disp = name + ("/" if is_dir else "")
+            full = head + disp
+            style = "fg:ansiblue bold" if is_dir else ""
+            yield full, self._completion(raw, full, disp, is_dir, style)
             count += 1
             if count >= MAX_PATHS:
                 break
 
-    def _fuzzy_path_completions(self, token):
+    def _fuzzy_path_completions(self, raw, value):
         """Fuzzy-match every path component, not just the last: ``sou/re/n``
         walks ``*s*o*u*`` then ``*r*e*`` then ``*n*`` to reach e.g.
         ``source/repos/nsh``. A leading ``~/`` or ``/`` is the (non-fuzzy)
         anchor and is preserved verbatim in the completion."""
-        if token.startswith("~/"):
-            anchor, base, rest = "~/", Path(os.path.expanduser("~")), token[2:]
-        elif token.startswith("/"):
-            anchor, base, rest = "/", Path(os.path.expanduser("/")), token[1:]
-        elif token == "~":
+        if value.startswith("~/"):
+            anchor, base, rest = "~/", Path(os.path.expanduser("~")), value[2:]
+        elif value.startswith("/"):
+            anchor, base, rest = "/", Path(os.path.expanduser("/")), value[1:]
+        elif value == "~":
             return
         else:
-            anchor, base, rest = "", self.app.cwd, token
+            anchor, base, rest = "", self.app.cwd, value
         if not rest:
             return
         components = rest.split("/")
         for rel, is_dir in self._fuzzy_walk(base, components):
-            comp = anchor + rel + ("/" if is_dir else "")
-            yield Completion(
-                comp,
-                start_position=-len(token),
-                display=comp,
-                style="fg:ansiblue bold" if is_dir else "",
-            )
+            full = anchor + rel + ("/" if is_dir else "")
+            disp = rel.split("/")[-1] + ("/" if is_dir else "")
+            style = "fg:ansiblue bold" if is_dir else ""
+            yield full, self._completion(raw, full, disp, is_dir, style)
 
     def _fuzzy_walk(self, base, components, max_results=200, max_branch=40):
         """Walk ``base`` matching each component fuzzily; return ``(rel, is_dir)``
@@ -178,7 +216,7 @@ class ShellCompleter(Completer):
         return results
 
     # -- commands -------------------------------------------------------------
-    def _command_completions(self, token):
+    def _command_completions(self, raw, value):
         seen = set()
         count = 0
         for directory in os.environ.get("PATH", "").split(os.pathsep):
@@ -189,15 +227,12 @@ class ShellCompleter(Completer):
             except OSError:
                 continue
             for name in names:
-                if not name.lower().startswith(token.lower()):
+                if not name.lower().startswith(value.lower()):
                     continue
                 if name in seen:
                     continue
                 seen.add(name)
-                yield Completion(
-                    name, start_position=-len(token), display=name,
-                    style="fg:ansigreen",
-                )
+                yield self._completion(raw, name, name, False, "fg:ansigreen")
                 count += 1
                 if count >= MAX_COMMANDS:
                     return
