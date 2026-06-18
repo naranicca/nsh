@@ -333,17 +333,19 @@ class ExplorerView:
     # -- sort order -----------------------------------------------------------
     def open_sort_menu(self):
         labels = [("Name", "name"), ("Size", "size"), ("Date", "date"), ("Type", "type")]
-        items = [(("● " if mode == self.sort else "  ") + label,
-                  lambda mode=mode: self.set_sort(mode)) for label, mode in labels]
-        items.append((f"  Reverse: {'on' if self.reverse else 'off'}", self.toggle_reverse))
+        # each key gets an ascending (↑) and a descending (↓) entry; the active
+        # one is bulleted. ↑ is the natural order (A→Z, small→large, old→new).
+        items = []
+        for label, mode in labels:
+            for arrow, rev in (("↑", False), ("↓", True)):
+                active = mode == self.sort and rev == self.reverse
+                items.append((("● " if active else "  ") + label + arrow,
+                              lambda mode=mode, rev=rev: self.set_sort(mode, rev)))
         self.app.open_menu("Sort by", items)
 
-    def set_sort(self, mode):
+    def set_sort(self, mode, reverse=False):
         self.sort = mode
-        self._resort()
-
-    def toggle_reverse(self):
-        self.reverse = not self.reverse
+        self.reverse = reverse
         self._resort()
 
     def _resort(self):

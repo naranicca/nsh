@@ -90,8 +90,9 @@ Notable user-facing changes to the Python rewrite. Newest first.
   two — then the Right arrow enters a directory and `e` expands it (Enter always
   opens / enters).
 - **Sort order** (`s`): a *Sort by* menu switches the listing between name, size,
-  date and type, with a *Reverse* toggle; directories always stay first. The
-  default is configurable in nshrc (`[general] sort` / `sort_reverse`).
+  date and type, each offered ascending (`↑`) and descending (`↓`); directories
+  always stay first. The default is configurable in nshrc (`[general] sort` /
+  `sort_reverse`).
 - **Jump home / recent directories**: `~` changes to your home directory, and
   `-` opens a menu of recently visited directories to jump back to one. Both
   keys are remappable in the `[keys]` section of nshrc.
