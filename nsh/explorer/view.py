@@ -635,7 +635,7 @@ class ExplorerView:
         ("select", "select / deselect (multi-select)"),
         ("menu", "action menu (copy, rename, git…)"),
         ("copy", "copy"), ("cut", "cut"), ("paste", "paste"),
-        ("rename", "rename"), ("new_dir", "new folder"), ("new_file", "new file"),
+        ("rename", "rename (also i)"), ("new_dir", "new folder"), ("new_file", "new file"),
         ("delete", "delete"), ("bookmark", "bookmarks"), ("sort", "sort order"),
         ("find", "fuzzy find"),
         ("command", "command-line mode"), ("preview", "toggle preview pane"),
@@ -1052,6 +1052,13 @@ class ExplorerView:
         @kb.add("backspace")
         def _(event):
             self.collapse_or_up()
+
+        # `i` always starts an inline rename (vim-ish "insert"), alongside the
+        # remappable rename key. While editing, the eager Keys.Any binding above
+        # swallows `i` as text, so this only fires in normal navigation.
+        @kb.add("i")
+        def _(event):
+            self.rename_entry()
 
         # Configurable action keys (remappable via the [keys] section of nshrc).
         actions = {

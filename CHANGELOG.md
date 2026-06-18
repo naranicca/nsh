@@ -95,9 +95,9 @@ Notable user-facing changes to the Python rewrite. Newest first.
 - **Jump home / recent directories**: `~` changes to your home directory, and
   `-` opens a menu of recently visited directories to jump back to one. Both
   keys are remappable in the `[keys]` section of nshrc.
-- **Inline rename** (`F2`): the cursor row's name becomes editable in place —
-  no dialog — with the cursor placed before the extension. Type to edit, Enter
-  commits, Esc cancels. (The rename key moved from `R` to `F2`.)
+- **Inline rename** (`F2`, or `i`): the cursor row's name becomes editable in
+  place — no dialog — with the cursor placed before the extension. Type to edit,
+  Enter commits, Esc cancels. (The rename key moved from `R` to `F2`.)
 - **Git mode** (`Ctrl+G`): a flat, `git status`-style list of the repo's changed
   and untracked files (subdirectory changes show their full path, not a tree),
   with multi-select and a diff in the preview pane. Tracked changes are listed
