@@ -16,7 +16,7 @@ from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout.containers import ScrollOffsets, Window
 from prompt_toolkit.layout.dimension import Dimension
 
-from ..util.widgets import WheelScrollControl
+from ..util.widgets import WheelScrollControl, visible_slice
 from . import git
 
 # highlight bar painted behind the selected commit line (kept subtle so the
@@ -27,12 +27,15 @@ _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 
 
 class LogLine:
-    __slots__ = ("display", "hash", "plain")
+    __slots__ = ("display", "hash", "plain", "frags")
 
     def __init__(self, display, commit):
         self.display = display  # ANSI-coloured text (hash sentinel stripped)
         self.hash = commit      # full commit hash, or None for a graph-only line
         self.plain = _ANSI_RE.sub("", display)  # uncoloured text, for searching
+        # parse the ANSI once here, not on every render — this is the bulk of
+        # the per-frame cost with a long history
+        self.frags = to_formatted_text(ANSI(display))
 
 
 class LogView:
@@ -40,6 +43,7 @@ class LogView:
         self.app = app
         self.lines = []
         self.cursor = 0
+        self._top = 0  # first rendered row (windowing); see util.widgets
         self._search_query = ""
 
         self.control = WheelScrollControl(
@@ -48,7 +52,7 @@ class LogView:
             focusable=True,
             show_cursor=False,
             key_bindings=self._build_key_bindings(),
-            get_cursor_position=lambda: Point(0, self.cursor),
+            get_cursor_position=lambda: Point(0, self.cursor - self._top),
         )
         self.window = Window(
             self.control,
@@ -88,14 +92,17 @@ class LogView:
     def _formatted_text(self):
         if not self.lines:
             return [("class:preview.dim", "  (no commits)")]
+        # render only the on-screen rows (using the cached per-line fragments)
+        self._top, end = visible_slice(
+            self.window, len(self.lines), self.cursor, self._top)
         result = []
-        last = len(self.lines) - 1
-        for i, line in enumerate(self.lines):
-            frags = to_formatted_text(ANSI(line.display))
+        for i in range(self._top, end):
+            line = self.lines[i]
+            frags = line.frags
             if i == self.cursor and line.hash:
                 frags = [(f"{style} {CURSOR_BG}".strip(), text) for style, text in frags]
             result += frags
-            if i != last:
+            if i != end - 1:
                 result.append(("", "\n"))
         return result
 

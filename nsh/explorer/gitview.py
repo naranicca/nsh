@@ -15,7 +15,7 @@ from prompt_toolkit.layout.containers import ScrollOffsets, Window
 from prompt_toolkit.layout.dimension import Dimension
 
 from .. import config
-from ..util.widgets import WheelScrollControl
+from ..util.widgets import WheelScrollControl, visible_slice
 from . import git, model
 
 
@@ -33,6 +33,7 @@ class GitView:
         self.app = app
         self.entries = []
         self.cursor = 0
+        self._top = 0  # first rendered row (windowing); see util.widgets
         self.selected = set()  # set[Path] of marked entries (multi-select)
 
         self.control = WheelScrollControl(
@@ -41,7 +42,7 @@ class GitView:
             focusable=True,
             show_cursor=False,
             key_bindings=self._build_key_bindings(),
-            get_cursor_position=lambda: Point(0, self.cursor),
+            get_cursor_position=lambda: Point(0, self.cursor - self._top),
         )
         self.window = Window(
             self.control,
@@ -99,9 +100,11 @@ class GitView:
     def _formatted_text(self):
         if not self.entries:
             return [("class:preview.dim", "  (no changes)")]
+        self._top, end = visible_slice(
+            self.window, len(self.entries), self.cursor, self._top)
         result = []
-        last = len(self.entries) - 1
-        for i, e in enumerate(self.entries):
+        for i in range(self._top, end):
+            e = self.entries[i]
             on = i == self.cursor
             sel = e.path in self.selected
             mstyle = config.GIT_STYLE.get(e.code, "")
@@ -115,7 +118,7 @@ class GitView:
                 # style) so the marker colour doesn't bleed a cell under reverse
                 (self._cur(name_style, on), f" {e.rel}"),
             ]
-            if i != last:
+            if i != end - 1:
                 result.append(("", "\n"))
         return result
 

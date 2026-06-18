@@ -149,6 +149,10 @@ Notable user-facing changes to the Python rewrite. Newest first.
   and git mode.
 
 ### UI & dialogs
+- **Fast with long lists.** The explorer, git mode and git log now render only
+  the on-screen rows instead of the whole list every frame, and the git log
+  parses each line's colours once (cached) rather than on every render — so
+  moving the cursor stays snappy with thousands of files or commits.
 - **Status messages lead, then auto-dismiss.** A status-bar message now shows in
   front of the shortcut hints, stays for 5 seconds, then slides off to the left
   as the shortcuts ease back in — instead of sitting at the far right until the

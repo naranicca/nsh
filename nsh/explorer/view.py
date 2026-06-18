@@ -17,7 +17,7 @@ from prompt_toolkit.layout.dimension import Dimension
 
 from .. import config
 from ..util.paths import human_size, norm
-from ..util.widgets import WheelScrollControl
+from ..util.widgets import WheelScrollControl, visible_slice
 from ..util.width import cut_to_width, pad_to_width
 from . import fileops, git, model
 
@@ -44,6 +44,7 @@ class ExplorerView:
         self.app = app
         self.entries = []
         self.cursor = 0
+        self._top = 0  # first rendered row (windowing); see util.widgets
         self.show_hidden = False
         self.selected = set()  # set[Path] of marked entries (multi-select)
         self.expanded = set()  # set[Path] of directories expanded inline (tree)
@@ -61,7 +62,7 @@ class ExplorerView:
             focusable=True,
             show_cursor=False,
             key_bindings=self._build_key_bindings(),
-            get_cursor_position=lambda: Point(0, self.cursor),
+            get_cursor_position=lambda: Point(0, self.cursor - self._top),
         )
         self.window = Window(
             self.control,
@@ -177,9 +178,11 @@ class ExplorerView:
         # is still shown on top of the shell, but the active "cursor" is the
         # command line, so highlighting an explorer row would be misleading.
         cursor_shown = self.app.mode != "shell"
+        self._top, end = visible_slice(
+            self.window, len(self.entries), self.cursor, self._top)
         result = []
-        last = len(self.entries) - 1
-        for i, e in enumerate(self.entries):
+        for i in range(self._top, end):
+            e = self.entries[i]
             on = cursor_shown and (i == self.cursor)
             sel = e.path in self.selected
             code = gs.files.get(norm(e.path)) if (gs and gs.is_repo) else None
@@ -222,7 +225,7 @@ class ExplorerView:
                 (self._cursor_style(size_style, on),
                  pad_to_width(size, SIZE_COL, align="right")),
             ]
-            if i != last:
+            if i != end - 1:
                 result.append(("", "\n"))
         return result
 
