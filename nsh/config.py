@@ -133,6 +133,7 @@ DEFAULT_KEYS = {
     "bookmark": "b",
     "home": "~",
     "visited": "-",
+    "sort": "s",
     "find": "/",
     "command": ":",
     "preview": "P",
@@ -195,6 +196,9 @@ DEFAULT_SETTINGS = {
     # unfolds it inline as a tree and the e key enters it; "false" swaps them, so
     # Right enters the directory and e expands it.
     "right_expand": "true",
+    # explorer sort order: name | size | date | type, and whether to reverse it
+    "sort": "name",
+    "sort_reverse": "false",
 }
 
 DEFAULT_NSHRC = """\
@@ -218,6 +222,10 @@ DEFAULT_NSHRC = """\
 #   false          - enter the directory; e expands it
 # (Enter always opens / enters either way.)
 # right_expand = false
+
+# Explorer sort order (change live with the 's' key). sort: name|size|date|type
+# sort = name
+# sort_reverse = false
 
 [colors]
 # explorer.dir = #5fafff bold
@@ -243,6 +251,7 @@ DEFAULT_NSHRC = """\
 # bookmark = b
 # home = ~          (jump to your home directory)
 # visited = -       (menu of recently visited directories)
+# sort = s          (change the file sort order)
 # find = /
 # command = :
 # preview = P

@@ -46,6 +46,12 @@ class ExplorerView:
         self.cursor = 0
         self._top = 0  # first rendered row (windowing); see util.widgets
         self.show_hidden = False
+        # sort order (name|size|date|type) + reverse, seeded from nshrc
+        self.sort = app.settings.get("sort", "name")
+        if self.sort not in model.SORT_KEYS:
+            self.sort = "name"
+        self.reverse = (app.settings.get("sort_reverse", "false").strip().lower()
+                        in ("true", "1", "yes", "on"))
         self.selected = set()  # set[Path] of marked entries (multi-select)
         self.expanded = set()  # set[Path] of directories expanded inline (tree)
         self.clipboard = None  # ([Path, ...], "copy" | "cut")
@@ -87,7 +93,7 @@ class ExplorerView:
 
     def _flatten(self, directory, depth):
         out = []
-        for e in model.list_dir(directory, self.show_hidden):
+        for e in model.list_dir(directory, self.show_hidden, self.sort, self.reverse):
             e.depth = depth
             out.append(e)
             # recurse into expanded directories, including symlinked ones (a
@@ -322,6 +328,27 @@ class ExplorerView:
         self.show_hidden = not self.show_hidden
         self.app.preview.clear()
         self.load()
+        self.app.invalidate()
+
+    # -- sort order -----------------------------------------------------------
+    def open_sort_menu(self):
+        labels = [("Name", "name"), ("Size", "size"), ("Date", "date"), ("Type", "type")]
+        items = [(("● " if mode == self.sort else "  ") + label,
+                  lambda mode=mode: self.set_sort(mode)) for label, mode in labels]
+        items.append((f"  Reverse: {'on' if self.reverse else 'off'}", self.toggle_reverse))
+        self.app.open_menu("Sort by", items)
+
+    def set_sort(self, mode):
+        self.sort = mode
+        self._resort()
+
+    def toggle_reverse(self):
+        self.reverse = not self.reverse
+        self._resort()
+
+    def _resort(self):
+        self._apply_listing(self._list())  # re-list, keeping the cursor entry
+        self.app.preview.clear()
         self.app.invalidate()
 
     def _targets(self):
@@ -603,7 +630,8 @@ class ExplorerView:
         ("menu", "action menu (copy, rename, git…)"),
         ("copy", "copy"), ("cut", "cut"), ("paste", "paste"),
         ("rename", "rename"), ("new_dir", "new folder"), ("new_file", "new file"),
-        ("delete", "delete"), ("bookmark", "bookmarks"), ("find", "fuzzy find"),
+        ("delete", "delete"), ("bookmark", "bookmarks"), ("sort", "sort order"),
+        ("find", "fuzzy find"),
         ("command", "command-line mode"), ("preview", "toggle preview pane"),
         ("hidden", "toggle hidden files"), ("refresh", "refresh"),
         ("help", "this help"), ("quit", "quit"),
@@ -1034,6 +1062,7 @@ class ExplorerView:
             "bookmark": lambda: self.app.open_bookmark_menu(),
             "home": lambda: self.app.go_home(),
             "visited": lambda: self.app.open_visited_menu(),
+            "sort": self.open_sort_menu,
             "find": lambda: self.app.enter_search(),
             "command": lambda: self.app.switch_mode("shell"),
             "preview": lambda: self.app.toggle_preview(),

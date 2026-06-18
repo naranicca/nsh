@@ -71,7 +71,25 @@ def is_text_file(path, probe: int = 4096) -> bool:
     return False
 
 
-def list_dir(path, show_hidden: bool = False):
+# sort modes -> a key over an Entry (each falls back to the name for ties)
+SORT_KEYS = {
+    "name": lambda e: natural_key(e.name),
+    "size": lambda e: (e.size, natural_key(e.name)),
+    "date": lambda e: (e.mtime, natural_key(e.name)),
+    "type": lambda e: (os.path.splitext(e.name)[1].lower(), natural_key(e.name)),
+}
+
+
+def sort_entries(entries, sort="name", reverse=False):
+    """Sort in place by ``sort`` (a key in :data:`SORT_KEYS`), directories
+    always first. ``reverse`` flips the order within each group."""
+    key = SORT_KEYS.get(sort, SORT_KEYS["name"])
+    entries.sort(key=key, reverse=reverse)
+    entries.sort(key=lambda e: not e.is_dir)  # stable: dirs first, order kept
+    return entries
+
+
+def list_dir(path, show_hidden: bool = False, sort: str = "name", reverse: bool = False):
     """Return a sorted list of :class:`Entry` for ``path`` (dirs first)."""
     entries = []
     try:
@@ -90,12 +108,13 @@ def list_dir(path, show_hidden: bool = False):
                 is_link, is_dir = False, False
             ext = os.path.splitext(name)[1].lower()
             size = mtime = 0
-            if not is_dir:
-                try:
-                    stat = de.stat(follow_symlinks=False)
-                    size, mtime = stat.st_size, stat.st_mtime_ns
-                except OSError:
-                    pass
+            try:  # stat every entry for the modified time (dirs included, for date sort)
+                stat = de.stat(follow_symlinks=False)
+                mtime = stat.st_mtime_ns
+                if not is_dir:
+                    size = stat.st_size
+            except OSError:
+                pass
             entries.append(
                 Entry(
                     path=Path(de.path),
@@ -108,5 +127,4 @@ def list_dir(path, show_hidden: bool = False):
                     mtime=mtime,
                 )
             )
-    entries.sort(key=lambda e: (not e.is_dir, natural_key(e.name)))
-    return entries
+    return sort_entries(entries, sort, reverse)
