@@ -145,6 +145,10 @@ Notable user-facing changes to the Python rewrite. Newest first.
   and git mode.
 
 ### UI & dialogs
+- **Status messages lead, then auto-dismiss.** A status-bar message now shows in
+  front of the shortcut hints, stays for 5 seconds, then slides off to the left
+  as the shortcuts ease back in — instead of sitting at the far right until the
+  next action.
 - Title bar: a single space before `on <branch>`; the action menu lines up
   under the `nsh` label.
 - **Tab** activates the selected menu item (like Enter).

@@ -94,6 +94,8 @@ class NshApp:
         self.style = config.build_style(color_overrides)
         self.settings = settings
         self.message = cfg_warning or ""
+        self._msg_trim = 0    # chars trimmed off the front during the slide-out
+        self._msg_gen = 0     # bumped per message, so a stale fade task bails
 
         # search-mode startup / result plumbing
         self._start_mode = start_mode
@@ -492,11 +494,15 @@ class NshApp:
                 ("^C", "stop"), ("ESC", "explorer"),
             ]
         segs = []
+        # the message sits in front of the shortcuts; while it slides out the
+        # front is trimmed so the shortcuts ease in from the left to fill the gap
+        if self.message:
+            visible = self.message[self._msg_trim:]
+            if visible:
+                segs.append(("class:statusbar.msg", f" {visible} "))
         for key, label in hints:
             segs.append(("class:statusbar.key", f" {key} "))
             segs.append(("class:statusbar", f"{label} "))
-        if self.message:
-            segs.append(("class:statusbar.msg", f" {self.message}"))
         return self._fill(segs, "class:statusbar")
 
     # -- modes ----------------------------------------------------------------
@@ -889,7 +895,36 @@ class NshApp:
     # -- misc -----------------------------------------------------------------
     def set_message(self, message):
         self.message = message
+        self._msg_trim = 0
+        self._msg_gen += 1
         self.invalidate()
+        if message:
+            # show it for 5s, then slide the hints in from the left over it
+            try:
+                asyncio.ensure_future(self._fade_message(self._msg_gen))
+            except RuntimeError:
+                pass  # no running loop yet (e.g. a startup warning)
+
+    async def _fade_message(self, gen):
+        """After 5s, animate the status message off to the left (the shortcuts
+        slide in to fill the space), then clear it. Bails if a newer message
+        superseded this one."""
+        try:
+            await asyncio.sleep(5.0)
+            n = len(self.message)
+            frames = 15
+            for f in range(1, frames + 1):
+                if gen != self._msg_gen:
+                    return
+                self._msg_trim = round(n * f / frames)
+                self.invalidate()
+                await asyncio.sleep(0.04)
+        except asyncio.CancelledError:
+            raise
+        if gen == self._msg_gen:
+            self.message = ""
+            self._msg_trim = 0
+            self.invalidate()
 
     def invalidate(self):
         try:
