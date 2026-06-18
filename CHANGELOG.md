@@ -64,8 +64,9 @@ Notable user-facing changes to the Python rewrite. Newest first.
 - **Expand folders inline**: on a directory the Right arrow / `l` expands its
   contents as an indented tree under it (and again to collapse); the caret turns
   from `▸` to `▾`, while `e` enters the directory. Inside an expanded tree,
-  Left/`h` collapses the directory (jumping to it) instead of leaving for the
-  parent. Expansions reset when you change directory. Symlinked directories can
+  Left/`h` moves the cursor up to the parent directory (leaving it expanded);
+  pressing it again on that expanded directory folds it. Expansions reset when
+  you change directory. Symlinked directories can
   be expanded too. Set `[general] right_expand = false` in nshrc to swap the
   two — then the Right arrow enters a directory and `e` expands it (Enter always
   opens / enters).

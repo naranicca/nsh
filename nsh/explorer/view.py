@@ -270,11 +270,12 @@ class ExplorerView:
         self.app.invalidate()
 
     def collapse_or_up(self):
-        """Left/h/backspace: fold the tree where possible, else go up a level.
+        """Left/h/backspace: fold an expanded directory, else move toward the root.
 
-        - on an expanded directory  -> collapse it
-        - inside an expanded subtree -> collapse its parent and move there
-        - otherwise (top level)      -> change to the parent directory
+        - on an expanded directory   -> collapse it (keep the cursor on it)
+        - inside an expanded subtree  -> move the cursor up to the parent
+          directory (without folding it)
+        - otherwise (top level)       -> change to the parent directory
         """
         entry = self.current()
         if entry is not None and entry.is_dir and entry.path in self.expanded:
@@ -284,9 +285,8 @@ class ExplorerView:
             self.app.invalidate()
             return
         if entry is not None and entry.depth > 0:
+            # move the cursor to the parent directory, leaving it expanded
             parent = entry.path.parent
-            self.expanded.discard(parent)
-            self._apply_listing(self._list())  # the child is gone now
             for i, e in enumerate(self.entries):
                 if e.path == parent:
                     self.cursor = i
