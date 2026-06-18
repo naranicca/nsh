@@ -140,6 +140,27 @@ class NshApp:
     def focus_shell(self):
         self.application.layout.focus(self.shells.current().command_buffer)
 
+    def _prefill_selection(self):
+        """Entering the shell from the explorer with files selected drops their
+        names into the (empty) prompt, ready to use as command arguments."""
+        sel = self.explorer.selected
+        if not sel:
+            return
+        buff = self.shells.current().command_buffer
+        if buff.text:
+            return  # don't clobber a half-typed command
+        # listing order, then any selected paths not currently listed; each is
+        # relative to the cwd and quoted when it contains a space
+        ordered = [e.path for e in self.explorer.entries if e.path in sel]
+        listed = set(ordered)
+        parts = []
+        for p in ordered + [q for q in sel if q not in listed]:
+            rel = os.path.relpath(str(p), str(self.cwd)).replace(os.sep, "/")
+            parts.append(f'"{rel}"' if " " in rel else rel)
+        if parts:
+            buff.text = " ".join(parts) + " "
+            buff.cursor_position = len(buff.text)
+
     # -- layout ---------------------------------------------------------------
     def _build_application(self):
         confirm_open = Condition(lambda: self.confirm_dialog.active)
@@ -248,10 +269,15 @@ class NshApp:
         # a trailing space.
         completing = shell_mode & has_completions
 
-        def _shell_complete(buff):
+        def _shell_complete(buff, first=True):
             """Tab with the menu closed: compute the candidates and act on the
             count — a single one is applied directly (no menu; a trailing space,
-            or drilling into a unique directory), several open the menu."""
+            or drilling into a unique directory), several open the menu.
+
+            ``first`` is only false after auto-applying a unique directory: the
+            menu of its contents then opens without pre-selecting an item, so the
+            focus doesn't jump into it — the user picks or keeps typing.
+            """
             if not buff.completer:
                 return
             comps = list(buff.completer.get_completions(
@@ -260,11 +286,11 @@ class NshApp:
                 comp = comps[0]
                 buff.apply_completion(comp)
                 if comp.text.endswith(("/", "\\")):
-                    _shell_complete(buff)  # unique directory: keep going into it
+                    _shell_complete(buff, first=False)  # drilled into a unique dir
                 else:
                     buff.insert_text(" ")
             elif comps:
-                buff.start_completion(select_first=True)
+                buff.start_completion(select_first=first)
 
         @kb.add("tab", filter=shell_mode & ~has_completions)
         def _(event):
@@ -536,10 +562,13 @@ class NshApp:
 
     def switch_mode(self, mode):
         # remember where the shell was opened from, to return there on ESC
+        from_mode = self.mode
         if mode == SHELL and self.mode in (EXPLORER, GIT):
             self._shell_return = self.mode
         self.mode = mode
         if mode == SHELL:
+            if from_mode == EXPLORER:
+                self._prefill_selection()
             self.focus_shell()
         elif mode == SEARCH:
             self.search.start(self._pending_query)

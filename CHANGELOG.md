@@ -20,9 +20,10 @@ Notable user-facing changes to the Python rewrite. Newest first.
   prints `10`). Quoting, `$other` expansion and `$(…)` all work. (POSIX shells /
   Git Bash.)
 - **Tab-completion menu navigation.** When there's a single candidate, Tab
-  applies it directly without a menu (and keeps going through a unique
-  directory). With several, it opens the completion menu with the first item
-  selected; the arrows or `j`/`k` move through it. `Tab` and `Space` both accept
+  applies it directly without a menu; a unique directory is entered and the menu
+  of its contents opens without pre-selecting an item (the focus stays on the
+  prompt). With several candidates, it opens the completion menu with the first
+  item selected; the arrows or `j`/`k` move through it. `Tab` and `Space` both accept
   the highlighted item — a directory is reopened so you can keep drilling in (no
   trailing space), and anything else ends with a trailing space.
 - **Fuzzy path completion.** After the exact (prefix) path matches, Tab also
@@ -39,6 +40,9 @@ Notable user-facing changes to the Python rewrite. Newest first.
   each tab has its own scrollback and process. Switch with Alt+←/→, open a tab
   with Ctrl+T, close with Ctrl+W. A tab bar below the prompt marks which
   sessions are still running.
+- **Selected files seed the prompt.** Opening the command line from the explorer
+  while files are selected drops their names (relative, quoted if they contain a
+  space) into the empty prompt, ready to use as command arguments.
 - **Word-wrap output.** Long lines now wrap instead of being cut off at the
   right edge, so you can read them in full.
 - **Backspace-aware output.** A `\b` (0x08) in command output is resolved the
