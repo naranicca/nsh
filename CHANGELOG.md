@@ -102,6 +102,9 @@ Notable user-facing changes to the Python rewrite. Newest first.
   menu adds *Git: Continue* (commit / `--continue`, on a real terminal) and
   *Git: Abort*. Edit the conflicted files (shown in git mode), stage them, then
   continue.
+- **Action menu in an empty directory.** `Tab` now opens the menu even with no
+  files, offering *New folder*, *New file* (and *Paste* / repo-wide git actions
+  when they apply) instead of doing nothing.
 - **Symlinked directories keep their logical path** (`cd -L`): entering a
   symlinked subdir shows the path you followed (not the link target), and going
   up returns to the directory that holds the link instead of the target's real

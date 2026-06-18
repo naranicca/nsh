@@ -527,29 +527,28 @@ class ExplorerView:
 
     # -- action menu (Tab) ----------------------------------------------------
     def open_command_menu(self):
-        if not self.selected and self.current() is None:
-            return
-        target = (f"{len(self.selected)} selected" if self.selected
-                  else self.current().name)
         cur = self.current()
+        has_target = bool(self.selected) or cur is not None
+        if self.selected:
+            target = f"{len(self.selected)} selected"
+        elif cur is not None:
+            target = cur.name
+        else:
+            target = "(empty)"  # empty directory: still offer create / paste
         items = []
-        # "Edit" only for a single text file under the cursor (not a directory,
-        # image, or binary), and not while multi-selecting.
-        if (not self.selected and cur is not None and not cur.is_dir
-                and not cur.is_image and model.is_text_file(cur.path)):
-            items.append(("Edit", self.edit_entry))
-        items += [
-            ("Copy", self.copy_entry),
-            ("Cut", self.cut_entry),
-        ]
+        # entry actions need something under the cursor / a selection
+        if has_target:
+            # "Edit" only for a single text file under the cursor (not a
+            # directory, image, or binary), and not while multi-selecting.
+            if (not self.selected and cur is not None and not cur.is_dir
+                    and not cur.is_image and model.is_text_file(cur.path)):
+                items.append(("Edit", self.edit_entry))
+            items += [("Copy", self.copy_entry), ("Cut", self.cut_entry)]
         if self.clipboard:
             items.append(("Paste", self.paste))
-        items += [
-            ("Rename", self.rename_entry),
-            ("Delete", self.delete_entry),
-            ("New folder", self.new_dir),
-            ("New file", self.new_file),
-        ]
+        if has_target:
+            items += [("Rename", self.rename_entry), ("Delete", self.delete_entry)]
+        items += [("New folder", self.new_dir), ("New file", self.new_file)]
         if self.app.git_status and self.app.git_status.is_repo:
             gs = self.app.git_status
             code = gs.files.get(norm(cur.path)) if cur else None
