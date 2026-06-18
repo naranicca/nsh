@@ -48,6 +48,11 @@ Notable user-facing changes to the Python rewrite. Newest first.
 - **Snappy typing with a long scrollback.** Rendering now only materialises the
   visible lines, so input and cursor movement stay fast no matter how much
   output has accumulated.
+- **Commands no longer break the keyboard.** A command's stdin is detached from
+  the terminal (it gets `/dev/null`), so it can't leave the terminal in a state
+  that swallowed nsh's own input afterwards — arrow keys (Up/Down history) would
+  stop registering after running certain commands. Interactive tools still get a
+  real terminal via the run-on-terminal path.
 - **Alt+Up / Alt+Down** scroll the output one line at a time.
 - **Correct non-UTF-8 output.** Output is decoded as UTF-8 with a fallback to
   the OS OEM code page (e.g. cp949), so localized tool/`cmd` messages render

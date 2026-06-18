@@ -258,6 +258,7 @@ class CommandRunner:
             proc = await asyncio.create_subprocess_exec(
                 self.shell, *self.shell_args, f"{line}; {dump}",
                 cwd=str(self.app.cwd), env=self._child_env(),
+                stdin=asyncio.subprocess.DEVNULL,  # don't share the terminal stdin
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
             )
             out, _ = await proc.communicate()
@@ -388,6 +389,12 @@ class CommandRunner:
         kwargs = dict(
             cwd=str(self.app.cwd),
             env=self._child_env(allow_prompt=allow_prompt),
+            # Detach the command's stdin from the terminal. Inheriting it lets the
+            # child fiddle with the terminal (cursor-key mode, raw mode), which
+            # corrupted nsh's own input afterwards — arrow keys (escape sequences)
+            # would stop registering while plain characters still worked. A child
+            # that needs real input goes through run_in_term instead.
+            stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
         )
