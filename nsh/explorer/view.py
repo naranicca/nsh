@@ -18,7 +18,7 @@ from prompt_toolkit.layout.dimension import Dimension
 from .. import config
 from ..util.paths import human_size, norm
 from ..util.widgets import WheelScrollControl, visible_slice
-from ..util.width import cut_to_width, pad_to_width
+from ..util.width import char_width, cut_to_width, pad_to_width, text_width
 from . import fileops, git, model
 
 SIZE_COL = 8
@@ -502,16 +502,22 @@ class ExplorerView:
 
     def _rename_name_fragments(self, name_w):
         """Render the edited name as fragments exactly ``name_w`` cells wide,
-        horizontally scrolled so the block cursor stays visible."""
+        horizontally scrolled so the block cursor stays visible.
+
+        Widths are measured in terminal cells, not characters, so wide (CJK)
+        names scroll and pad correctly — a 한글 glyph occupies two cells."""
         text, pos = self._rename_text, self._rename_pos
-        # keep the cursor within the visible window of width name_w
-        start = pos - (name_w - 1) if pos > name_w - 1 else 0
-        view = text[start:start + name_w]
-        cpos = pos - start
-        before = view[:cpos]
-        at = view[cpos] if cpos < len(view) else " "
-        after = view[cpos + 1:] if cpos < len(view) else ""
-        pad = " " * max(0, name_w - (len(before) + 1 + len(after)))
+        at = text[pos] if pos < len(text) else " "
+        cw = char_width(at) or 1  # the block cursor always occupies >= 1 cell
+        # scroll right by whole characters until the cursor cell fits in name_w
+        start = 0
+        while text_width(text[start:pos]) + cw > name_w:
+            start += 1
+        before = text[start:pos]
+        before_w = text_width(before)
+        after = cut_to_width(text[pos + 1:], max(0, name_w - before_w - cw))
+        used = before_w + cw + text_width(after)
+        pad = " " * max(0, name_w - used)
         return [
             ("class:explorer.rename", before),
             ("class:explorer.rename.cursor", at),
