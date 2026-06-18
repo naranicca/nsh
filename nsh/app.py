@@ -8,6 +8,7 @@ from pathlib import Path
 
 from prompt_toolkit.application import Application
 from prompt_toolkit.application.current import get_app
+from prompt_toolkit.completion import CompleteEvent
 from prompt_toolkit.filters import Condition, has_completions
 from prompt_toolkit.key_binding import KeyBindings, merge_key_bindings
 from prompt_toolkit.key_binding.defaults import load_key_bindings
@@ -247,9 +248,27 @@ class NshApp:
         # a trailing space.
         completing = shell_mode & has_completions
 
+        def _shell_complete(buff):
+            """Tab with the menu closed: compute the candidates and act on the
+            count — a single one is applied directly (no menu; a trailing space,
+            or drilling into a unique directory), several open the menu."""
+            if not buff.completer:
+                return
+            comps = list(buff.completer.get_completions(
+                buff.document, CompleteEvent(completion_requested=True)))
+            if len(comps) == 1:
+                comp = comps[0]
+                buff.apply_completion(comp)
+                if comp.text.endswith(("/", "\\")):
+                    _shell_complete(buff)  # unique directory: keep going into it
+                else:
+                    buff.insert_text(" ")
+            elif comps:
+                buff.start_completion(select_first=True)
+
         @kb.add("tab", filter=shell_mode & ~has_completions)
         def _(event):
-            event.current_buffer.start_completion(select_first=True)
+            _shell_complete(event.current_buffer)
 
         @kb.add("tab", filter=completing)
         def _(event):

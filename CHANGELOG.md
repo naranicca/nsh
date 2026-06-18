@@ -19,10 +19,12 @@ Notable user-facing changes to the Python rewrite. Newest first.
   rest of the session, so later commands — in any tab — inherit it (`echo $a`
   prints `10`). Quoting, `$other` expansion and `$(…)` all work. (POSIX shells /
   Git Bash.)
-- **Tab-completion menu navigation.** Tab opens the completion menu with the
-  first item selected; the arrows or `j`/`k` move through it. `Tab` and `Space`
-  both accept the highlighted item — a directory is reopened so you can keep
-  drilling in (no trailing space), and anything else ends with a trailing space.
+- **Tab-completion menu navigation.** When there's a single candidate, Tab
+  applies it directly without a menu (and keeps going through a unique
+  directory). With several, it opens the completion menu with the first item
+  selected; the arrows or `j`/`k` move through it. `Tab` and `Space` both accept
+  the highlighted item — a directory is reopened so you can keep drilling in (no
+  trailing space), and anything else ends with a trailing space.
 - **Fuzzy path completion.** After the exact (prefix) path matches, Tab also
   offers pseudo-fuzzy matches — the typed characters need only appear in order
   (`abc` matches `a…b…c`). Every path component is matched this way, not just the
