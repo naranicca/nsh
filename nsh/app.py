@@ -242,8 +242,9 @@ class NshApp:
             self.close_shell_tab()
 
         # Tab completion: Tab opens the menu (first item selected); while it is
-        # open the arrows or j/k move, Tab accepts (no trailing space) and Space
-        # accepts and adds a space, ending completion.
+        # open the arrows or j/k move. Tab and Space both accept; a directory is
+        # reopened (no space) so it can be drilled into, anything else ends with
+        # a trailing space.
         completing = shell_mode & has_completions
 
         @kb.add("tab", filter=shell_mode & ~has_completions)
@@ -255,11 +256,16 @@ class NshApp:
             buff = event.current_buffer
             state = buff.complete_state
             comp = state.current_completion if state else None
-            buff.complete_state = None  # accept; no trailing space
-            # if the accepted item is a directory (its completion ends in a
-            # separator), reopen the menu so its contents can be drilled into
-            if comp is not None and comp.text.endswith(("/", "\\")):
+            buff.complete_state = None  # accept the highlighted item
+            if comp is None:
+                return
+            # a directory (its completion ends in a separator): reopen the menu so
+            # its contents can be drilled into, with no trailing space; anything
+            # else ends with a space, like Space.
+            if comp.text.endswith(("/", "\\")):
                 buff.start_completion(select_first=True)
+            else:
+                buff.insert_text(" ")
 
         @kb.add("space", filter=completing)
         def _(event):
