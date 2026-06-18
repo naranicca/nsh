@@ -1,9 +1,9 @@
 """Manage several :class:`ShellView` sessions as tabs.
 
 Only one session is visible at a time (its output + input line); a thin tab bar
-on top lists the others and marks which ones still have a command running. A new
-session is spawned automatically when a command is entered while the active
-session is busy, or explicitly with Ctrl-T.
+below the prompt lists the others and marks which ones still have a command
+running. A new session is spawned automatically when a command is entered while
+the active session is busy, or explicitly with Ctrl-T.
 """
 from prompt_toolkit.layout.containers import (
     DynamicContainer,
@@ -30,8 +30,8 @@ class ShellTabs:
             style="class:shell.tabbar",
         )
         self.container = HSplit([
-            self._tabbar,  # always shown, even with a single tab
             DynamicContainer(lambda: self.current().container),
+            self._tabbar,  # below the prompt; always shown, even with one tab
         ])
 
     # -- access ---------------------------------------------------------------
