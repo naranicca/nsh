@@ -76,6 +76,11 @@ Notable user-facing changes to the Python rewrite. Newest first.
   `git push: done` / `exit code N` note); a plain failure such as a rejected
   push or an unreachable host stays in the shell with its real error. `sudo` and
   bare interactive tools still go straight to the terminal.
+- **Commands that run on the terminal echo their prompt first.** When a command
+  drops to a real terminal (git asking for a username/password, an editor, …),
+  nsh now prints the prompt and the command above its output — in the same
+  format as the shell prompt (cwd + git branch + `$`), minus the previous
+  command's run-time/exit badge — so the bare output isn't left without context.
 - **Quoting fix.** Streamed commands keep their own quotes intact
   (e.g. `python -c "..."`).
 

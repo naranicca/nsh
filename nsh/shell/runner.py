@@ -15,7 +15,12 @@ import signal
 import subprocess
 import time
 
+from prompt_toolkit import print_formatted_text
 from prompt_toolkit.application import run_in_terminal
+from prompt_toolkit.formatted_text import FormattedText
+
+from .lexer import lex_line
+from .prompt import prompt_fragments
 
 # Commands that always own the terminal and cannot be driven through a pipe.
 # (git is intentionally absent: it auto-disables its pager when stdout is not a
@@ -468,6 +473,17 @@ class CommandRunner:
         result = {"rc": None}
 
         def _run():
+            # Echo the prompt + command first: a command run out here (git asking
+            # for a username, an editor…) otherwise shows only its output, with no
+            # sign of what produced it. Use the shell prompt format but without the
+            # previous command's run-time/exit badge.
+            try:
+                print_formatted_text(
+                    FormattedText(prompt_fragments(self.app) + lex_line(command)),
+                    style=self.app.style,
+                )
+            except Exception:  # noqa: BLE001 - never let the echo block the command
+                pass
             try:
                 result["rc"] = subprocess.run(argv, cwd=cwd, env=env, **kwargs).returncode
             except Exception as exc:  # noqa: BLE001 - surfaced to the user
