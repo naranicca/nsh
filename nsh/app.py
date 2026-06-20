@@ -37,7 +37,7 @@ from .util.bookmarks import Bookmarks
 from .util.dialog import ConfirmDialog, InfoDialog, InputDialog
 from .util.menu import Menu
 from .util.paths import shorten_home
-from .util.width import text_width
+from .util.width import char_width, cut_to_width, text_width
 
 EXPLORER = "explorer"
 SHELL = "shell"
@@ -96,7 +96,7 @@ def _initial_logical_cwd():
 
 class NshApp:
     def __init__(self, start_mode=None, query="", picker=False):
-        self.cwd = _initial_logical_cwd()
+        initial_cwd = _initial_logical_cwd()
         self.mode = EXPLORER
         # the mode to return to when leaving the shell (so a shell opened from
         # git mode goes back to git mode on ESC, not the explorer)
@@ -124,7 +124,15 @@ class NshApp:
         # shell variables set with a bare `a=10` line; shared by every tab and
         # passed to each child command's environment (see CommandRunner).
         self.shell_vars = {}
-        self.explorer = ExplorerView(self)
+        # two side-by-side explorer panes (Norton/MC-style). In single-pane mode
+        # only the active pane is shown; in two-pane mode both are, and F7/F8
+        # switch which one is active (and holds the cursor). Each pane keeps its
+        # own directory, selection and cursor.
+        self.explorers = [ExplorerView(self, initial_cwd),
+                          ExplorerView(self, initial_cwd)]
+        self.active_pane = 0
+        self.two_pane = (self.settings.get("two_pane", "false").strip().lower()
+                         in ("true", "1", "yes", "on"))
         self.shells = ShellTabs(self)  # the shell sessions, managed as tabs
         self.preview = PreviewView(self)
         self.show_preview = True
@@ -147,6 +155,17 @@ class NshApp:
         self.about_dialog = InfoDialog(self._dialog_closed)
 
         self.application = self._build_application()
+
+    @property
+    def explorer(self):
+        """The active explorer pane — the one holding the cursor. Most code only
+        ever touches this one; the cwd, git status and shell follow it."""
+        return self.explorers[self.active_pane]
+
+    @property
+    def cwd(self):
+        """The active pane's directory (the process cwd is kept chdir'd to it)."""
+        return self.explorers[self.active_pane].cwd
 
     @property
     def shell(self):
@@ -273,6 +292,16 @@ class NshApp:
         def _(event):
             self.shells.next()
 
+        # In two-pane explorer mode, F7/F8 move the cursor between the two panes
+        # (mirroring the shell's F7/F8 tab switch). The previous pane keeps its
+        # directory/selection but loses the cursor highlight.
+        two_pane_active = Condition(lambda: self.mode == EXPLORER and self.two_pane)
+
+        @kb.add("f7", filter=two_pane_active)
+        @kb.add("f8", filter=two_pane_active)
+        def _(event):
+            self.switch_pane()
+
         @kb.add("c-t", filter=shell_mode)
         def _(event):
             self.shells.new_session()
@@ -369,18 +398,29 @@ class NshApp:
 
         self._explorer_split = VSplit(
             [
-                self.explorer.window,
+                self.explorers[0].window,
                 Window(width=1, char="│", style="class:preview.border"),
                 self.preview.window,
             ]
         )
 
-        # the explorer area (with or without the preview pane), reused both in
-        # explorer mode and on top of the shell so the listing stays visible
+        # two-pane view: the two explorer panes side by side, no preview
+        self._two_pane_split = VSplit(
+            [
+                self.explorers[0].window,
+                Window(width=1, char="│", style="class:preview.border"),
+                self.explorers[1].window,
+            ]
+        )
+
+        # the explorer area, reused both in explorer mode and on top of the
+        # shell so the listing stays visible. Two-pane shows both panes (no
+        # preview); single-pane shows pane 0 with the optional preview beside it.
         explorer_area = DynamicContainer(
-            lambda: self._explorer_split
-            if (self.show_preview and self._wide_enough())
-            else self.explorer.window
+            lambda: self._two_pane_split if self.two_pane
+            else (self._explorer_split
+                  if (self.show_preview and self._wide_enough())
+                  else self.explorers[0].window)
         )
 
         # git mode: the changed-file list beside the diff preview
@@ -506,32 +546,108 @@ class NshApp:
             left.append((fill_style, " " * pad))
         return left + right
 
+    @staticmethod
+    def _clip_segs(segs, width, fill_style):
+        """Truncate ``segs`` to ``width`` cells (cutting mid-segment if needed),
+        then pad with ``fill_style`` so the result is exactly ``width`` wide."""
+        out = []
+        used = 0
+        for style, text in segs:
+            if used >= width:
+                break
+            w = text_width(text)
+            if used + w <= width:
+                out.append((style, text))
+                used += w
+            else:
+                piece = cut_to_width(text, width - used)
+                if piece:
+                    out.append((style, piece))
+                    used += text_width(piece)
+                break
+        if used < width:
+            out.append((fill_style, " " * (width - used)))
+        return out
+
+    def _branch_seg(self):
+        """The coloured ``⎇ branch ±N`` title segment for the active pane's repo,
+        or ``None`` when not in a repo. Yellow when behind/ahead the upstream,
+        red with uncommitted changes, else green (same precedence as the prompt)."""
+        g = self.git_status
+        if not (g.is_repo and g.branch):
+            return None
+        if g.behind > 0:
+            return "class:titlebar.branch.behind", f"⎇ {g.branch} -{g.behind}"
+        if g.dirty:
+            return "class:titlebar.branch.dirty", f"⎇ {g.branch}"
+        if g.ahead > 0:
+            return "class:titlebar.branch.behind", f"⎇ {g.branch} +{g.ahead}"
+        return "class:titlebar.branch", f"⎇ {g.branch}"
+
+    def _title_git_segs(self):
+        """Branch (+ in-progress merge/rebase) and the selected-count badge for
+        the active pane, as title-bar segments."""
+        segs = []
+        branch = self._branch_seg()
+        if branch:
+            segs.append(("class:titlebar", " on "))
+            segs.append(branch)
+            if self.git_status.in_progress:
+                segs.append(("class:titlebar", " "))
+                segs.append(("class:titlebar.branch.dirty",
+                             f"⚠ {self.git_status.in_progress}"))
+        selected = self.active_selection()
+        if selected:
+            segs.append(("class:titlebar", "   "))
+            segs.append(("class:titlebar.sel", f"● {len(selected)} selected"))
+        return segs
+
+    @staticmethod
+    def _tail_to_width(s, width):
+        """The trailing slice of ``s`` that fits in ``width`` display cells."""
+        if width <= 0:
+            return ""
+        i, w = len(s), 0
+        while i > 0:
+            cw = char_width(s[i - 1]) or 1
+            if w + cw > width:
+                break
+            w += cw
+            i -= 1
+        return s[i:]
+
+    def _clip_path(self, s, width):
+        """Clip a path to ``width`` cells keeping the *tail* (the current
+        directory), with a leading ``…`` when truncated — so the two panes stay
+        distinguishable even when their paths share a long common prefix."""
+        if width <= 0:
+            return ""
+        if text_width(s) <= width:
+            return s
+        if width == 1:
+            return "…"
+        return "…" + self._tail_to_width(s, width - 1)
+
     def _title_text(self):
         # the "nsh" label adopts the menu's header colour while a menu is open,
         # so it's obvious a popup is active; otherwise it blends into the bar.
         name_style = "class:menu.title" if self.menu.active else "class:titlebar.name"
+        clock = [("class:titlebar.clock", f" {datetime.now().strftime('%H:%M:%S')} ")]
+        if self.two_pane:
+            return self._two_pane_title(name_style, clock)
         segs = [
             (name_style, " nsh "),
             ("class:titlebar", " "),
             ("class:titlebar.path", shorten_home(self.cwd)),
         ]
-        if self.git_status.is_repo and self.git_status.branch:
-            g = self.git_status
-            # behind upstream -> yellow -count; uncommitted changes -> red;
-            # committed-but-unpushed (ahead) -> yellow +count; else green
-            if g.behind > 0:
-                style, text = "class:titlebar.branch.behind", f"⎇ {g.branch} -{g.behind}"
-            elif g.dirty:
-                style, text = "class:titlebar.branch.dirty", f"⎇ {g.branch}"
-            elif g.ahead > 0:
-                style, text = "class:titlebar.branch.behind", f"⎇ {g.branch} +{g.ahead}"
-            else:
-                style, text = "class:titlebar.branch", f"⎇ {g.branch}"
+        branch = self._branch_seg()
+        if branch:
             segs.append(("class:titlebar", " on "))
-            segs.append((style, text))
-            if g.in_progress:  # mid merge/rebase: flag it (resolve via git mode)
+            segs.append(branch)
+            if self.git_status.in_progress:  # mid merge/rebase: flag it
                 segs.append(("class:titlebar", " "))
-                segs.append(("class:titlebar.branch.dirty", f"⚠ {g.in_progress}"))
+                segs.append(("class:titlebar.branch.dirty",
+                             f"⚠ {self.git_status.in_progress}"))
         if self.mode == GIT:
             segs.append(("class:titlebar", "   "))
             segs.append(("class:titlebar.branch", "● git"))
@@ -542,16 +658,63 @@ class NshApp:
         if selected:
             segs.append(("class:titlebar", "   "))
             segs.append(("class:titlebar.sel", f"● {len(selected)} selected"))
-        clock = [("class:titlebar.clock", f" {datetime.now().strftime('%H:%M:%S')} ")]
         return self._fill_with_right(segs, "class:titlebar", clock)
+
+    def _two_pane_title(self, name_style, clock):
+        """Title bar mirroring the two-pane layout: the left pane's path sits in
+        the left half (after the ``nsh`` label), the right pane's path is aligned
+        to the start of the right half, and the clock stays flush right. Each
+        path is clipped to its half so the left can't bleed into the right and
+        the right can't cover the clock."""
+        try:
+            total = get_app().output.get_size().columns
+        except Exception:
+            total = 80
+        sep = 1  # the │ column between the two panes
+        # the VSplit gives the left pane the extra column when the width is odd,
+        # so its width is total // 2 and the separator sits at that column; the
+        # right pane (and our right path) start at lw + 1.
+        lw = total // 2                        # left pane / left half width
+        rw = max(0, total - lw - sep)          # right half width (path + clock)
+        clock_w = sum(text_width(t) for _, t in clock)
+
+        def pane_seg(i, avail):
+            active = i == self.active_pane
+            style = "class:titlebar.path" if active else "class:titlebar"
+            marker = "▸ " if active else "  "
+            path = self._clip_path(shorten_home(self.explorers[i].cwd),
+                                   max(0, avail - text_width(marker)))
+            return (style, marker + path)
+
+        # left half: nsh label + left pane path (+ git/selected when it's active)
+        label = [(name_style, " nsh "), ("class:titlebar", " ")]
+        label_w = sum(text_width(t) for _, t in label)
+        left = label + [pane_seg(0, lw - label_w)]
+        if self.active_pane == 0:
+            left += self._title_git_segs()
+        left = self._clip_segs(left, lw, "class:titlebar")
+        # right half: right pane path (+ git/selected when active), clipped so it
+        # stops before the clock, then padded so the clock lands at the edge
+        right = [pane_seg(1, rw - clock_w)]
+        if self.active_pane == 1:
+            right += self._title_git_segs()
+        right = self._clip_segs(right, max(0, rw - clock_w), "class:titlebar")
+        return left + [("class:titlebar", " " * sep)] + right + clock
 
     def _status_text(self):
         if self.mode == EXPLORER:
             hints = [
                 ("↑↓", "move"), ("↵", "open"), ("Space", "select"),
                 ("Tab", "actions"), ("b", "marks"), ("/", "find"),
-                (":", "cmd"), ("q", "quit"),
+                (":", "cmd"),
             ]
+            # the 2-pane toggle; once in it, surface the F7/F8 pane switch instead
+            if self.two_pane:
+                hints.append(("F7/8", "pane"))
+                hints.append(("2", "1-pane"))
+            else:
+                hints.append(("2", "2-pane"))
+            hints.append(("q", "quit"))
         elif self.mode == SEARCH:
             hints = [
                 ("type", "filter"), ("↑↓", "move"), ("↵", "select"),
@@ -859,7 +1022,7 @@ class NshApp:
             self.visited = [d for d in self.visited if d not in (old, new)]
             self.visited.insert(0, old)
             del self.visited[50:]
-        self.cwd = target
+        self.explorer.cwd = target  # the active pane owns the directory
         self._remember_drive(target)  # so a later "X:" returns to here
         self.explorer.selected.clear()
         self.explorer.expanded.clear()  # the tree is relative to the old cwd
@@ -928,9 +1091,50 @@ class NshApp:
         self._restore_focus()
         self.invalidate()
 
+    # -- two-pane view --------------------------------------------------------
+    def switch_pane(self):
+        """Move the cursor to the other explorer pane (two-pane mode). The cwd,
+        git status, title bar and shell all follow the newly active pane."""
+        if not self.two_pane:
+            return
+        self.active_pane ^= 1  # two panes: toggle
+        try:
+            os.chdir(self.explorer.cwd)  # the process cwd follows the active pane
+        except OSError:
+            pass
+        self.message = ""
+        self.preview.clear()
+        self.schedule_git()  # status is for the active pane's directory
+        self.application.layout.focus(self.explorer.control)
+        self.invalidate()
+
+    def toggle_two_pane(self):
+        self.two_pane = not self.two_pane
+        if self.two_pane:
+            # open the second pane at the active pane's directory; navigate it
+            # independently from there
+            other = self.explorers[1 - self.active_pane]
+            other.cwd = self.explorer.cwd
+            other.selected.clear()
+            other.expanded.clear()
+            other.cursor = 0
+            other.load()
+        elif self.active_pane != 0:
+            # single-pane shows pane 0, so make it the active one
+            self.active_pane = 0
+            try:
+                os.chdir(self.explorer.cwd)
+            except OSError:
+                pass
+            self.schedule_git()
+        self.preview.clear()
+        self.application.layout.focus(self.explorer.control)
+        self.invalidate()
+
     # -- nsh menu (F10) -------------------------------------------------------
     def open_nsh_menu(self):
         self.open_menu("nsh", [
+            (("✓ " if self.two_pane else "  ") + "Two-pane view", self.toggle_two_pane),
             ("Preferences", self.open_preferences),
             ("About", self.show_about),
         ])
@@ -1040,13 +1244,16 @@ class NshApp:
                     await self.refresh_git()  # reflect external edits in the list/diff
                 else:
                     self.explorer.check_external_change()
+                    if self.two_pane:  # keep the inactive pane fresh too
+                        self.explorers[1 - self.active_pane].check_external_change()
             except asyncio.CancelledError:
                 raise
             except Exception:  # noqa: BLE001 - never let the watcher die
                 pass
 
     async def run_async(self):
-        self.explorer.load()
+        for ex in self.explorers:  # both panes start at the initial directory
+            ex.load()
         self.schedule_git()
         if self._start_mode == SHELL:
             self.switch_mode(SHELL)

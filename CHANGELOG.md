@@ -85,6 +85,18 @@ Notable user-facing changes to the Python rewrite. Newest first.
   (e.g. `python -c "..."`).
 
 ### Explorer & Git
+- **Two-pane view**: toggle it with the `2` key (remappable), from the F10 menu,
+  or `[general] two_pane = true` in nshrc, to show two explorer panes side by
+  side, each with its own directory, selection and cursor. The preview pane is
+  hidden in this view, and the status bar shows the `2`/`F7`·`F8` hints.
+  `F7`/`F8` move the cursor between the panes — like switching shell tabs — and
+  only the active pane shows its cursor row; the other keeps its place. The
+  title bar mirrors the split: the left pane's path sits in the left half and
+  the right pane's path is aligned to the start of the right half, each clipped
+  to its half (keeping the tail with a leading `…`) so the left can't bleed into
+  the right and the right never covers the clock. The active path is marked
+  (`▸`) and brightly coloured; the cwd, git branch and command line / file
+  operations all follow whichever pane is active.
 - **Expand folders inline**: on a directory the Right arrow / `l` expands its
   contents as an indented tree under it (and again to collapse); the caret turns
   from `▸` to `▾`, while `e` enters the directory. Inside an expanded tree,

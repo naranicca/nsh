@@ -122,6 +122,7 @@ STYLE = build_style()
 DEFAULT_KEYS = {
     "select": " ",
     "select_pattern": "*",
+    "two_pane": "2",
     "menu": "tab",
     "copy": "y",
     "cut": "x",
@@ -200,6 +201,8 @@ DEFAULT_SETTINGS = {
     # explorer sort order: name | size | date | type, and whether to reverse it
     "sort": "name",
     "sort_reverse": "false",
+    # start in two-pane view (two explorers side by side; F7/F8 switch panes)
+    "two_pane": "false",
 }
 
 DEFAULT_NSHRC = """\
@@ -228,6 +231,11 @@ DEFAULT_NSHRC = """\
 # sort = name
 # sort_reverse = false
 
+# Start in two-pane view: two explorer panes side by side (no preview), each
+# with its own directory. F7/F8 move the cursor between them. Toggle any time
+# from the F10 menu.
+# two_pane = false
+
 [colors]
 # explorer.dir = #5fafff bold
 # explorer.selected = #ffff5f bold
@@ -240,6 +248,8 @@ DEFAULT_NSHRC = """\
 
 [keys]
 # select = space
+# select_pattern = *   (select files by glob/substring pattern)
+# two_pane = 2         (toggle the two-pane view)
 # menu = tab
 # copy = y
 # cut = x

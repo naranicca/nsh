@@ -41,8 +41,9 @@ def _git_error_summary(output):
 
 
 class ExplorerView:
-    def __init__(self, app):
+    def __init__(self, app, cwd):
         self.app = app
+        self.cwd = Path(cwd)  # this pane's own directory (panes can differ)
         self.entries = []
         self.cursor = 0
         self._top = 0  # first rendered row (windowing); see util.widgets
@@ -94,7 +95,7 @@ class ExplorerView:
     def _list(self):
         """The cwd listing flattened into a tree: each expanded directory's
         contents follow it, indented one level deeper."""
-        return self._flatten(self.app.cwd, 0)
+        return self._flatten(self.cwd, 0)
 
     def _flatten(self, directory, depth):
         out = []
@@ -188,7 +189,8 @@ class ExplorerView:
         # hide the cursor-row highlight while the shell has focus: the listing
         # is still shown on top of the shell, but the active "cursor" is the
         # command line, so highlighting an explorer row would be misleading.
-        cursor_shown = self.app.mode != "shell"
+        # In two-pane mode only the active pane shows its cursor row.
+        cursor_shown = self.app.mode != "shell" and self is self.app.explorer
         self._top, end = visible_slice(
             self.window, len(self.entries), self.cursor, self._top)
         result = []
@@ -309,7 +311,7 @@ class ExplorerView:
             self.app.invalidate()
             return
         # going up: land the cursor on the directory we're leaving
-        self.app.set_cwd(self.app.cwd.parent, select_name=self.app.cwd.name)
+        self.app.set_cwd(self.cwd.parent, select_name=self.cwd.name)
 
     # -- selection ------------------------------------------------------------
     def toggle_select(self):
@@ -712,6 +714,7 @@ class ExplorerView:
     _ACTION_HELP = [
         ("select", "select / deselect (multi-select)"),
         ("select_pattern", "select by pattern (glob / substring)"),
+        ("two_pane", "toggle two-pane view (F7/F8 switch)"),
         ("menu", "action menu (copy, rename, git…)"),
         ("copy", "copy"), ("cut", "cut"), ("paste", "paste"),
         ("rename", "rename (also i)"), ("new_dir", "new folder"), ("new_file", "new file"),
@@ -1151,6 +1154,7 @@ class ExplorerView:
             "new_file": self.new_file,
             "select": self.toggle_select,
             "select_pattern": self.select_pattern,
+            "two_pane": lambda: self.app.toggle_two_pane(),
             "menu": self.open_command_menu,
             "bookmark": lambda: self.app.open_bookmark_menu(),
             "home": lambda: self.app.go_home(),
