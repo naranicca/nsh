@@ -111,8 +111,6 @@ class NshApp:
         self.style = config.build_style(color_overrides)
         self.settings = settings
         self.message = cfg_warning or ""
-        self._msg_trim = 0    # chars trimmed off the front during the slide-out
-        self._msg_gen = 0     # bumped per message, so a stale fade task bails
 
         # search-mode startup / result plumbing
         self._start_mode = start_mode
@@ -189,6 +187,7 @@ class NshApp:
         @kb.add("escape", filter=~overlay_open)
         def _(event):
             buff = self.shell.command_buffer
+            self.message = ""  # ESC dismisses the status message
             if self.mode == SEARCH:
                 self.cancel_search()
             elif self.mode == SHELL:
@@ -566,12 +565,10 @@ class NshApp:
                 ("^C", "stop"), ("ESC", "explorer"),
             ]
         segs = []
-        # the message sits in front of the shortcuts; while it slides out the
-        # front is trimmed so the shortcuts ease in from the left to fill the gap
+        # the message sits in front of the shortcuts and stays until it's
+        # explicitly cleared (directory change, mode change, or ESC)
         if self.message:
-            visible = self.message[self._msg_trim:]
-            if visible:
-                segs.append(("class:statusbar.msg", f" {visible} "))
+            segs.append(("class:statusbar.msg", f" {self.message} "))
         for key, label in hints:
             segs.append(("class:statusbar.key", f" {key} "))
             segs.append(("class:statusbar", f"{label} "))
@@ -586,6 +583,8 @@ class NshApp:
         from_mode = self.mode
         if mode == SHELL and self.mode in (EXPLORER, GIT):
             self._shell_return = self.mode
+        if from_mode != mode:
+            self.message = ""  # a mode change dismisses the status message
         self.mode = mode
         if mode == SHELL:
             if from_mode == EXPLORER:
@@ -970,37 +969,10 @@ class NshApp:
 
     # -- misc -----------------------------------------------------------------
     def set_message(self, message):
+        # the message stays put until something explicitly clears it: a directory
+        # change, a mode change, or ESC (no auto-dismiss, no slide-out animation)
         self.message = message
-        self._msg_trim = 0
-        self._msg_gen += 1
         self.invalidate()
-        if message:
-            # show it for 5s, then slide the hints in from the left over it
-            try:
-                asyncio.ensure_future(self._fade_message(self._msg_gen))
-            except RuntimeError:
-                pass  # no running loop yet (e.g. a startup warning)
-
-    async def _fade_message(self, gen):
-        """After 5s, animate the status message off to the left (the shortcuts
-        slide in to fill the space), then clear it. Bails if a newer message
-        superseded this one."""
-        try:
-            await asyncio.sleep(5.0)
-            n = len(self.message)
-            frames = 15
-            for f in range(1, frames + 1):
-                if gen != self._msg_gen:
-                    return
-                self._msg_trim = round(n * f / frames)
-                self.invalidate()
-                await asyncio.sleep(0.04)
-        except asyncio.CancelledError:
-            raise
-        if gen == self._msg_gen:
-            self.message = ""
-            self._msg_trim = 0
-            self.invalidate()
 
     def invalidate(self):
         try:

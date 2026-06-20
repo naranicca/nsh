@@ -186,10 +186,10 @@ Notable user-facing changes to the Python rewrite. Newest first.
   the on-screen rows instead of the whole list every frame, and the git log
   parses each line's colours once (cached) rather than on every render — so
   moving the cursor stays snappy with thousands of files or commits.
-- **Status messages lead, then auto-dismiss.** A status-bar message now shows in
-  front of the shortcut hints, stays for 5 seconds, then slides off to the left
-  as the shortcuts ease back in — instead of sitting at the far right until the
-  next action.
+- **Status messages lead and stay put.** A status-bar message shows in front of
+  the shortcut hints and remains there until something explicitly clears it — a
+  directory change, a mode change, or ESC — instead of auto-dismissing or
+  sliding away on a timer.
 - Title bar: a single space before `on <branch>`; the action menu lines up
   under the `nsh` label.
 - **Tab** activates the selected menu item (like Enter).
