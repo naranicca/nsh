@@ -20,6 +20,7 @@ def _pad(s, width):
 class Menu:
     def __init__(self, on_close):
         self._on_close = on_close
+        self._extra_close = None  # optional one-shot close callback for this open
         self.active = False
         self.title = ""
         self.items = []  # [(label, callback)]
@@ -39,16 +40,20 @@ class Menu:
         )
 
     # -- lifecycle ------------------------------------------------------------
-    def open(self, title, items):
+    def open(self, title, items, on_close=None):
         self.title = title
         self.items = list(items)
         self.cursor = 0
         self.scroll = 0
+        self._extra_close = on_close
         self.active = True
 
     def close(self):
         self.active = False
         self._on_close()
+        cb, self._extra_close = self._extra_close, None
+        if cb:
+            cb()
 
     def _invoke(self):
         item = self.items[self.cursor] if self.items else None

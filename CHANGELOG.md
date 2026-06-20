@@ -155,6 +155,14 @@ Notable user-facing changes to the Python rewrite. Newest first.
 - **Action menu in an empty directory.** `Tab` now opens the menu even with no
   files, offering *New folder*, *New file* (and *Paste* / repo-wide git actions
   when they apply) instead of doing nothing.
+- **Action menu force-selects the cursor file.** Opening the action menu (`Tab`)
+  with nothing selected now marks the file under the cursor as selected, so the
+  menu's actions have an explicit target. *Git: Commit* therefore commits that
+  file; a new **Git: Commit all** entry commits the whole current directory
+  (`git commit .`) — it appears whenever the repo has tracked changes, even on
+  an unmodified or no file. The forced mark is temporary: it's cleared once the
+  menu closes (whether an action ran or it was cancelled), while a real
+  selection you made yourself is left untouched.
 - **Symlinked directories keep their logical path** (`cd -L`): entering a
   symlinked subdir shows the path you followed (not the link target), and going
   up returns to the directory that holds the link instead of the target's real

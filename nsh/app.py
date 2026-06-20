@@ -1103,8 +1103,8 @@ class NshApp:
         self.invalidate()
 
     # -- action menu ----------------------------------------------------------
-    def open_menu(self, title, items):
-        self.menu.open(title, items)
+    def open_menu(self, title, items, on_close=None):
+        self.menu.open(title, items, on_close)
         self.application.layout.focus(self.menu.control)
         self.invalidate()
 

@@ -713,8 +713,19 @@ class ExplorerView:
     # -- action menu (Tab) ----------------------------------------------------
     def open_command_menu(self):
         cur = self.current()
+        # With nothing selected yet, force-select the cursor entry so the menu's
+        # actions have an explicit target. In particular Git: Commit then commits
+        # that file; the whole directory is committed via Git: Commit all. This
+        # forced mark is temporary — it's cleared once the menu closes.
+        forced = None
+        if not self.selected and cur is not None:
+            self.selected.add(cur.path)
+            forced = cur.path
+            self.app.invalidate()
         has_target = bool(self.selected) or cur is not None
-        if self.selected:
+        if len(self.selected) == 1:
+            target = next(iter(self.selected)).name
+        elif self.selected:
             target = f"{len(self.selected)} selected"
         elif cur is not None:
             target = cur.name
@@ -725,8 +736,9 @@ class ExplorerView:
         if has_target:
             # "Edit" only for a single text file under the cursor (not a
             # directory, image, or binary), and not while multi-selecting.
-            if (not self.selected and cur is not None and not cur.is_dir
-                    and not cur.is_image and model.is_text_file(cur.path)):
+            if (len(self.selected) == 1 and cur is not None and cur.path in self.selected
+                    and not cur.is_dir and not cur.is_image
+                    and model.is_text_file(cur.path)):
                 items.append(("Edit", self.edit_entry))
             items += [("Copy", self.copy_entry), ("Cut", self.cut_entry)]
         if self.clipboard:
@@ -742,18 +754,19 @@ class ExplorerView:
                 # yet, so only offer to start tracking it.
                 items.append(("Git: Add", self.git_stage))
             elif code in ("M", "S", "C"):
-                # has changes (modified / staged / conflicted): full set
+                # has changes (modified / staged / conflicted): full set.
+                # Git: Commit here commits the selection (the forced cursor file)
                 items += [
                     ("Git: Stage / Unstage", self.git_stage),
                     ("Git: Commit", self.git_commit),
                     ("Git: Diff", self.git_diff),
                     ("Git: Revert", self.git_revert),
                 ]
-            # a repo-wide commit is available whenever the repo has tracked
-            # changes, even if the cursor isn't on a changed file (it commits
-            # '.', the whole directory); avoid duplicating it for M/S/C above
-            if gs.dirty and code not in ("M", "S", "C"):
-                items.append(("Git: Commit", self.git_commit))
+            # commit the whole directory ('.') whenever the repo has tracked
+            # changes — the selection-based Git: Commit can no longer reach it
+            # now that the cursor file is always force-selected
+            if gs.dirty:
+                items.append(("Git: Commit all", self.git_commit_all))
             # pull when there's an upstream; push when there are commits to push
             # (ahead of the upstream, or an unpushed branch on a repo with a remote)
             if gs.can_pull:
@@ -770,7 +783,22 @@ class ExplorerView:
             if gs.has_commits:
                 items.append(("Git: Log", self.app.open_log))
             items.append(("Git: Branches", self.git_branches))
-        self.app.open_menu(f"Actions · {target}", items)
+        # clear the force-selected cursor file once the menu closes (whether an
+        # action ran or it was cancelled); a real, user-made selection is kept
+        on_close = (lambda: self._deselect_forced(forced)) if forced else None
+        self.app.open_menu(f"Actions · {target}", items, on_close=on_close)
+
+    def _deselect_forced(self, path):
+        """Drop a cursor file the menu force-selected. Deferred a tick so the
+        chosen action (which runs after the menu closes) can still read it as
+        part of the selection before it's removed."""
+        def do():
+            self.selected.discard(path)
+            self.app.invalidate()
+        try:
+            asyncio.get_running_loop().call_soon(do)
+        except RuntimeError:
+            do()
 
     # -- help (?) -------------------------------------------------------------
     _NAV_HELP = [
@@ -835,6 +863,16 @@ class ExplorerView:
         paths = [str(p) for p in sel] if sel else ["."]
         self.app.open_input_dialog(
             "Commit message", "", 0, lambda msg: self._do_commit(msg, paths))
+
+    def git_commit_all(self):
+        """Commit the whole current directory (``git commit .``), regardless of
+        what's selected — the menu's force-select makes plain Git: Commit target
+        the cursor file, so this is how a directory-wide commit stays reachable."""
+        if not self._require_repo():
+            return
+        self.app.open_input_dialog(
+            "Commit message (whole directory)", "", 0,
+            lambda msg: self._do_commit(msg, ["."]))
 
     def _do_commit(self, message, paths):
         if not message.strip():
