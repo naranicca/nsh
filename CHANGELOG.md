@@ -85,8 +85,8 @@ Notable user-facing changes to the Python rewrite. Newest first.
   (e.g. `python -c "..."`).
 
 ### Explorer & Git
-- **Two-pane view**: toggle it with the `2` key (remappable), from the F10 menu,
-  or `[general] two_pane = true` in nshrc, to show two explorer panes side by
+- **Two-pane view**: toggle it with the `2` key (remappable), or
+  `[general] two_pane = true` in nshrc, to show two explorer panes side by
   side, each with its own directory, selection and cursor. The preview pane is
   hidden in this view, and the status bar shows the `2`/`F7`·`F8` hints.
   `F7`/`F8` move the cursor between the panes — like switching shell tabs — and
@@ -206,6 +206,14 @@ Notable user-facing changes to the Python rewrite. Newest first.
   and git mode.
 
 ### UI & dialogs
+- **Process manager** (*System* in the F10 menu): a small task manager. A header
+  shows overall CPU, memory and disk usage as bars; below it a scrolling,
+  cursor-selectable list of the running processes with their CPU% / MEM% / RSS.
+  `c` sorts by CPU, `m` by memory; `x` terminates the selected process and `K`
+  force-kills it (each with a confirm); `r` refreshes and the list re-samples
+  every couple of seconds on its own. No third-party deps — it reads ctypes +
+  PowerShell on Windows, `/proc` on Linux and `ps`/`sysctl` on macOS, degrading
+  to *n/a* for anything it can't read. Esc returns to the explorer.
 - **Notes** (`Ctrl+N`, or *Notes* in the F10 menu): a scratch pad of multi-line
   notes. A new-note editbox sits at the top (Enter adds a line, `Ctrl+S` saves
   it at the top of the list); pressing `↓` from the editbox steps into the saved
@@ -223,7 +231,7 @@ Notable user-facing changes to the Python rewrite. Newest first.
   line-numbered, `--color=always`, `-i`/`-w` per the toggles) of the pattern
   into the shell. **File** starts the existing fuzzy file finder.
 - **nsh menu** (`F10`): opens a small menu from any mode with *Find*, *Notes*,
-  the two-pane toggle, *Preferences* — which opens your `nshrc` in the editor
+  *System*, *Preferences* — which opens your `nshrc` in the editor
   (seeding the default first if it doesn't exist; changes apply on the next
   start) — and *About*, a centered dialog showing the version and GitHub URL.
 - **Fast with long lists.** The explorer, git mode and git log now render only

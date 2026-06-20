@@ -33,6 +33,7 @@ from .explorer.preview import PreviewView
 from .explorer.view import ExplorerView
 from .notes.view import NotesView
 from .search.view import SearchView
+from .system.view import SystemView
 from .shell.runner import CommandRunner
 from .shell.tabs import ShellTabs
 from .util.bookmarks import Bookmarks
@@ -47,6 +48,7 @@ SEARCH = "search"
 GIT = "git"
 LOG = "gitlog"
 NOTES = "notes"
+SYSTEM = "system"
 
 # Once the shell output would shrink the explorer below this many rows, the
 # shell takes over the whole screen.
@@ -144,6 +146,7 @@ class NshApp:
         self.gitview = GitView(self)
         self.logview = LogView(self)
         self.notesview = NotesView(self)
+        self.systemview = SystemView(self)
         self._log_return = EXPLORER  # the mode "Git: Log" was opened from
 
         # popup action menu (Tab in the explorer)
@@ -254,7 +257,7 @@ class NshApp:
                     self.switch_mode(EXPLORER)
             elif self.mode == LOG:
                 self.close_log()
-            elif self.mode == NOTES:
+            elif self.mode in (NOTES, SYSTEM):
                 self.switch_mode(EXPLORER)
             else:  # EXPLORER: clear any multi-selection
                 self.explorer.clear_selection()
@@ -491,6 +494,8 @@ class NshApp:
                 return self.search.container
             if self.mode == NOTES:
                 return self.notesview.container
+            if self.mode == SYSTEM:
+                return self.systemview.container
             if self.mode == GIT:
                 return git_area
             if self.mode == LOG:
@@ -687,6 +692,9 @@ class NshApp:
         if self.mode == NOTES:
             segs.append(("class:titlebar", "   "))
             segs.append(("class:titlebar.branch", "● notes"))
+        if self.mode == SYSTEM:
+            segs.append(("class:titlebar", "   "))
+            segs.append(("class:titlebar.branch", "● system"))
         selected = self.active_selection()
         if selected:
             segs.append(("class:titlebar", "   "))
@@ -770,6 +778,11 @@ class NshApp:
                 ("^S", "save"), ("↑↓", "browse"), ("/", "search"), ("↵", "edit"),
                 ("d/x", "delete"), ("u", "undo"), ("ESC", "back"),
             ]
+        elif self.mode == SYSTEM:
+            hints = [
+                ("↑↓", "move"), ("c", "sort cpu"), ("m", "sort mem"),
+                ("x", "kill"), ("K", "force"), ("r", "refresh"), ("ESC", "back"),
+            ]
         else:
             hints = [
                 ("Tab", "complete"), ("↵", "run"), ("↑↓", "history"),
@@ -820,6 +833,9 @@ class NshApp:
         elif mode == NOTES:
             self.notesview.load()
             self.notesview.focus_input()
+        elif mode == SYSTEM:
+            self.systemview.start()
+            self.application.layout.focus(self.systemview.list_control)
         else:
             self.application.layout.focus(self.explorer.control)
         self.invalidate()
@@ -879,6 +895,10 @@ class NshApp:
     # -- notes ----------------------------------------------------------------
     def open_notes(self):
         self.switch_mode(NOTES)
+
+    # -- system (process manager) ---------------------------------------------
+    def open_system(self):
+        self.switch_mode(SYSTEM)
 
     # -- fuzzy search ---------------------------------------------------------
     def enter_search(self, query=""):
@@ -1169,6 +1189,8 @@ class NshApp:
             self.application.layout.focus(self.logview.control)
         elif self.mode == NOTES:
             self.notesview.focus_input()
+        elif self.mode == SYSTEM:
+            self.application.layout.focus(self.systemview.list_control)
         else:
             self.application.layout.focus(self.explorer.control)
 
@@ -1237,7 +1259,7 @@ class NshApp:
         self.open_menu("nsh", [
             ("Find", self.open_find),
             ("Notes", self.open_notes),
-            (("✓ " if self.two_pane else "  ") + "Two-pane view", self.toggle_two_pane),
+            ("System", self.open_system),
             ("Preferences", self.open_preferences),
             ("About", self.show_about),
         ])

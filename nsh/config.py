@@ -112,6 +112,15 @@ STYLE_DEFAULTS = {
         "notes.item": "#d0d0d0",
         "notes.meta": "#5f87af",
         "notes.selected": "bg:#005f87 #ffffff",
+        # process manager (system mode)
+        "system.header": "bg:#1c1c1c #d0d0d0",
+        "system.label": "bg:#1c1c1c #87d7ff bold",
+        "system.bar": "bg:#1c1c1c #5fafff",
+        "system.dim": "bg:#1c1c1c #808080",
+        "system.colhead": "bg:#303030 #d0d0d0 bold",
+        "system.sortcol": "bg:#303030 #ffff87 bold",
+        "system.row": "#d0d0d0",
+        "system.row.sel": "bg:#005f87 #ffffff",
 }
 
 
