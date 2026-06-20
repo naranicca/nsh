@@ -61,12 +61,26 @@ class ShellCompleter(Completer):
         """Wrap ``full`` in double quotes when it contains a space. A directory
         is left with its quote open (no closing ``"``) and the trailing
         separator outside nothing, so the menu can be reopened to drill in; a
-        file gets a closing quote."""
+        file gets a closing quote.
+
+        A leading ``~`` (or ``~user``) is kept *outside* the quotes — the shell
+        only performs tilde expansion on an unquoted tilde, so quoting the whole
+        path would leave a literal ``~`` the shell can't resolve."""
         if " " not in full:
             return full
+        prefix = ""
+        if full.startswith("~"):
+            sep = min((i for i in (full.find("/"), full.find("\\")) if i != -1),
+                      default=-1)
+            if sep != -1:
+                prefix, full = full[:sep + 1], full[sep + 1:]
+            else:  # ~name with a space and no separator: ~ still goes outside
+                prefix, full = full[:1], full[1:]
+            if " " not in full:
+                return prefix + full
         if is_dir and full.endswith(("/", "\\")):
-            return '"' + full
-        return '"' + full + '"'
+            return prefix + '"' + full
+        return prefix + '"' + full + '"'
 
     def _completion(self, raw, full, display, is_dir, style):
         return Completion(
