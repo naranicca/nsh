@@ -182,6 +182,10 @@ Notable user-facing changes to the Python rewrite. Newest first.
   and git mode.
 
 ### UI & dialogs
+- **nsh menu** (`F10`): opens a small menu from any mode with *Preferences* —
+  which opens your `nshrc` in the editor (seeding the default first if it
+  doesn't exist; changes apply on the next start) — and *About*, a centered
+  dialog showing the version and the project's GitHub URL.
 - **Fast with long lists.** The explorer, git mode and git log now render only
   the on-screen rows instead of the whole list every frame, and the git log
   parses each line's colours once (cached) rather than on every render — so

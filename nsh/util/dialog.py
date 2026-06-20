@@ -197,3 +197,63 @@ class ConfirmDialog:
             self._resolve(False)
 
         return kb
+
+
+class InfoDialog:
+    """A centered modal that shows a few lines of read-only text and a single
+    OK button. Enter / Esc / Space dismiss it. Used for the About box."""
+
+    def __init__(self, on_close):
+        self._on_close = on_close
+        self.active = False
+        self.title = ""
+        self.lines = []  # list[str]
+
+        self.control = FormattedTextControl(
+            self._text, focusable=True, show_cursor=False, key_bindings=self._kb()
+        )
+        body = HSplit(
+            [
+                Window(self.control, wrap_lines=True, width=Dimension.exact(WIDTH),
+                       align=WindowAlign.CENTER),
+                Window(height=1),  # spacer
+                Window(FormattedTextControl(self._buttons), height=1,
+                       align=WindowAlign.CENTER),
+            ],
+            style="class:dialog",
+            padding=0,
+        )
+        self.container = ConditionalContainer(
+            Frame(body, title=lambda: self.title),
+            filter=Condition(lambda: self.active),
+        )
+
+    def open(self, title, lines):
+        self.title = title
+        self.lines = list(lines)
+        self.active = True
+
+    def _close(self):
+        self.active = False
+        self._on_close()
+
+    def _text(self):
+        out = []
+        for line in self.lines:
+            out.append(("class:dialog", line + "\n"))
+        return out
+
+    def _buttons(self):
+        return [_button("OK", True)]
+
+    def _kb(self):
+        kb = KeyBindings()
+
+        @kb.add("enter")
+        @kb.add("escape")
+        @kb.add("c-c")
+        @kb.add(" ")
+        def _(event):
+            self._close()
+
+        return kb

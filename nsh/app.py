@@ -24,7 +24,7 @@ from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.layout.layout import Layout
 from prompt_toolkit.layout.menus import CompletionsMenu
 
-from . import config
+from . import __version__, config
 from .explorer import git
 from .explorer.gitview import GitView
 from .explorer.logview import LogView
@@ -34,7 +34,7 @@ from .search.view import SearchView
 from .shell.runner import CommandRunner
 from .shell.tabs import ShellTabs
 from .util.bookmarks import Bookmarks
-from .util.dialog import ConfirmDialog, InputDialog
+from .util.dialog import ConfirmDialog, InfoDialog, InputDialog
 from .util.menu import Menu
 from .util.paths import shorten_home
 from .util.width import text_width
@@ -140,9 +140,11 @@ class NshApp:
         # last directory visited on each Windows drive letter (for "D:" changes)
         self._drive_dirs = {}
         self._remember_drive(self.cwd)
-        # centered modal dialogs: text input (rename/new) and yes/no confirm
+        # centered modal dialogs: text input (rename/new), yes/no confirm, and
+        # the read-only About box
         self.dialog = InputDialog(self._dialog_closed)
         self.confirm_dialog = ConfirmDialog(self._dialog_closed)
+        self.about_dialog = InfoDialog(self._dialog_closed)
 
         self.application = self._build_application()
 
@@ -180,9 +182,15 @@ class NshApp:
         confirm_open = Condition(lambda: self.confirm_dialog.active)
         menu_open = Condition(lambda: self.menu.active)
         dialog_open = Condition(lambda: self.dialog.active)
-        overlay_open = confirm_open | menu_open | dialog_open
+        about_open = Condition(lambda: self.about_dialog.active)
+        overlay_open = confirm_open | menu_open | dialog_open | about_open
 
         kb = KeyBindings()
+
+        # F10 opens the nsh menu (Preferences / About) from any mode.
+        @kb.add("f10", filter=~overlay_open)
+        def _(event):
+            self.open_nsh_menu()
 
         @kb.add("escape", filter=~overlay_open)
         def _(event):
@@ -449,6 +457,7 @@ class NshApp:
                 # unpositioned Floats are centered on screen
                 Float(content=self.dialog.container),
                 Float(content=self.confirm_dialog.container),
+                Float(content=self.about_dialog.container),
             ],
         )
 
@@ -917,6 +926,30 @@ class NshApp:
 
     def _menu_closed(self):
         self._restore_focus()
+        self.invalidate()
+
+    # -- nsh menu (F10) -------------------------------------------------------
+    def open_nsh_menu(self):
+        self.open_menu("nsh", [
+            ("Preferences", self.open_preferences),
+            ("About", self.show_about),
+        ])
+
+    def open_preferences(self):
+        """Open the nshrc config file in the editor (seeding it first if absent).
+        Edits take effect the next time nsh starts."""
+        config.ensure_default_config()
+        self.edit_file(config.config_path())
+
+    def show_about(self):
+        lines = [
+            "",
+            f"nsh {__version__}",
+            "",
+            "https://github.com/naranicca/nsh",
+        ]
+        self.about_dialog.open("About", lines)
+        self.application.layout.focus(self.about_dialog.control)
         self.invalidate()
 
     # -- input dialog ---------------------------------------------------------
