@@ -96,7 +96,11 @@ Notable user-facing changes to the Python rewrite. Newest first.
   to its half (keeping the tail with a leading `…`) so the left can't bleed into
   the right and the right never covers the clock. The active path is marked
   (`▸`) and brightly coloured; the cwd, git branch and command line / file
-  operations all follow whichever pane is active.
+  operations all follow whichever pane is active. The copy / cut keys cross
+  straight over to the other pane here: `y` copies the cursor row or selection
+  into the other pane's directory and `x` moves it there — each after a confirm
+  dialog, since it's easy to hit the wrong key. In single-pane the keys keep
+  their usual copy/cut-to-clipboard behaviour.
 - **Expand folders inline**: on a directory the Right arrow / `l` expands its
   contents as an indented tree under it (and again to collapse); the caret turns
   from `▸` to `▾`, while `e` enters the directory. Inside an expanded tree,

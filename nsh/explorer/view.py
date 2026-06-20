@@ -17,7 +17,7 @@ from prompt_toolkit.layout.containers import ScrollOffsets, Window
 from prompt_toolkit.layout.dimension import Dimension
 
 from .. import config
-from ..util.paths import human_size, norm
+from ..util.paths import human_size, norm, shorten_home
 from ..util.widgets import WheelScrollControl, visible_slice
 from ..util.width import char_width, cut_to_width, pad_to_width, text_width
 from . import fileops, git, model
@@ -485,6 +485,72 @@ class ExplorerView:
             self.refresh_listing(select_name=last.name if last else None)
             verb = "copied" if op == "copy" else "moved"
             self.app.set_message(f"{verb} {done}/{len(paths)} item(s)")
+            await self.app.refresh_git()
+        asyncio.ensure_future(do())
+
+    # -- two-pane copy / move to the other pane -------------------------------
+    # In two-pane view the copy (y) / cut (x) keys act straight across to the
+    # other pane's directory (no clipboard); a confirm dialog guards the
+    # operation since it's easy to hit the wrong key.
+    def copy_action(self):
+        if self.app.two_pane:
+            self._transfer_to_other_pane("copy")
+        else:
+            self.copy_entry()
+
+    def cut_action(self):
+        if self.app.two_pane:
+            self._transfer_to_other_pane("move")
+        else:
+            self.cut_entry()
+
+    def _other_pane(self):
+        return self.app.explorers[1 - self.app.active_pane]
+
+    def _transfer_to_other_pane(self, op):
+        targets = self._targets()
+        if not targets:
+            return
+        dest = self._other_pane().cwd
+        # moving onto the same directory is a no-op (it would just rename in
+        # place), so block it; copying there is fine — it makes a "… copy"
+        # duplicate via fileops.unique_target.
+        if op == "move" and dest == self.cwd:
+            self.app.set_message("both panes are the same directory")
+            return
+        verb = "Copy" if op == "copy" else "Move"
+        if len(targets) == 1:
+            label = f"{verb} '{targets[0].name}' to {shorten_home(dest)}?"
+        else:
+            label = f"{verb} {len(targets)} items to {shorten_home(dest)}?"
+        self.app.confirm(
+            label, lambda ok: self._do_transfer(targets, dest, op) if ok else
+            self.app.set_message(f"{verb.lower()} cancelled"))
+
+    def _do_transfer(self, targets, dest, op):
+        async def do():
+            done = 0
+            last = None
+            for i, src in enumerate(targets, 1):
+                if not src.exists():
+                    continue
+                try:
+                    if op == "copy":
+                        self.app.set_message(f"copying {i}/{len(targets)}: {src.name}…")
+                        last = await fileops.copy(src, dest)
+                    else:
+                        self.app.set_message(f"moving {i}/{len(targets)}: {src.name}…")
+                        last = await fileops.move(src, dest)
+                    done += 1
+                except Exception as exc:  # noqa: BLE001 - surfaced to the user
+                    self.app.set_message(f"{src.name}: {exc}")
+            self.selected.clear()
+            # both panes changed: the destination gained files, and on a move the
+            # source lost them
+            self._other_pane().load()
+            self.refresh_listing()
+            verb = "copied" if op == "copy" else "moved"
+            self.app.set_message(f"{verb} {done}/{len(targets)} item(s) to other pane")
             await self.app.refresh_git()
         asyncio.ensure_future(do())
 
@@ -1144,8 +1210,8 @@ class ExplorerView:
 
         # Configurable action keys (remappable via the [keys] section of nshrc).
         actions = {
-            "copy": self.copy_entry,
-            "cut": self.cut_entry,
+            "copy": self.copy_action,
+            "cut": self.cut_action,
             "paste": self.paste,
             "delete": self.delete_entry,
             "rename": self.rename_entry,

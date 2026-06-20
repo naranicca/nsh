@@ -17,17 +17,16 @@ from ..util.aio import run_in_thread
 def unique_target(dst_dir, name: str) -> Path:
     """A path inside ``dst_dir`` named ``name`` that does not yet exist.
 
-    ``report.txt`` -> ``report copy.txt`` -> ``report copy 2.txt`` ...
+    ``report.txt`` -> ``report (2).txt`` -> ``report (3).txt`` ...
     """
     dst_dir = Path(dst_dir)
     target = dst_dir / name
     if not target.exists():
         return target
     stem, suffix = target.stem, target.suffix
-    i = 1
+    i = 2
     while True:
-        label = "copy" if i == 1 else f"copy {i}"
-        cand = dst_dir / f"{stem} {label}{suffix}"
+        cand = dst_dir / f"{stem} ({i}){suffix}"
         if not cand.exists():
             return cand
         i += 1
