@@ -739,9 +739,9 @@ class NshApp:
     def _status_text(self):
         if self.mode == EXPLORER:
             hints = [
-                ("↑↓", "move"), ("↵", "open"), ("Space", "select"),
-                ("Tab", "actions"), ("b", "marks"), ("/", "find"),
-                (":", "cmd"),
+                ("↵", "open"), ("Space", "select"),
+                ("Tab", "actions"), ("b", "marks"), ("/", "find"), ("*", "select"),
+                ("^N", "note"), (":", "cmd"),
             ]
             # the 2-pane toggle; once in it, surface the F7/F8 pane switch instead
             if self.two_pane:
