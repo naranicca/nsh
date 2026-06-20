@@ -12,11 +12,44 @@ from prompt_toolkit.filters import Condition
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout.containers import HSplit, Window
 from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
+from prompt_toolkit.layout.margins import Margin
 
 from ..util.notes import Notes
 from ..util.width import text_width
 
 INPUT_HEIGHT = 5  # rows reserved for the new-note editbox
+
+
+class _NotesScrollbar(Margin):
+    """A scrollbar for the notes list. The list windows its own content (only
+    the visible lines are rendered), so the built-in ScrollbarMargin can't see
+    the true length — this reads the view's line-level scroll state instead."""
+
+    def __init__(self, view):
+        self.view = view
+
+    def get_width(self, get_ui_content):
+        # only claim a column when the content actually overflows
+        total = self.view._total_lines()
+        return 1 if total > self.view._visible_height() else 0
+
+    def create_margin(self, window_render_info, width, height):
+        total = self.view._total_lines()
+        if height <= 0 or total <= height:
+            return []
+        scroll = max(0, min(self.view.scroll, total - height))
+        thumb = max(1, min(height, height * height // total))
+        max_scroll = total - height
+        top = (height - thumb) * scroll // max_scroll
+        top = max(0, min(top, height - thumb))
+        frags = []
+        for row in range(height):
+            inside = top <= row < top + thumb
+            frags.append(("class:scrollbar.button" if inside
+                          else "class:scrollbar.background", " "))
+            if row < height - 1:
+                frags.append(("", "\n"))
+        return frags
 
 
 class NotesView:
@@ -35,7 +68,8 @@ class NotesView:
             self._list_text, focusable=True, show_cursor=False,
             key_bindings=self._list_kb())
         self.list_window = Window(
-            self.list_control, wrap_lines=True, style="class:notes.item")
+            self.list_control, wrap_lines=True, style="class:notes.item",
+            right_margins=[_NotesScrollbar(self)])
 
         self.container = HSplit([
             Window(
@@ -163,6 +197,14 @@ class NotesView:
                 lines.append((None, False, ""))  # separator
         return lines
 
+    def _total_lines(self):
+        """Total display-line count (for the scrollbar)."""
+        notes = self.notes.list()
+        if not notes:
+            return 0
+        # one line per note line, plus a blank separator between notes
+        return sum(n.count("\n") + 1 for n in notes) + (len(notes) - 1)
+
     def _list_text(self):
         if len(self.notes) == 0:
             return [("class:preview.dim", "  (no notes yet — type above, Ctrl+S to save)")]
@@ -172,6 +214,9 @@ class NotesView:
             width = 80
         height = self._visible_height()
         lines = self._display_lines()
+        # the scrollbar claims the rightmost column when the list overflows;
+        # pad selected rows to just before it so the highlight doesn't run under
+        content_w = max(1, width - (1 if len(lines) > height else 0))
 
         # keep the selected note's lines within the visible window
         sel = [k for k, (ni, _, _) in enumerate(lines) if ni == self.cursor]
@@ -194,7 +239,7 @@ class NotesView:
             style = "class:notes.selected" if on else "class:notes.item"
             frags.append((style, cell))
             if on:  # pad the selected note's row so its highlight spans the width
-                pad = width - text_width(cell)
+                pad = content_w - text_width(cell)
                 if pad > 0:
                     frags.append(("class:notes.selected", " " * pad))
             frags.append(("", "\n"))

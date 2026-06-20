@@ -210,7 +210,8 @@ Notable user-facing changes to the Python rewrite. Newest first.
   notes. A new-note editbox sits at the top (Enter adds a line, `Ctrl+S` saves
   it at the top of the list); pressing `↓` from the editbox steps into the saved
   notes, where `j`/`k` (or the arrows) move between them with line-level
-  scrolling, `Enter` loads the selected note back into the editbox to edit it
+  scrolling (a scrollbar shows once the list overflows), `Enter` loads the
+  selected note back into the editbox to edit it
   (`Ctrl+S` saves the change in place, `Esc` cancels), `d`/`x` delete the
   selected note, and `u` restores the last delete. Notes persist in
   `~/.config/nsh/notes.json`. Esc returns to the explorer.
