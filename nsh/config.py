@@ -121,6 +121,7 @@ STYLE = build_style()
 # ``[keys]`` section of nshrc. Navigation keys (arrows, j/k, enter…) are fixed.
 DEFAULT_KEYS = {
     "select": " ",
+    "select_pattern": "*",
     "menu": "tab",
     "copy": "y",
     "cut": "x",

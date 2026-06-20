@@ -921,8 +921,9 @@ class NshApp:
         self.invalidate()
 
     # -- input dialog ---------------------------------------------------------
-    def open_input_dialog(self, title, text, cursor, on_accept):
-        self.dialog.open(title, text, cursor, on_accept)
+    def open_input_dialog(self, title, text, cursor, on_accept,
+                          on_change=None, on_cancel=None):
+        self.dialog.open(title, text, cursor, on_accept, on_change, on_cancel)
         self.application.layout.focus(self.dialog.control)
         self.invalidate()
 

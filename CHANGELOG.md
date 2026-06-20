@@ -94,6 +94,12 @@ Notable user-facing changes to the Python rewrite. Newest first.
   be expanded too. Set `[general] right_expand = false` in nshrc to swap the
   two — then the Right arrow enters a directory and `e` expands it (Enter always
   opens / enters).
+- **Select by pattern** (`*`): opens a *Select pattern* dialog whose matches
+  highlight live as you type — a plain word is a substring match (`txt` grabs
+  every name containing it), a pattern with a glob metacharacter is matched as a
+  shell glob (`*.py`, `test?`). Matching is case-insensitive and adds on top of
+  any existing selection; Enter keeps it, Esc restores what you had. The scan is
+  debounced so typing stays snappy even on very long listings.
 - **Sort order** (`s`): a *Sort by* menu switches the listing between name, size,
   date and type, each offered ascending (`↑`) and descending (`↓`); directories
   always stay first. The default is configurable in nshrc (`[general] sort` /

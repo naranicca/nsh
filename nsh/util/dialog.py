@@ -34,7 +34,9 @@ class InputDialog:
         self.title = ""
         self.button = "ok"          # which button Enter triggers: "ok" | "cancel"
         self._on_accept = None
-        self.buffer = Buffer(multiline=False)
+        self._on_change = None      # live callback fired on every text edit
+        self._on_cancel = None      # called when the dialog is dismissed (Esc)
+        self.buffer = Buffer(multiline=False, on_text_changed=self._text_changed)
 
         self.control = BufferControl(self.buffer, key_bindings=self._kb())
         body = HSplit(
@@ -53,17 +55,28 @@ class InputDialog:
             filter=Condition(lambda: self.active),
         )
 
-    def open(self, title, text, cursor, on_accept):
+    def open(self, title, text, cursor, on_accept, on_change=None, on_cancel=None):
         self.title = title
         self._on_accept = on_accept
+        # set the live-edit hooks before seeding the text, so a non-empty initial
+        # value (rare) reaches on_change too
+        self._on_change = on_change
+        self._on_cancel = on_cancel
         self.button = "ok"
         self.active = True
         self.buffer.text = text
         self.buffer.cursor_position = max(0, min(cursor, len(text)))
 
+    def _text_changed(self, _buffer):
+        if self._on_change:
+            self._on_change(self.buffer.text)
+
     def cancel(self):
+        on_cancel = self._on_cancel
         self._on_accept = None
         self._close()
+        if on_cancel:
+            on_cancel()
 
     def _accept(self):
         if self.button == "cancel":
@@ -78,6 +91,8 @@ class InputDialog:
     def _close(self):
         self.active = False
         self._on_accept = None
+        self._on_change = None
+        self._on_cancel = None
         self._on_close()
 
     def _toggle(self):

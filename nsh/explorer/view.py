@@ -5,6 +5,7 @@ and the lazygit-style Git keys (Space/c/d) are bound on the control so they are
 only active while the explorer has focus.
 """
 import asyncio
+import fnmatch
 from pathlib import Path
 
 from prompt_toolkit.application.current import get_app
@@ -53,6 +54,10 @@ class ExplorerView:
         self.reverse = (app.settings.get("sort_reverse", "false").strip().lower()
                         in ("true", "1", "yes", "on"))
         self.selected = set()  # set[Path] of marked entries (multi-select)
+        # pattern-select (the '*' dialog): the selection as it was before the
+        # dialog opened (matches are added on top, live), and the debounce task
+        self._select_base = set()
+        self._select_task = None
         self.expanded = set()  # set[Path] of directories expanded inline (tree)
         self.clipboard = None  # ([Path, ...], "copy" | "cut")
         self._signature = ()   # snapshot used to auto-refresh on external change
@@ -323,6 +328,77 @@ class ExplorerView:
             self.selected.clear()
             self.app.set_message("selection cleared")
             self.app.invalidate()
+
+    # -- pattern select ('*') -------------------------------------------------
+    def select_pattern(self):
+        """Open a dialog; entries whose name matches the typed pattern are
+        selected live as you type. A pattern with no wildcard is a substring
+        match (``txt`` grabs every name containing ``txt``); one with a glob
+        metacharacter is matched as a shell glob (``*.py``, ``test?``). Matches
+        are added on top of any existing selection; Esc restores it."""
+        if not self.entries:
+            return
+        self._select_base = set(self.selected)
+        self.app.open_input_dialog(
+            "Select pattern", "", 0,
+            self._select_pattern_commit,
+            on_change=self._select_pattern_changed,
+            on_cancel=self._select_pattern_cancel,
+        )
+
+    def _pattern_matches(self, pattern):
+        """The set of entry paths matching ``pattern`` (case-insensitive)."""
+        pat = pattern.strip().lower()
+        if not pat:
+            return set()
+        if any(c in pat for c in "*?["):
+            return {e.path for e in self.entries
+                    if fnmatch.fnmatchcase(e.name.lower(), pat)}
+        return {e.path for e in self.entries if pat in e.name.lower()}
+
+    def _set_pattern_selection(self, pattern):
+        self.selected.clear()
+        self.selected.update(self._select_base)
+        self.selected.update(self._pattern_matches(pattern))
+
+    def _select_pattern_changed(self, pattern):
+        # Debounce: coalesce rapid keystrokes so a very long listing isn't
+        # rescanned on every keypress (which would stall typing). The scan and
+        # the redraw only happen once typing pauses briefly.
+        if self._select_task and not self._select_task.done():
+            self._select_task.cancel()
+        self._select_task = asyncio.ensure_future(self._apply_pattern(pattern))
+
+    async def _apply_pattern(self, pattern):
+        try:
+            await asyncio.sleep(0.05)
+        except asyncio.CancelledError:
+            return
+        self._set_pattern_selection(pattern)
+        self.app.invalidate()
+
+    def _cancel_pattern_task(self):
+        if self._select_task and not self._select_task.done():
+            self._select_task.cancel()
+        self._select_task = None
+
+    def _select_pattern_commit(self, pattern):
+        self._cancel_pattern_task()
+        self._set_pattern_selection(pattern)  # apply the final text immediately
+        n = len(self.selected)
+        # land the cursor on the first selected entry (in listing order)
+        for i, e in enumerate(self.entries):
+            if e.path in self.selected:
+                self.cursor = i
+                break
+        self.app.set_message(f"{n} selected" if n else "selection cleared")
+        self.app.invalidate()
+
+    def _select_pattern_cancel(self):
+        self._cancel_pattern_task()
+        self.selected.clear()
+        self.selected.update(self._select_base)  # restore the pre-dialog selection
+        self.app.invalidate()
 
     def toggle_hidden(self):
         self.show_hidden = not self.show_hidden
@@ -635,6 +711,7 @@ class ExplorerView:
     ]
     _ACTION_HELP = [
         ("select", "select / deselect (multi-select)"),
+        ("select_pattern", "select by pattern (glob / substring)"),
         ("menu", "action menu (copy, rename, git…)"),
         ("copy", "copy"), ("cut", "cut"), ("paste", "paste"),
         ("rename", "rename (also i)"), ("new_dir", "new folder"), ("new_file", "new file"),
@@ -1073,6 +1150,7 @@ class ExplorerView:
             "new_dir": self.new_dir,
             "new_file": self.new_file,
             "select": self.toggle_select,
+            "select_pattern": self.select_pattern,
             "menu": self.open_command_menu,
             "bookmark": lambda: self.app.open_bookmark_menu(),
             "home": lambda: self.app.go_home(),
