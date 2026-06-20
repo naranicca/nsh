@@ -44,6 +44,9 @@ class ExplorerView:
     def __init__(self, app, cwd):
         self.app = app
         self.cwd = Path(cwd)  # this pane's own directory (panes can differ)
+        # this pane's own git status (each pane can be in a different repo); the
+        # app's git_status property points at the active pane's
+        self.git_status = git.GitStatus()
         self.entries = []
         self.cursor = 0
         self._top = 0  # first rendered row (windowing); see util.widgets
@@ -185,7 +188,7 @@ class ExplorerView:
             cols = total
         # sel(2) + marker(2) + icon(2) + gap(1) + size
         name_w = max(4, cols - 7 - SIZE_COL)
-        gs = self.app.git_status
+        gs = self.git_status  # this pane's own status (works for the inactive pane too)
         # hide the cursor-row highlight while the shell has focus: the listing
         # is still shown on top of the shell, but the active "cursor" is the
         # command line, so highlighting an explorer row would be misleading.

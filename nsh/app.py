@@ -101,7 +101,8 @@ class NshApp:
         # the mode to return to when leaving the shell (so a shell opened from
         # git mode goes back to git mode on ESC, not the explorer)
         self._shell_return = EXPLORER
-        self.git_status = git.GitStatus()
+        # git status lives per explorer pane (see the git_status property); each
+        # pane can be in a different repo so both panes' markers stay correct
         self._git_task = None
 
         # user configuration (~/.config/nsh/nshrc): colours + explorer keys
@@ -166,6 +167,11 @@ class NshApp:
     def cwd(self):
         """The active pane's directory (the process cwd is kept chdir'd to it)."""
         return self.explorers[self.active_pane].cwd
+
+    @property
+    def git_status(self):
+        """The active pane's git status (title bar, prompt, git mode follow it)."""
+        return self.explorers[self.active_pane].git_status
 
     @property
     def shell(self):
@@ -569,37 +575,38 @@ class NshApp:
             out.append((fill_style, " " * (width - used)))
         return out
 
-    def _branch_seg(self):
-        """The coloured ``⎇ branch ±N`` title segment for the active pane's repo,
-        or ``None`` when not in a repo. Yellow when behind/ahead the upstream,
+    @staticmethod
+    def _branch_seg(gs):
+        """The coloured ``⎇ branch ±N`` title segment for ``gs`` (a GitStatus),
+        or ``None`` when it's not a repo. Yellow when behind/ahead the upstream,
         red with uncommitted changes, else green (same precedence as the prompt)."""
-        g = self.git_status
-        if not (g.is_repo and g.branch):
+        if not (gs and gs.is_repo and gs.branch):
             return None
-        if g.behind > 0:
-            return "class:titlebar.branch.behind", f"⎇ {g.branch} -{g.behind}"
-        if g.dirty:
-            return "class:titlebar.branch.dirty", f"⎇ {g.branch}"
-        if g.ahead > 0:
-            return "class:titlebar.branch.behind", f"⎇ {g.branch} +{g.ahead}"
-        return "class:titlebar.branch", f"⎇ {g.branch}"
+        if gs.behind > 0:
+            return "class:titlebar.branch.behind", f"⎇ {gs.branch} -{gs.behind}"
+        if gs.dirty:
+            return "class:titlebar.branch.dirty", f"⎇ {gs.branch}"
+        if gs.ahead > 0:
+            return "class:titlebar.branch.behind", f"⎇ {gs.branch} +{gs.ahead}"
+        return "class:titlebar.branch", f"⎇ {gs.branch}"
 
-    def _title_git_segs(self):
-        """Branch (+ in-progress merge/rebase) and the selected-count badge for
-        the active pane, as title-bar segments."""
+    def _pane_git_segs(self, i):
+        """Branch (+ in-progress merge/rebase) and selected-count badge for pane
+        ``i``, from that pane's own git status / selection — so each pane in the
+        two-pane title shows its own branch."""
         segs = []
-        branch = self._branch_seg()
+        gs = self.explorers[i].git_status
+        branch = self._branch_seg(gs)
         if branch:
             segs.append(("class:titlebar", " on "))
             segs.append(branch)
-            if self.git_status.in_progress:
+            if gs.in_progress:
                 segs.append(("class:titlebar", " "))
-                segs.append(("class:titlebar.branch.dirty",
-                             f"⚠ {self.git_status.in_progress}"))
-        selected = self.active_selection()
-        if selected:
-            segs.append(("class:titlebar", "   "))
-            segs.append(("class:titlebar.sel", f"● {len(selected)} selected"))
+                segs.append(("class:titlebar.branch.dirty", f"⚠ {gs.in_progress}"))
+        sel = self.explorers[i].selected
+        if sel:
+            segs.append(("class:titlebar", "  "))
+            segs.append(("class:titlebar.sel", f"● {len(sel)} selected"))
         return segs
 
     @staticmethod
@@ -640,7 +647,7 @@ class NshApp:
             ("class:titlebar", " "),
             ("class:titlebar.path", shorten_home(self.cwd)),
         ]
-        branch = self._branch_seg()
+        branch = self._branch_seg(self.git_status)
         if branch:
             segs.append(("class:titlebar", " on "))
             segs.append(branch)
@@ -678,26 +685,28 @@ class NshApp:
         rw = max(0, total - lw - sep)          # right half width (path + clock)
         clock_w = sum(text_width(t) for _, t in clock)
 
-        def pane_seg(i, avail):
+        def pane_region(i, avail):
+            """Path segment for pane ``i`` followed by its own branch/selected
+            badge, fitting ``avail`` cells: the branch keeps its width and the
+            path is clipped to whatever's left (so the branch stays visible)."""
             active = i == self.active_pane
             style = "class:titlebar.path" if active else "class:titlebar"
             marker = "▸ " if active else "  "
-            path = self._clip_path(shorten_home(self.explorers[i].cwd),
-                                   max(0, avail - text_width(marker)))
-            return (style, marker + path)
+            git_segs = self._pane_git_segs(i)
+            git_w = sum(text_width(t) for _, t in git_segs)
+            path = self._clip_path(
+                shorten_home(self.explorers[i].cwd),
+                max(0, avail - text_width(marker) - git_w))
+            return [(style, marker + path)] + git_segs
 
-        # left half: nsh label + left pane path (+ git/selected when it's active)
+        # left half: nsh label + left pane path + its branch/selected
         label = [(name_style, " nsh "), ("class:titlebar", " ")]
         label_w = sum(text_width(t) for _, t in label)
-        left = label + [pane_seg(0, lw - label_w)]
-        if self.active_pane == 0:
-            left += self._title_git_segs()
+        left = label + pane_region(0, lw - label_w)
         left = self._clip_segs(left, lw, "class:titlebar")
-        # right half: right pane path (+ git/selected when active), clipped so it
-        # stops before the clock, then padded so the clock lands at the edge
-        right = [pane_seg(1, rw - clock_w)]
-        if self.active_pane == 1:
-            right += self._title_git_segs()
+        # right half: right pane path + its branch/selected, clipped so it stops
+        # before the clock, then padded so the clock lands at the edge
+        right = pane_region(1, rw - clock_w)
         right = self._clip_segs(right, max(0, rw - clock_w), "class:titlebar")
         return left + [("class:titlebar", " " * sep)] + right + clock
 
@@ -1045,21 +1054,33 @@ class NshApp:
             self.switch_mode(EXPLORER)
         self.invalidate()
 
+    def _git_panes(self):
+        """The panes whose git status should be kept fresh: both when two-pane
+        view is on (so the inactive pane's markers show too), else just active."""
+        return list(self.explorers) if self.two_pane else [self.explorer]
+
     def schedule_git(self):
         if self._git_task and not self._git_task.done():
             self._git_task.cancel()
-        self.git_status = git.GitStatus()
-        self._git_task = asyncio.ensure_future(self._git_worker(self.cwd))
+        # reset the active pane while its query runs; the other pane keeps its
+        # current markers until its own query returns (no flicker on nav)
+        self.explorer.git_status = git.GitStatus()
+        targets = [(ex, ex.cwd) for ex in self._git_panes()]
+        self._git_task = asyncio.ensure_future(self._git_worker(targets))
 
-    async def _git_worker(self, path):
-        status = await git.query(path)
-        if path == self.cwd:  # ignore results for a directory we already left
-            self.git_status = status
-            self.gitview.on_status_changed()
-            self.invalidate()
+    async def _git_worker(self, targets):
+        for ex, path in targets:
+            status = await git.query(path)
+            if path == ex.cwd:  # ignore results for a directory the pane left
+                ex.git_status = status
+        self.gitview.on_status_changed()
+        self.invalidate()
 
     async def refresh_git(self):
-        self.git_status = await git.query(self.cwd)
+        # refresh every visible pane (a two-pane copy/move changes the other
+        # pane's directory too)
+        for ex in self._git_panes():
+            ex.git_status = await git.query(ex.cwd)
         self.gitview.on_status_changed()
         self.invalidate()
 
@@ -1104,7 +1125,8 @@ class NshApp:
             pass
         self.message = ""
         self.preview.clear()
-        self.schedule_git()  # status is for the active pane's directory
+        # both panes already carry their own git status, so just re-focus and
+        # repaint — no re-query needed
         self.application.layout.focus(self.explorer.control)
         self.invalidate()
 
@@ -1126,7 +1148,9 @@ class NshApp:
                 os.chdir(self.explorer.cwd)
             except OSError:
                 pass
-            self.schedule_git()
+        # query git for the now-visible pane set (both panes when entering
+        # two-pane, so the second pane's markers appear)
+        self.schedule_git()
         self.preview.clear()
         self.application.layout.focus(self.explorer.control)
         self.invalidate()
