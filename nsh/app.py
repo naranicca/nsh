@@ -767,8 +767,8 @@ class NshApp:
             ]
         elif self.mode == NOTES:
             hints = [
-                ("^S", "save"), ("↑↓", "browse"), ("↵", "edit"), ("d/x", "delete"),
-                ("u", "undo"), ("ESC", "back"),
+                ("^S", "save"), ("↑↓", "browse"), ("/", "search"), ("↵", "edit"),
+                ("d/x", "delete"), ("u", "undo"), ("ESC", "back"),
             ]
         else:
             hints = [

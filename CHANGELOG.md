@@ -210,7 +210,8 @@ Notable user-facing changes to the Python rewrite. Newest first.
   notes. A new-note editbox sits at the top (Enter adds a line, `Ctrl+S` saves
   it at the top of the list); pressing `↓` from the editbox steps into the saved
   notes, where `j`/`k` (or the arrows) move between them with line-level
-  scrolling (a scrollbar shows once the list overflows), `Enter` loads the
+  scrolling (a scrollbar shows once the list overflows), `/` filters the list
+  to notes containing a query (Esc clears it), `Enter` loads the
   selected note back into the editbox to edit it
   (`Ctrl+S` saves the change in place, `Esc` cancels), `d`/`x` delete the
   selected note, and `u` restores the last delete. Notes persist in

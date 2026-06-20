@@ -10,7 +10,12 @@ from prompt_toolkit.application.current import get_app
 from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.filters import Condition
 from prompt_toolkit.key_binding import KeyBindings
-from prompt_toolkit.layout.containers import HSplit, Window
+from prompt_toolkit.layout.containers import (
+    ConditionalContainer,
+    HSplit,
+    VSplit,
+    Window,
+)
 from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
 from prompt_toolkit.layout.margins import Margin
 
@@ -56,20 +61,37 @@ class NotesView:
     def __init__(self, app):
         self.app = app
         self.notes = Notes()
-        self.cursor = 0      # selected note index
+        self.cursor = 0      # selected note position within the visible list
         self.scroll = 0      # line-level scroll offset into the flattened list
         self._undo = []      # stack of (index, text) for restoring deletes
-        self._editing = None  # index of the note being edited, else None
+        self._editing = None  # real index of the note being edited, else None
+        self._searching = False  # the search bar is open / filtering
 
         self.input = Buffer(multiline=True)
         self.input_control = BufferControl(
             self.input, key_bindings=self._input_kb())
+        self.search_buffer = Buffer(multiline=False, on_text_changed=self._on_search)
+        self.search_control = BufferControl(
+            self.search_buffer, key_bindings=self._search_kb())
         self.list_control = FormattedTextControl(
             self._list_text, focusable=True, show_cursor=False,
             key_bindings=self._list_kb())
         self.list_window = Window(
             self.list_control, wrap_lines=True, style="class:notes.item",
             right_margins=[_NotesScrollbar(self)])
+
+        # the search bar shows only while searching (filtering the list below)
+        self.search_bar = ConditionalContainer(
+            VSplit([
+                Window(FormattedTextControl(
+                    lambda: [("class:notes.label", " search ▸ ")]),
+                    width=9, height=1, style="class:notes.label"),
+                Window(self.search_control, height=1, style="class:notes.input"),
+                Window(FormattedTextControl(self._search_count), height=1,
+                       align="right", style="class:notes.input"),
+            ]),
+            filter=Condition(lambda: self._searching),
+        )
 
         self.container = HSplit([
             Window(
@@ -78,6 +100,7 @@ class NotesView:
             Window(self.input_control, height=INPUT_HEIGHT, wrap_lines=True,
                    style="class:notes.input"),
             Window(height=1, char="─", style="class:preview.border"),
+            self.search_bar,
             self.list_window,
         ])
 
@@ -85,7 +108,10 @@ class NotesView:
         if self._editing is not None:
             return [("class:notes.label", " Editing note  —  Ctrl+S save · Esc cancel ")]
         return [("class:notes.label",
-                 " Notes  —  Ctrl+S save · ↓ browse · ↵ edit · d/x delete · u undo ")]
+                 " Notes  —  Ctrl+S save · ↓ browse · / search · ↵ edit · d/x delete · u undo ")]
+
+    def _search_count(self):
+        return [("class:notes.input", f" {self._visible_count()}/{len(self.notes)} ")]
 
     # -- lifecycle ------------------------------------------------------------
     def load(self):
@@ -94,19 +120,71 @@ class NotesView:
         self.cursor = 0
         self.scroll = 0
         self._editing = None
+        self._searching = False
+        self.search_buffer.reset()
         self.input.reset()
+
+    # -- search / filtering ---------------------------------------------------
+    def _query(self):
+        return self.search_buffer.text.strip().lower() if self._searching else ""
+
+    def _visible_indices(self):
+        """Real note indices matching the current filter (all when not searching)."""
+        notes = self.notes.list()
+        q = self._query()
+        if not q:
+            return list(range(len(notes)))
+        return [i for i, n in enumerate(notes) if q in n.lower()]
+
+    def _visible_count(self):
+        return len(self._visible_indices())
+
+    def _real_index(self):
+        """The real note index under the cursor (mapping through the filter)."""
+        vis = self._visible_indices()
+        return vis[self.cursor] if 0 <= self.cursor < len(vis) else None
+
+    def _on_search(self, _buffer):
+        self.cursor = 0
+        self.scroll = 0
+        self.app.invalidate()
+
+    def start_search(self):
+        self._searching = True
+        self.search_buffer.reset()
+        self.cursor = 0
+        self.scroll = 0
+        self.app.application.layout.focus(self.search_control)
+        self.app.invalidate()
+
+    def cancel_search(self):
+        self._searching = False
+        self.search_buffer.reset()
+        self.cursor = 0
+        self.scroll = 0
+        if self._visible_count() > 0:
+            self.focus_list(0)
+        else:
+            self.focus_input()
+        self.app.invalidate()
 
     def focus_input(self):
         self.app.application.layout.focus(self.input_control)
         self.app.invalidate()
 
     def focus_list(self, index=None):
-        if len(self.notes) == 0:
+        if self._visible_count() == 0:
             return
         if index is not None:
-            self.cursor = max(0, min(len(self.notes) - 1, index))
+            self.cursor = max(0, min(self._visible_count() - 1, index))
         self.app.application.layout.focus(self.list_control)
         self.app.invalidate()
+
+    def _select_real(self, real_index):
+        """Put the cursor on a real note index within the current (filtered)
+        view, or on its first row when it's filtered out."""
+        vis = self._visible_indices()
+        self.cursor = vis.index(real_index) if real_index in vis else 0
 
     # -- actions --------------------------------------------------------------
     def save_note(self):
@@ -120,12 +198,18 @@ class NotesView:
             self.notes.replace(idx, text)
             self._editing = None
             self.input.reset()
-            self.cursor = min(idx, max(0, len(self.notes) - 1))
-            self.focus_list(self.cursor)
+            self._select_real(idx)
+            if self._visible_count():
+                self.focus_list(self.cursor)
+            else:
+                self.focus_input()
             self.app.set_message("note updated")
         else:
-            self.notes.add(text)    # newest first (index 0)
+            # a fresh note: clear any filter so the new note is visible at top
+            self.notes.add(text)
             self.input.reset()
+            self._searching = False
+            self.search_buffer.reset()
             self.cursor = 0
             self.scroll = 0
             self.app.set_message("note saved")
@@ -133,10 +217,11 @@ class NotesView:
 
     def edit_note(self):
         """Load the selected note into the editbox for editing (Enter in list)."""
-        if len(self.notes) == 0:
+        real = self._real_index()
+        if real is None:
             return
-        self._editing = self.cursor
-        self.input.text = self.notes.list()[self.cursor]
+        self._editing = real
+        self.input.text = self.notes.list()[real]
         self.input.cursor_position = len(self.input.text)
         self.focus_input()
 
@@ -147,22 +232,22 @@ class NotesView:
         self.app.set_message("edit cancelled")
 
     def move(self, delta):
-        n = len(self.notes)
+        n = self._visible_count()
         if n == 0:
             return
         self.cursor = max(0, min(n - 1, self.cursor + delta))
         self.app.invalidate()
 
     def delete_note(self):
-        if len(self.notes) == 0:
+        real = self._real_index()
+        if real is None:
             return
-        idx = self.cursor
-        removed = self.notes.delete(idx)
+        removed = self.notes.delete(real)
         if removed is None:
             return
-        self._undo.append((idx, removed))
-        if self.cursor >= len(self.notes):
-            self.cursor = max(0, len(self.notes) - 1)
+        self._undo.append((real, removed))
+        if self.cursor >= self._visible_count():
+            self.cursor = max(0, self._visible_count() - 1)
         # keep focus on the list (even when now empty) so `u` can restore
         self.app.set_message("note deleted  (u to undo)")
         self.app.invalidate()
@@ -173,8 +258,9 @@ class NotesView:
             return
         idx, text = self._undo.pop()
         self.notes.insert(idx, text)
-        self.cursor = idx
-        self.focus_list(idx)
+        self._select_real(idx)
+        if self._visible_count():
+            self.focus_list(self.cursor)
         self.app.set_message("note restored")
         self.app.invalidate()
 
@@ -186,27 +272,32 @@ class NotesView:
         return 20
 
     def _display_lines(self):
-        """Flatten notes into display lines: ``(note_index|None, is_first, text)``;
-        a ``None`` index is a blank separator between notes."""
+        """Flatten the *visible* notes into display lines: ``(pos|None, is_first,
+        text)`` where ``pos`` is the position within the filtered list (so it
+        matches the cursor); a ``None`` index is a blank separator."""
         lines = []
         notes = self.notes.list()
-        for ni, note in enumerate(notes):
-            for li, ln in enumerate(note.split("\n")):
-                lines.append((ni, li == 0, ln))
-            if ni != len(notes) - 1:
+        vis = self._visible_indices()
+        for pos, real in enumerate(vis):
+            for li, ln in enumerate(notes[real].split("\n")):
+                lines.append((pos, li == 0, ln))
+            if pos != len(vis) - 1:
                 lines.append((None, False, ""))  # separator
         return lines
 
     def _total_lines(self):
-        """Total display-line count (for the scrollbar)."""
+        """Total display-line count of the visible notes (for the scrollbar)."""
         notes = self.notes.list()
-        if not notes:
+        vis = self._visible_indices()
+        if not vis:
             return 0
         # one line per note line, plus a blank separator between notes
-        return sum(n.count("\n") + 1 for n in notes) + (len(notes) - 1)
+        return sum(notes[r].count("\n") + 1 for r in vis) + (len(vis) - 1)
 
     def _list_text(self):
-        if len(self.notes) == 0:
+        if self._visible_count() == 0:
+            if self._searching:
+                return [("class:preview.dim", "  (no notes match)")]
             return [("class:preview.dim", "  (no notes yet — type above, Ctrl+S to save)")]
         try:
             width = get_app().output.get_size().columns
@@ -259,7 +350,7 @@ class NotesView:
             # at the bottom of the editbox, step into the notes list — but while
             # editing an existing note, Down just moves within its text
             if (self._editing is None and buff.document.on_last_line
-                    and len(self.notes)):
+                    and self._visible_count()):
                 self.focus_list(0)
             else:
                 buff.cursor_down()
@@ -273,6 +364,23 @@ class NotesView:
 
         return kb
 
+    def _search_kb(self):
+        kb = KeyBindings()
+
+        @kb.add("enter")
+        @kb.add("down")
+        def _(event):
+            # apply the filter and drop into the results to navigate them
+            if self._visible_count():
+                self.focus_list(0)
+
+        @kb.add("escape")
+        @kb.add("c-c")
+        def _(event):
+            self.cancel_search()
+
+        return kb
+
     def _list_kb(self):
         kb = KeyBindings()
 
@@ -280,7 +388,12 @@ class NotesView:
         @kb.add("k")
         def _(event):
             if self.cursor <= 0:
-                self.focus_input()  # back up into the editbox
+                # back up into the search bar (when filtering) or the editbox
+                if self._searching:
+                    self.app.application.layout.focus(self.search_control)
+                    self.app.invalidate()
+                else:
+                    self.focus_input()
             else:
                 self.move(-1)
 
@@ -292,6 +405,16 @@ class NotesView:
         @kb.add("enter")
         def _(event):
             self.edit_note()
+
+        @kb.add("/")
+        def _(event):
+            self.start_search()
+
+        # Esc clears an active filter (back to all notes); with no filter it
+        # falls through to the global Esc (leave notes mode).
+        @kb.add("escape", filter=Condition(lambda: self._searching))
+        def _(event):
+            self.cancel_search()
 
         @kb.add("pageup")
         def _(event):
@@ -308,7 +431,7 @@ class NotesView:
 
         @kb.add("G")
         def _(event):
-            self.cursor = max(0, len(self.notes) - 1)
+            self.cursor = max(0, self._visible_count() - 1)
             self.app.invalidate()
 
         @kb.add("d")
