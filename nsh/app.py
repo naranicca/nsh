@@ -337,6 +337,18 @@ class NshApp:
         def _(event):
             self.switch_pane()
 
+        # F7/F8 toggle focus between the list and the preview pane (so the
+        # preview can be scrolled with the arrows) — in single-pane explorer mode
+        # and in the git / git-log views, all of which show a preview.
+        preview_focus_mode = Condition(
+            lambda: self.mode in (GIT, LOG)
+            or (self.mode == EXPLORER and not self.two_pane))
+
+        @kb.add("f7", filter=preview_focus_mode)
+        @kb.add("f8", filter=preview_focus_mode)
+        def _(event):
+            self.toggle_preview_focus()
+
         @kb.add("c-t", filter=shell_mode)
         def _(event):
             self.shells.new_session()
@@ -751,7 +763,13 @@ class NshApp:
         return left + [("class:titlebar", " " * sep)] + right + clock
 
     def _status_text(self):
-        if self.mode == EXPLORER:
+        if self.preview_focused() and self.mode in (EXPLORER, GIT, LOG):
+            # the preview pane holds the focus (F7/F8): it scrolls with arrows
+            hints = [
+                ("↑↓", "scroll"), ("PgUp/PgDn", "page"), ("g/G", "top/bottom"),
+                ("F7/8", "list"), ("ESC", "list"),
+            ]
+        elif self.mode == EXPLORER:
             hints = [
                 ("↵", "open"), ("Space", "select"),
                 ("Tab", "actions"), ("b", "marks"), ("/", "find"), ("*", "select"),
@@ -759,9 +777,10 @@ class NshApp:
             ]
             # the 2-pane toggle; once in it, surface the F7/F8 pane switch instead
             if self.two_pane:
-                hints.append(("F7/8", "pane"))
+                hints.append(("F8", "pane"))
                 hints.append(("2", "1-pane"))
             else:
+                hints.append(("F8", "preview"))
                 hints.append(("2", "2-pane"))
             hints.append(("q", "quit"))
         elif self.mode == SEARCH:
@@ -772,12 +791,13 @@ class NshApp:
         elif self.mode == GIT:
             hints = [
                 ("↑↓", "move"), ("Space", "select"), ("Tab", "actions"),
-                ("b", "marks"), (":", "cmd"), ("^G/ESC", "exit"), ("q", "quit"),
+                ("b", "marks"), ("F8", "preview"), (":", "cmd"),
+                ("ESC", "exit"), ("q", "quit"),
             ]
         elif self.mode == LOG:
             hints = [
                 ("↑↓", "move"), ("↵", "actions"), ("/", "search"), ("n", "next"),
-                ("ESC/q", "back"),
+                ("F7/8", "preview"), ("ESC/q", "back"),
             ]
         elif self.mode == NOTES:
             hints = [
@@ -948,6 +968,34 @@ class NshApp:
     def toggle_preview(self):
         self.show_preview = not self.show_preview
         self.invalidate()
+
+    def preview_focused(self):
+        try:
+            return self.application.layout.has_focus(self.preview.control)
+        except Exception:
+            return False
+
+    def _active_list_control(self):
+        """The list control beside the preview in the current mode."""
+        if self.mode == GIT:
+            return self.gitview.control
+        if self.mode == LOG:
+            return self.logview.control
+        return self.explorer.control
+
+    def focus_active_list(self):
+        self.application.layout.focus(self._active_list_control())
+        self.invalidate()
+
+    def toggle_preview_focus(self):
+        """Move focus between the list and the preview pane (explorer / git /
+        log). Does nothing when the preview isn't actually on screen."""
+        if not (self.show_preview and self._wide_enough()):
+            return
+        if self.preview_focused():
+            self.focus_active_list()
+        else:
+            self.preview.focus()
 
     def _wide_enough(self):
         try:

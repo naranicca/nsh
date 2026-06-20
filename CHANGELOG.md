@@ -85,6 +85,12 @@ Notable user-facing changes to the Python rewrite. Newest first.
   (e.g. `python -c "..."`).
 
 ### Explorer & Git
+- **Scroll the preview pane.** In single-pane explorer mode and in the git /
+  git-log views, `F7`/`F8` move focus between the list and the preview; while the
+  preview is focused the arrows (plus `PgUp`/`PgDn` and `g`/`G`) scroll it, and
+  the list keeps its cursor visible. The header (filename) stays pinned and gains
+  a background to show which pane has the focus. `F7`/`F8` or `Esc` returns to the
+  list.
 - **Two-pane view**: toggle it with the `2` key (remappable), or
   `[general] two_pane = true` in nshrc, to show two explorer panes side by
   side, each with its own directory, selection and cursor. The preview pane is

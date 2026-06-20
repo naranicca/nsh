@@ -10,6 +10,8 @@ import asyncio
 import struct
 
 from prompt_toolkit.formatted_text import ANSI, to_formatted_text
+from prompt_toolkit.formatted_text.utils import split_lines
+from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout.containers import Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.layout.dimension import Dimension
@@ -17,6 +19,7 @@ from prompt_toolkit.layout.dimension import Dimension
 from .. import config
 from ..util.aio import run_in_thread
 from ..util.paths import human_size, norm
+from ..util.width import text_width
 from . import git, model
 
 READ_BYTES = 64 * 1024   # cap how much of a file we pull in for preview
@@ -79,7 +82,13 @@ class PreviewView:
         self.app = app
         self._cache = {}
         self._inflight = set()
-        self.control = FormattedTextControl(self._text, focusable=False)
+        self._scroll = 0          # top visible line when the pane is focused
+        self._scroll_id = None    # identity of what's scrolled (reset on change)
+        # focusable so F7/F8 can move into the pane and scroll it; the explorer
+        # cursor hides while it's focused (see ExplorerView._formatted_text).
+        self.control = FormattedTextControl(
+            self._visible_text, focusable=True, show_cursor=False,
+            key_bindings=self._kb())
         self.window = Window(
             self.control,
             wrap_lines=True,
@@ -87,6 +96,120 @@ class PreviewView:
             # match the explorer: preferred=0 keeps the split content-independent
             width=Dimension(min=0, preferred=0, weight=1),
         )
+
+    # -- focus / scrolling ----------------------------------------------------
+    def focus(self):
+        self.app.application.layout.focus(self.control)
+        self.app.invalidate()
+
+    def _visible_height(self):
+        ri = getattr(self.window, "render_info", None)
+        if ri is not None and ri.window_height:
+            return ri.window_height
+        return 20
+
+    def _width(self):
+        ri = getattr(self.window, "render_info", None)
+        if ri is not None and getattr(ri, "window_width", 0):
+            return ri.window_width
+        return 40
+
+    @staticmethod
+    def _focus_header(line, width):
+        """Re-style a pinned header line with the focus background, padded to the
+        full pane width so the highlight spans the whole row."""
+        out = [((s + " class:preview.header.focus").strip(), t) for s, t in line]
+        used = sum(text_width(t) for _, t in line)
+        if width - used > 0:
+            out.append(("class:preview.header.focus", " " * (width - used)))
+        return out
+
+    def _current_identity(self):
+        """A lightweight id of what's previewed, so scroll resets when it changes."""
+        if self.app.mode == "gitlog":
+            return ("gitlog", self.app.logview.current_hash())
+        if self.app.mode == "git":
+            e = self.app.gitview.current()
+            return ("git", norm(e.path) if e else None)
+        e = self.app.explorer.current()
+        return ("file", norm(e.path) if e else None)
+
+    def scroll(self, delta):
+        self._scroll = max(0, self._scroll + delta)
+        self.app.invalidate()
+
+    def _visible_text(self):
+        """Window the full preview to the visible slice while the pane is focused
+        (so the arrows scroll it); rendered from the top as before otherwise."""
+        ident = self._current_identity()
+        if ident != self._scroll_id:
+            self._scroll_id = ident
+            self._scroll = 0
+        frags = self._text()
+        if not self.app.preview_focused():
+            self._scroll = 0
+            return frags
+        lines = list(split_lines(frags))
+        height = self._visible_height()
+        # keep the leading title lines (filename / meta) pinned — every builder
+        # emits them before the first blank line — and scroll only the body.
+        hdr = 0
+        while hdr < len(lines) and any(t.strip() for _, t in lines[hdr]):
+            hdr += 1
+        header, body = lines[:hdr], lines[hdr:]
+        body_h = max(1, height - hdr)
+        max_scroll = max(0, len(body) - body_h)
+        self._scroll = max(0, min(self._scroll, max_scroll))
+        # tint the pinned header so the focused pane is obvious
+        width = self._width()
+        header = [self._focus_header(ln, width) for ln in header]
+        shown = header + body[self._scroll:self._scroll + body_h]
+        out = []
+        for ln in shown:
+            out.extend(ln)
+            out.append(("", "\n"))
+        return out
+
+    def _kb(self):
+        kb = KeyBindings()
+
+        @kb.add("down")
+        @kb.add("j")
+        def _(event):
+            self.scroll(1)
+
+        @kb.add("up")
+        @kb.add("k")
+        def _(event):
+            self.scroll(-1)
+
+        @kb.add("pagedown")
+        @kb.add(" ")
+        def _(event):
+            self.scroll(self._visible_height())
+
+        @kb.add("pageup")
+        def _(event):
+            self.scroll(-self._visible_height())
+
+        @kb.add("g")
+        @kb.add("home")
+        def _(event):
+            self._scroll = 0
+            self.app.invalidate()
+
+        @kb.add("G")
+        @kb.add("end")
+        def _(event):
+            self._scroll = 10 ** 9  # clamped to the bottom on the next render
+            self.app.invalidate()
+
+        # Esc (and F7/F8, handled globally) returns to the list.
+        @kb.add("escape")
+        def _(event):
+            self.app.focus_active_list()
+
+        return kb
 
     # -- cache ----------------------------------------------------------------
     def clear(self):

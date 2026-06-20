@@ -44,6 +44,8 @@ STYLE_DEFAULTS = {
         # preview pane
         "preview": "#c0c0c0",
         "preview.header": "#87d7ff bold",
+        # the pinned header gets a background while the preview pane is focused
+        "preview.header.focus": "bg:#005f87",
         "preview.dim": "#808080 italic",
         "preview.meta": "#5fafff bold",
         "preview.border": "#444444",
