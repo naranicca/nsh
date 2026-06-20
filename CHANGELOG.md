@@ -206,16 +206,24 @@ Notable user-facing changes to the Python rewrite. Newest first.
   and git mode.
 
 ### UI & dialogs
+- **Notes** (`Ctrl+N`, or *Notes* in the F10 menu): a scratch pad of multi-line
+  notes. A new-note editbox sits at the top (Enter adds a line, `Ctrl+S` saves
+  it at the top of the list); pressing `↓` from the editbox steps into the saved
+  notes, where `j`/`k` (or the arrows) move between them with line-level
+  scrolling, `Enter` loads the selected note back into the editbox to edit it
+  (`Ctrl+S` saves the change in place, `Esc` cancels), `d`/`x` delete the
+  selected note, and `u` restores the last delete. Notes persist in
+  `~/.config/nsh/notes.json`. Esc returns to the explorer.
 - **Find** (`Ctrl+F`, or *Find* in the F10 menu): asks whether to search file
   *contents* or file *names*. **Text** opens a small form — the phrase plus
   *case sensitive* and *whole word* checkboxes (Tab/↑↓ between fields, Space
   toggles, Enter runs) — and streams a coloured `grep -rnI` (recursive,
   line-numbered, `--color=always`, `-i`/`-w` per the toggles) of the pattern
   into the shell. **File** starts the existing fuzzy file finder.
-- **nsh menu** (`F10`): opens a small menu from any mode with *Find*,
-  *Preferences* — which opens your `nshrc` in the editor (seeding the default
-  first if it doesn't exist; changes apply on the next start) — and *About*, a
-  centered dialog showing the version and the project's GitHub URL.
+- **nsh menu** (`F10`): opens a small menu from any mode with *Find*, *Notes*,
+  the two-pane toggle, *Preferences* — which opens your `nshrc` in the editor
+  (seeding the default first if it doesn't exist; changes apply on the next
+  start) — and *About*, a centered dialog showing the version and GitHub URL.
 - **Fast with long lists.** The explorer, git mode and git log now render only
   the on-screen rows instead of the whole list every frame, and the git log
   parses each line's colours once (cached) rather than on every render — so

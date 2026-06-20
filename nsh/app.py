@@ -31,6 +31,7 @@ from .explorer.gitview import GitView
 from .explorer.logview import LogView
 from .explorer.preview import PreviewView
 from .explorer.view import ExplorerView
+from .notes.view import NotesView
 from .search.view import SearchView
 from .shell.runner import CommandRunner
 from .shell.tabs import ShellTabs
@@ -45,6 +46,7 @@ SHELL = "shell"
 SEARCH = "search"
 GIT = "git"
 LOG = "gitlog"
+NOTES = "notes"
 
 # Once the shell output would shrink the explorer below this many rows, the
 # shell takes over the whole screen.
@@ -141,6 +143,7 @@ class NshApp:
         self.search = SearchView(self)
         self.gitview = GitView(self)
         self.logview = LogView(self)
+        self.notesview = NotesView(self)
         self._log_return = EXPLORER  # the mode "Git: Log" was opened from
 
         # popup action menu (Tab in the explorer)
@@ -227,6 +230,11 @@ class NshApp:
         def _(event):
             self.open_find()
 
+        # Ctrl+N: Notes (a scratch pad of multi-line notes). Explorer/git only.
+        @kb.add("c-n", filter=~overlay_open & find_modes)
+        def _(event):
+            self.open_notes()
+
         @kb.add("escape", filter=~overlay_open)
         def _(event):
             buff = self.shell.command_buffer
@@ -246,6 +254,8 @@ class NshApp:
                     self.switch_mode(EXPLORER)
             elif self.mode == LOG:
                 self.close_log()
+            elif self.mode == NOTES:
+                self.switch_mode(EXPLORER)
             else:  # EXPLORER: clear any multi-selection
                 self.explorer.clear_selection()
 
@@ -479,6 +489,8 @@ class NshApp:
         def _body():
             if self.mode == SEARCH:
                 return self.search.container
+            if self.mode == NOTES:
+                return self.notesview.container
             if self.mode == GIT:
                 return git_area
             if self.mode == LOG:
@@ -672,6 +684,9 @@ class NshApp:
         if self.mode == LOG:
             segs.append(("class:titlebar", "   "))
             segs.append(("class:titlebar.branch", "● log"))
+        if self.mode == NOTES:
+            segs.append(("class:titlebar", "   "))
+            segs.append(("class:titlebar.branch", "● notes"))
         selected = self.active_selection()
         if selected:
             segs.append(("class:titlebar", "   "))
@@ -750,6 +765,11 @@ class NshApp:
                 ("↑↓", "move"), ("↵", "actions"), ("/", "search"), ("n", "next"),
                 ("ESC/q", "back"),
             ]
+        elif self.mode == NOTES:
+            hints = [
+                ("^S", "save"), ("↑↓", "browse"), ("↵", "edit"), ("d/x", "delete"),
+                ("u", "undo"), ("ESC", "back"),
+            ]
         else:
             hints = [
                 ("Tab", "complete"), ("↵", "run"), ("↑↓", "history"),
@@ -757,6 +777,10 @@ class NshApp:
                 ("^C", "stop"), ("ESC", "explorer"),
             ]
         segs = []
+        # a yellow square at the very front whenever there are saved notes —
+        # ahead of the message and the shortcut hints (Ctrl+N to view them)
+        if len(self.notesview.notes) > 0:
+            segs.append(("class:statusbar.notes", " ■ "))
         # the message sits in front of the shortcuts and stays until it's
         # explicitly cleared (directory change, mode change, or ESC)
         if self.message:
@@ -793,6 +817,9 @@ class NshApp:
         elif mode == LOG:
             self.logview.load()
             self.application.layout.focus(self.logview.control)
+        elif mode == NOTES:
+            self.notesview.load()
+            self.notesview.focus_input()
         else:
             self.application.layout.focus(self.explorer.control)
         self.invalidate()
@@ -848,6 +875,10 @@ class NshApp:
         cmd = f"grep --color=always {flags} -e {shlex.quote(phrase)} ."
         self.switch_mode(SHELL)
         self.run_in_shell(self.shell, cmd)
+
+    # -- notes ----------------------------------------------------------------
+    def open_notes(self):
+        self.switch_mode(NOTES)
 
     # -- fuzzy search ---------------------------------------------------------
     def enter_search(self, query=""):
@@ -1136,6 +1167,8 @@ class NshApp:
             self.application.layout.focus(self.gitview.control)
         elif self.mode == LOG:
             self.application.layout.focus(self.logview.control)
+        elif self.mode == NOTES:
+            self.notesview.focus_input()
         else:
             self.application.layout.focus(self.explorer.control)
 
@@ -1203,6 +1236,7 @@ class NshApp:
     def open_nsh_menu(self):
         self.open_menu("nsh", [
             ("Find", self.open_find),
+            ("Notes", self.open_notes),
             (("✓ " if self.two_pane else "  ") + "Two-pane view", self.toggle_two_pane),
             ("Preferences", self.open_preferences),
             ("About", self.show_about),

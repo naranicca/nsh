@@ -24,6 +24,7 @@ STYLE_DEFAULTS = {
         "statusbar": "bg:#1c1c1c #999999",
         "statusbar.key": "bg:#1c1c1c #5fafff bold",
         "statusbar.msg": "bg:#1c1c1c #ffff87",
+        "statusbar.notes": "bg:#1c1c1c #ffd700 bold",
         # explorer entries
         "explorer.dir": "#5fafff bold",
         "explorer.file": "#d0d0d0",
@@ -105,6 +106,12 @@ STYLE_DEFAULTS = {
         "menu.title": "bg:#5f87af #ffffff bold",
         "menu.item": "bg:#1c1c1c #d0d0d0",
         "menu.selected": "bg:#5fafff #000000 bold",
+        # notes mode
+        "notes.label": "bg:#5f87af #ffffff bold",
+        "notes.input": "bg:#303030 #ffffff",
+        "notes.item": "#d0d0d0",
+        "notes.meta": "#5f87af",
+        "notes.selected": "bg:#005f87 #ffffff",
 }
 
 
