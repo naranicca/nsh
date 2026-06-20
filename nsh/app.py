@@ -781,7 +781,8 @@ class NshApp:
         elif self.mode == SYSTEM:
             hints = [
                 ("↑↓", "move"), ("c", "sort cpu"), ("m", "sort mem"),
-                ("x", "kill"), ("K", "force"), ("r", "refresh"), ("ESC", "back"),
+                ("/", "search"), ("x", "kill"), ("K", "force"), ("r", "refresh"),
+                ("ESC", "back"),
             ]
         else:
             hints = [

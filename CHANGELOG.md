@@ -209,7 +209,8 @@ Notable user-facing changes to the Python rewrite. Newest first.
 - **Process manager** (*System* in the F10 menu): a small task manager. A header
   shows overall CPU, memory and disk usage as bars; below it a scrolling,
   cursor-selectable list of the running processes with their CPU% / MEM% / RSS.
-  `c` sorts by CPU, `m` by memory; `x` terminates the selected process and `K`
+  `c` sorts by CPU, `m` by memory; `/` filters the list by process name or PID
+  (Esc clears it); `x` terminates the selected process and `K`
   force-kills it (each with a confirm); `r` refreshes and the list re-samples
   every couple of seconds on its own. No third-party deps — it reads ctypes +
   PowerShell on Windows, `/proc` on Linux and `ps`/`sysctl` on macOS, degrading

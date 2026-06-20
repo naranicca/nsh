@@ -8,9 +8,16 @@ sampled in a worker thread on a timer so the UI stays responsive.
 import asyncio
 
 from prompt_toolkit.application.current import get_app
+from prompt_toolkit.buffer import Buffer
+from prompt_toolkit.filters import Condition
 from prompt_toolkit.key_binding import KeyBindings
-from prompt_toolkit.layout.containers import HSplit, Window
-from prompt_toolkit.layout.controls import FormattedTextControl
+from prompt_toolkit.layout.containers import (
+    ConditionalContainer,
+    HSplit,
+    VSplit,
+    Window,
+)
+from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
 from prompt_toolkit.layout.margins import Margin
 
 from ..util.aio import run_in_thread
@@ -31,10 +38,10 @@ class _ListScrollbar(Margin):
         self.view = view
 
     def get_width(self, get_ui_content):
-        return 1 if len(self.view.procs) > self.view._visible_height() else 0
+        return 1 if self.view._visible_count() > self.view._visible_height() else 0
 
     def create_margin(self, window_render_info, width, height):
-        total = len(self.view.procs)
+        total = self.view._visible_count()
         if height <= 0 or total <= height:
             return []
         scroll = max(0, min(self.view._top, total - height))
@@ -60,9 +67,13 @@ class SystemView:
         self.cursor = 0
         self._top = 0            # first rendered row (windowing)
         self.sort = "cpu"        # "cpu" | "mem"
+        self._searching = False  # the search bar is open / filtering
         self._task = None
 
         self.header_control = FormattedTextControl(self._header_text)
+        self.search_buffer = Buffer(multiline=False, on_text_changed=self._on_search)
+        self.search_control = BufferControl(
+            self.search_buffer, key_bindings=self._search_kb())
         self.list_control = FormattedTextControl(
             self._list_text, focusable=True, show_cursor=False,
             key_bindings=self._kb())
@@ -70,9 +81,20 @@ class SystemView:
             self.list_control, style="class:explorer.file",
             right_margins=[_ListScrollbar(self)])
 
+        self.search_bar = ConditionalContainer(
+            VSplit([
+                Window(FormattedTextControl(
+                    lambda: [("class:system.label", " search ▸ ")]),
+                    width=9, height=1, style="class:system.label"),
+                Window(self.search_control, height=1, style="class:notes.input"),
+            ]),
+            filter=Condition(lambda: self._searching),
+        )
+
         self.container = HSplit([
             Window(self.header_control, height=HEADER_HEIGHT, style="class:system.header"),
             Window(height=1, char="─", style="class:preview.border"),
+            self.search_bar,
             self.list_window,
         ])
 
@@ -91,42 +113,87 @@ class SystemView:
             await asyncio.sleep(REFRESH)
 
     async def refresh(self):
+        pid = self._selected_pid()
         snap = await run_in_thread(self.monitor.snapshot)
         self.snapshot = snap
         self._apply_sort()
-        if self.cursor >= len(self.procs):
-            self.cursor = max(0, len(self.procs) - 1)
+        self._restore_cursor(pid)
         self.app.invalidate()
 
     def _apply_sort(self):
         procs = list(self.snapshot.procs) if self.snapshot else []
         key = (lambda p: p.cpu) if self.sort == "cpu" else (lambda p: p.mem)
-        # keep the process under the cursor selected across re-sorts
-        cur = self.procs[self.cursor].pid if 0 <= self.cursor < len(self.procs) else None
         procs.sort(key=key, reverse=True)
         self.procs = procs
-        if cur is not None:
-            for i, p in enumerate(procs):
-                if p.pid == cur:
-                    self.cursor = i
-                    break
 
     def set_sort(self, mode):
         if mode != self.sort:
+            pid = self._selected_pid()
             self.sort = mode
             self._apply_sort()
+            self._restore_cursor(pid)
             self.app.invalidate()
 
+    # -- search / filtering ---------------------------------------------------
+    def _query(self):
+        return self.search_buffer.text.strip().lower() if self._searching else ""
+
+    def _visible(self):
+        """The process list after applying the name/PID filter."""
+        q = self._query()
+        if not q:
+            return self.procs
+        return [p for p in self.procs if q in p.name.lower() or q in str(p.pid)]
+
+    def _visible_count(self):
+        return len(self._visible())
+
+    def _selected_pid(self):
+        vis = self._visible()
+        return vis[self.cursor].pid if 0 <= self.cursor < len(vis) else None
+
+    def _restore_cursor(self, pid):
+        vis = self._visible()
+        if pid is not None:
+            for i, p in enumerate(vis):
+                if p.pid == pid:
+                    self.cursor = i
+                    return
+        self.cursor = max(0, min(self.cursor, len(vis) - 1))
+
+    def _on_search(self, _buffer):
+        self.cursor = 0
+        self._top = 0
+        self.app.invalidate()
+
+    def start_search(self):
+        self._searching = True
+        self.search_buffer.reset()
+        self.cursor = 0
+        self._top = 0
+        self.app.application.layout.focus(self.search_control)
+        self.app.invalidate()
+
+    def cancel_search(self):
+        self._searching = False
+        self.search_buffer.reset()
+        self.cursor = 0
+        self._top = 0
+        self.app.application.layout.focus(self.list_control)
+        self.app.invalidate()
+
     def current(self):
-        if 0 <= self.cursor < len(self.procs):
-            return self.procs[self.cursor]
+        vis = self._visible()
+        if 0 <= self.cursor < len(vis):
+            return vis[self.cursor]
         return None
 
     # -- navigation -----------------------------------------------------------
     def move(self, delta):
-        if not self.procs:
+        n = self._visible_count()
+        if n == 0:
             return
-        self.cursor = max(0, min(len(self.procs) - 1, self.cursor + delta))
+        self.cursor = max(0, min(n - 1, self.cursor + delta))
         self.app.invalidate()
 
     def _visible_height(self):
@@ -214,16 +281,19 @@ class SystemView:
             (ch, " "),
             (ch, "RSS".rjust(W_RSS)),
             (ch, " "),
-            (ch, pad_to_width(f" PROC  ({len(self.procs)})", name_w)),
+            (ch, pad_to_width(f" PROC  ({self._visible_count()})", name_w)),
         ]
 
     def _list_text(self):
-        if not self.procs:
-            msg = "  sampling…" if self.snapshot is None else "  (no processes)"
-            return [("class:preview.dim", msg)]
+        procs = self._visible()
+        if not procs:
+            if self.snapshot is None:
+                return [("class:preview.dim", "  sampling…")]
+            return [("class:preview.dim",
+                     "  (no matches)" if self._searching else "  (no processes)")]
         cols = self._term_cols()
         height = self._visible_height()
-        sb = 1 if len(self.procs) > height else 0
+        sb = 1 if len(procs) > height else 0
         name_w = max(4, cols - (W_PID + W_CPU + W_MEM + W_RSS + 5) - sb)
 
         # window the visible slice around the cursor
@@ -231,12 +301,12 @@ class SystemView:
             self._top = self.cursor
         elif self.cursor >= self._top + height:
             self._top = self.cursor - height + 1
-        self._top = max(0, min(self._top, max(0, len(self.procs) - height)))
+        self._top = max(0, min(self._top, max(0, len(procs) - height)))
 
         frags = []
-        end = min(len(self.procs), self._top + height)
+        end = min(len(procs), self._top + height)
         for i in range(self._top, end):
-            p = self.procs[i]
+            p = procs[i]
             on = i == self.cursor
             row = (f" {p.pid:>{W_PID}} {p.cpu:>{W_CPU}.1f} {p.mem:>{W_MEM}.1f} "
                    f"{human_size(p.rss):>{W_RSS}} ")
@@ -260,7 +330,11 @@ class SystemView:
         @kb.add("up")
         @kb.add("k")
         def _(event):
-            self.move(-1)
+            if self.cursor <= 0 and self._searching:
+                self.app.application.layout.focus(self.search_control)
+                self.app.invalidate()
+            else:
+                self.move(-1)
 
         @kb.add("pagedown")
         def _(event):
@@ -279,7 +353,7 @@ class SystemView:
         @kb.add("G")
         @kb.add("end")
         def _(event):
-            self.cursor = max(0, len(self.procs) - 1)
+            self.cursor = max(0, self._visible_count() - 1)
             self.app.invalidate()
 
         @kb.add("c")
@@ -289,6 +363,16 @@ class SystemView:
         @kb.add("m")
         def _(event):
             self.set_sort("mem")
+
+        @kb.add("/")
+        def _(event):
+            self.start_search()
+
+        # Esc clears an active filter; with none it falls through to the global
+        # Esc (leave system mode).
+        @kb.add("escape", filter=Condition(lambda: self._searching))
+        def _(event):
+            self.cancel_search()
 
         @kb.add("x")
         @kb.add("delete")
@@ -302,5 +386,22 @@ class SystemView:
         @kb.add("r")
         def _(event):
             asyncio.ensure_future(self.refresh())
+
+        return kb
+
+    def _search_kb(self):
+        kb = KeyBindings()
+
+        @kb.add("enter")
+        @kb.add("down")
+        def _(event):
+            if self._visible_count():
+                self.app.application.layout.focus(self.list_control)
+                self.app.invalidate()
+
+        @kb.add("escape")
+        @kb.add("c-c")
+        def _(event):
+            self.cancel_search()
 
         return kb
