@@ -108,6 +108,7 @@ STYLE_DEFAULTS = {
         "menu.selected": "bg:#5fafff #000000 bold",
         # notes mode
         "notes.label": "bg:#5f87af #ffffff bold",
+        "notes.label.inactive": "bg:#303030 #d0d0d0 bold",
         "notes.input": "bg:#303030 #ffffff",
         "notes.item": "#d0d0d0",
         "notes.meta": "#5f87af",

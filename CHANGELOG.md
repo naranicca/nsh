@@ -223,8 +223,11 @@ Notable user-facing changes to the Python rewrite. Newest first.
   to notes containing a query (Esc clears it), `Enter` loads the
   selected note back into the editbox to edit it
   (`Ctrl+S` saves the change in place, `Esc` cancels), `d`/`x` delete the
-  selected note, and `u` restores the last delete. Notes persist in
-  `~/.config/nsh/notes.json`. Esc returns to the explorer.
+  selected note, and `u` restores the last delete. The title bar above the
+  editbox is blue while the editbox is active (typing / editing) and grey once
+  the cursor moves down into the list; the list's selection highlight only
+  shows while the list is focused (it's hidden while you edit a note above).
+  Notes persist in `~/.config/nsh/notes.json`. Esc returns to the explorer.
 - **Find** (`Ctrl+F`, or *Find* in the F10 menu): asks whether to search file
   *contents* or file *names*. **Text** opens a small form — the phrase plus
   *case sensitive* and *whole word* checkboxes (Tab/↑↓ between fields, Space

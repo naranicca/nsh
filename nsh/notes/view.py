@@ -96,7 +96,7 @@ class NotesView:
         self.container = HSplit([
             Window(
                 FormattedTextControl(self._label_text),
-                height=1, style="class:notes.label"),
+                height=1, style=self._label_style),
             Window(self.input_control, height=INPUT_HEIGHT, wrap_lines=True,
                    style="class:notes.input"),
             Window(height=1, char="─", style="class:preview.border"),
@@ -104,11 +104,25 @@ class NotesView:
             self.list_window,
         ])
 
+    def _list_focused(self):
+        try:
+            return get_app().layout.has_focus(self.list_control)
+        except Exception:
+            return False
+
+    def _label_style(self):
+        # blue while the editbox is the active area (typing / editing a note),
+        # grey once the cursor has moved down into the list (or the search bar)
+        try:
+            active = get_app().layout.has_focus(self.input_control)
+        except Exception:
+            active = True
+        return "class:notes.label" if active else "class:notes.label.inactive"
+
     def _label_text(self):
-        if self._editing is not None:
-            return [("class:notes.label", " Editing note  —  Ctrl+S save · Esc cancel ")]
-        return [("class:notes.label",
-                 " Notes  —  Ctrl+S save · ↓ browse · / search · ↵ edit · d/x delete · u undo ")]
+        # just a title — the shortcuts live in the status bar
+        label = " Notes — editing " if self._editing is not None else " Notes "
+        return [(self._label_style(), label)]
 
     def _search_count(self):
         return [("class:notes.input", f" {self._visible_count()}/{len(self.notes)} ")]
@@ -248,7 +262,10 @@ class NotesView:
         self._undo.append((real, removed))
         if self.cursor >= self._visible_count():
             self.cursor = max(0, self._visible_count() - 1)
-        # keep focus on the list (even when now empty) so `u` can restore
+        # with no notes left there's nothing to navigate, so go back to the
+        # editbox; otherwise keep the cursor in the list
+        if len(self.notes) == 0:
+            self.focus_input()
         self.app.set_message("note deleted  (u to undo)")
         self.app.invalidate()
 
@@ -318,13 +335,16 @@ class NotesView:
                 self.scroll = sel[-1] - height + 1
         self.scroll = max(0, min(self.scroll, max(0, len(lines) - height)))
 
+        # the cursor highlight only shows while the list is the focused area —
+        # so it disappears while a note is being edited in the box above
+        cursor_active = self._list_focused()
         frags = []
         for k in range(self.scroll, min(len(lines), self.scroll + height)):
             ni, is_first, ln = lines[k]
             if ni is None:  # separator
                 frags.append(("", "\n"))
                 continue
-            on = ni == self.cursor
+            on = cursor_active and ni == self.cursor
             marker = ("▸ " if on else "● ") if is_first else "  "
             cell = " " + marker + ln
             style = "class:notes.selected" if on else "class:notes.item"
