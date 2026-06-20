@@ -1,6 +1,7 @@
 """The nsh application: layout, the two modes, and central dispatch."""
 import asyncio
 import os
+import shlex
 import subprocess
 import sys
 from datetime import datetime
@@ -34,7 +35,7 @@ from .search.view import SearchView
 from .shell.runner import CommandRunner
 from .shell.tabs import ShellTabs
 from .util.bookmarks import Bookmarks
-from .util.dialog import ConfirmDialog, InfoDialog, InputDialog
+from .util.dialog import ConfirmDialog, FindTextDialog, InfoDialog, InputDialog
 from .util.menu import Menu
 from .util.paths import shorten_home
 from .util.width import char_width, cut_to_width, text_width
@@ -154,6 +155,7 @@ class NshApp:
         self.dialog = InputDialog(self._dialog_closed)
         self.confirm_dialog = ConfirmDialog(self._dialog_closed)
         self.about_dialog = InfoDialog(self._dialog_closed)
+        self.find_dialog = FindTextDialog(self._dialog_closed)
 
         self.application = self._build_application()
 
@@ -208,7 +210,8 @@ class NshApp:
         menu_open = Condition(lambda: self.menu.active)
         dialog_open = Condition(lambda: self.dialog.active)
         about_open = Condition(lambda: self.about_dialog.active)
-        overlay_open = confirm_open | menu_open | dialog_open | about_open
+        find_open = Condition(lambda: self.find_dialog.active)
+        overlay_open = confirm_open | menu_open | dialog_open | about_open | find_open
 
         kb = KeyBindings()
 
@@ -216,6 +219,13 @@ class NshApp:
         @kb.add("f10", filter=~overlay_open)
         def _(event):
             self.open_nsh_menu()
+
+        # Ctrl+F: Find — pick text (grep) or file (fuzzy). Explorer/git only.
+        find_modes = Condition(lambda: self.mode in (EXPLORER, GIT))
+
+        @kb.add("c-f", filter=~overlay_open & find_modes)
+        def _(event):
+            self.open_find()
 
         @kb.add("escape", filter=~overlay_open)
         def _(event):
@@ -504,6 +514,7 @@ class NshApp:
                 Float(content=self.dialog.container),
                 Float(content=self.confirm_dialog.container),
                 Float(content=self.about_dialog.container),
+                Float(content=self.find_dialog.container),
             ],
         )
 
@@ -804,6 +815,39 @@ class NshApp:
 
     def close_log(self):
         self.switch_mode(self._log_return)
+
+    # -- find (text / file) ---------------------------------------------------
+    def open_find(self):
+        """Find: choose between searching file *contents* (grep) or file *names*
+        (the fuzzy finder)."""
+        self.open_menu("Find", [
+            ("Text (grep)", self.find_text),
+            ("File (fuzzy)", lambda: self.enter_search()),
+        ])
+
+    def find_text(self):
+        self.find_dialog.open(self._run_grep)
+        self.application.layout.focus(self.find_dialog.control)
+        self.invalidate()
+
+    def _run_grep(self, phrase, case_sensitive, whole_word):
+        """Build and run a grep over the current directory tree from the find
+        dialog's phrase and options, streaming results into the shell."""
+        if not phrase.strip():
+            return
+        # -r recurse, -n line numbers, -I skip binaries. The phrase is a grep
+        # pattern. (We deliberately avoid -F: GNU grep 3.0, shipped with Git
+        # Bash, crashes on `-F -r`.) --color=always so grep still emits ANSI
+        # colour through nsh's pipe — its stdout isn't a TTY, where it would
+        # otherwise turn colour off.
+        flags = "-rnI"
+        if not case_sensitive:
+            flags += "i"
+        if whole_word:
+            flags += "w"
+        cmd = f"grep --color=always {flags} -e {shlex.quote(phrase)} ."
+        self.switch_mode(SHELL)
+        self.run_in_shell(self.shell, cmd)
 
     # -- fuzzy search ---------------------------------------------------------
     def enter_search(self, query=""):
@@ -1158,6 +1202,7 @@ class NshApp:
     # -- nsh menu (F10) -------------------------------------------------------
     def open_nsh_menu(self):
         self.open_menu("nsh", [
+            ("Find", self.open_find),
             (("✓ " if self.two_pane else "  ") + "Two-pane view", self.toggle_two_pane),
             ("Preferences", self.open_preferences),
             ("About", self.show_about),
