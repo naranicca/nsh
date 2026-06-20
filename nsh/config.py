@@ -96,6 +96,8 @@ STYLE_DEFAULTS = {
         "completion-menu.completion.current": "bg:#5fafff #000000 bold",
         "scrollbar.background": "bg:#303030",
         "scrollbar.button": "bg:#5fafff",
+        # the preview scrollbar goes grayscale while the pane isn't focused
+        "scrollbar.button.inactive": "bg:#808080",
         # commit / input dialog
         "dialog": "bg:#1c1c1c",
         "dialog.label": "bg:#1c1c1c #ffff87 bold",

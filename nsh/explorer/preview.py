@@ -15,6 +15,7 @@ from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout.containers import Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.layout.dimension import Dimension
+from prompt_toolkit.layout.margins import Margin
 
 from .. import config
 from ..util.aio import run_in_thread
@@ -77,6 +78,40 @@ def _sanitize(line: str) -> str:
     ).expandtabs(4)
 
 
+class _PreviewScrollbar(Margin):
+    """Scrollbar for the preview pane. The pane windows its own content when
+    focused, so the built-in margin can't see the full length — this reads the
+    view's line counts and scroll position instead."""
+
+    def __init__(self, view):
+        self.view = view
+
+    def get_width(self, get_ui_content):
+        return 1 if self.view._sb_total > self.view._sb_view else 0
+
+    def create_margin(self, window_render_info, width, height):
+        total = self.view._sb_total
+        if height <= 0 or total <= height:
+            return []
+        max_scroll = total - height
+        scroll = max(0, min(self.view._scroll, max_scroll))
+        thumb = max(1, min(height, height * height // total))
+        top = (height - thumb) * scroll // max_scroll if max_scroll else 0
+        top = max(0, min(top, height - thumb))
+        # the thumb is coloured only while the pane is focused; otherwise it goes
+        # grayscale so the focus state reads at a glance
+        thumb_style = ("class:scrollbar.button" if self.view.app.preview_focused()
+                       else "class:scrollbar.button.inactive")
+        frags = []
+        for row in range(height):
+            inside = top <= row < top + thumb
+            frags.append((thumb_style if inside
+                          else "class:scrollbar.background", " "))
+            if row < height - 1:
+                frags.append(("", "\n"))
+        return frags
+
+
 class PreviewView:
     def __init__(self, app):
         self.app = app
@@ -84,8 +119,10 @@ class PreviewView:
         self._inflight = set()
         self._scroll = 0          # top visible line when the pane is focused
         self._scroll_id = None    # identity of what's scrolled (reset on change)
-        # focusable so F7/F8 can move into the pane and scroll it; the explorer
-        # cursor hides while it's focused (see ExplorerView._formatted_text).
+        self._sb_total = 0        # full document line count (for the scrollbar)
+        self._sb_view = 0         # visible line count (for the scrollbar)
+        # focusable so F7/F8 can move into the pane and scroll it (the list keeps
+        # its own cursor); the pinned header is tinted while it's focused.
         self.control = FormattedTextControl(
             self._visible_text, focusable=True, show_cursor=False,
             key_bindings=self._kb())
@@ -93,6 +130,7 @@ class PreviewView:
             self.control,
             wrap_lines=True,
             style="class:preview",
+            right_margins=[_PreviewScrollbar(self)],
             # match the explorer: preferred=0 keeps the split content-independent
             width=Dimension(min=0, preferred=0, weight=1),
         )
@@ -146,11 +184,14 @@ class PreviewView:
             self._scroll_id = ident
             self._scroll = 0
         frags = self._text()
+        lines = list(split_lines(frags))
+        height = self._visible_height()
+        # totals drive the scrollbar (shown whenever the content overflows)
+        self._sb_total = len(lines)
+        self._sb_view = height
         if not self.app.preview_focused():
             self._scroll = 0
             return frags
-        lines = list(split_lines(frags))
-        height = self._visible_height()
         # keep the leading title lines (filename / meta) pinned — every builder
         # emits them before the first blank line — and scroll only the body.
         hdr = 0
