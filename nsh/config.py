@@ -77,6 +77,7 @@ STYLE_DEFAULTS = {
         "shell.path": "#5fffff",
         "shell.error": "#ff5f5f",
         "shell.elapsed": "#ffaf00",  # running-time counter before the prompt
+        "shell.busy": "#ffaf00 bold",  # the trailing $ while a command is running
         # finished-command run time, tinted by exit status (green ok / red fail)
         "shell.elapsed.ok": "bg:#5faf5f #000000 bold",
         "shell.elapsed.err": "bg:#ff5f5f #000000 bold",

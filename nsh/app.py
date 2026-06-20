@@ -148,6 +148,7 @@ class NshApp:
         self.notesview = NotesView(self)
         self.systemview = SystemView(self)
         self._log_return = EXPLORER  # the mode "Git: Log" was opened from
+        self._notes_return = EXPLORER  # the mode Notes was opened from
 
         # popup action menu (Tab in the explorer)
         self.menu = Menu(self._menu_closed)
@@ -233,8 +234,11 @@ class NshApp:
         def _(event):
             self.open_find()
 
-        # Ctrl+N: Notes (a scratch pad of multi-line notes). Explorer/git only.
-        @kb.add("c-n", filter=~overlay_open & find_modes)
+        # Ctrl+N: Notes (a scratch pad of multi-line notes). Available from the
+        # explorer, the git view, and the shell.
+        notes_modes = Condition(lambda: self.mode in (EXPLORER, GIT, SHELL))
+
+        @kb.add("c-n", filter=~overlay_open & notes_modes)
         def _(event):
             self.open_notes()
 
@@ -257,7 +261,9 @@ class NshApp:
                     self.switch_mode(EXPLORER)
             elif self.mode == LOG:
                 self.close_log()
-            elif self.mode in (NOTES, SYSTEM):
+            elif self.mode == NOTES:
+                self.leave_notes()
+            elif self.mode == SYSTEM:
                 self.switch_mode(EXPLORER)
             else:  # EXPLORER: clear any multi-selection
                 self.explorer.clear_selection()
@@ -895,7 +901,21 @@ class NshApp:
 
     # -- notes ----------------------------------------------------------------
     def open_notes(self):
+        self._notes_return = self.mode if self.mode in (EXPLORER, GIT, SHELL) else EXPLORER
         self.switch_mode(NOTES)
+
+    def leave_notes(self):
+        """Leave notes mode. If the editbox holds an unsaved draft, ask whether
+        to save it first."""
+        dest = getattr(self, "_notes_return", EXPLORER)
+        if self.notesview.input.text.strip():
+            def resolve(save):
+                if save:
+                    self.notesview.save_note()
+                self.switch_mode(dest)
+            self.confirm("Save the note you're writing?", resolve)
+        else:
+            self.switch_mode(dest)
 
     # -- system (process manager) ---------------------------------------------
     def open_system(self):

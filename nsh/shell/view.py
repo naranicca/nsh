@@ -209,6 +209,10 @@ class ShellView:
             # repaints every second).
             # keep the trailing gap outside the badge so its background
             # (none here, but a tint when finished) doesn't bleed past the ]
+            # the trailing $ goes orange to signal the previous command is busy.
+            prompt = [*prompt]
+            if prompt and prompt[-1][1].strip() == "$":
+                prompt[-1] = ("class:shell.busy", prompt[-1][1])
             return [("class:shell.elapsed", f"[{_fmt_elapsed(el)}]"),
                     ("", " "), *prompt]
         # finished: keep the run time on the prompt until the next command, tinted
