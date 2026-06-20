@@ -1249,6 +1249,12 @@ class ExplorerView:
         def _(event):
             self.rename_entry()
 
+        # `'` opens the bookmarks menu too (the "jump" key from the original
+        # nsh), alongside the remappable bookmark key.
+        @kb.add("'")
+        def _(event):
+            self.app.open_bookmark_menu()
+
         # Configurable action keys (remappable via the [keys] section of nshrc).
         actions = {
             "copy": self.copy_action,
