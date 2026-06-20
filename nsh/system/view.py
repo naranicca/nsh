@@ -122,8 +122,11 @@ class SystemView:
 
     def _apply_sort(self):
         procs = list(self.snapshot.procs) if self.snapshot else []
-        key = (lambda p: p.cpu) if self.sort == "cpu" else (lambda p: p.mem)
-        procs.sort(key=key, reverse=True)
+        if self.sort == "name":
+            procs.sort(key=lambda p: p.name.lower())  # ascending A→Z
+        else:
+            key = (lambda p: p.cpu) if self.sort == "cpu" else (lambda p: p.mem)
+            procs.sort(key=key, reverse=True)          # highest first
         self.procs = procs
 
     def set_sort(self, mode):
@@ -265,6 +268,8 @@ class SystemView:
         return out
 
     def _column_header(self):
+        # ▼ on a descending column (cpu/mem, highest first), ▲ on the ascending
+        # name column — so the marker also hints the sort direction
         def col(label, key, w):
             arrow = " ▼" if self.sort == key else ""
             text = (label + arrow).rjust(w)
@@ -273,6 +278,9 @@ class SystemView:
         cols = self._term_cols()
         name_w = max(4, cols - (W_PID + W_CPU + W_MEM + W_RSS + 5))
         ch = "class:system.colhead"
+        name_on = self.sort == "name"
+        proc_label = (f" PROC ▲ ({self._visible_count()})" if name_on
+                      else f" PROC  ({self._visible_count()})")
         return [
             (ch, " "),
             (ch, "PID".rjust(W_PID)),
@@ -281,7 +289,8 @@ class SystemView:
             (ch, " "),
             (ch, "RSS".rjust(W_RSS)),
             (ch, " "),
-            (ch, pad_to_width(f" PROC  ({self._visible_count()})", name_w)),
+            ("class:system.sortcol" if name_on else ch,
+             pad_to_width(proc_label, name_w)),
         ]
 
     def _list_text(self):
@@ -363,6 +372,10 @@ class SystemView:
         @kb.add("m")
         def _(event):
             self.set_sort("mem")
+
+        @kb.add("n")
+        def _(event):
+            self.set_sort("name")
 
         @kb.add("/")
         def _(event):
