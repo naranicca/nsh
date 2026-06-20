@@ -247,8 +247,11 @@ class SystemView:
         else:
             mem_pct, mem_extra = None, ""
         if s and s.disk_total:
-            disk_pct = 100.0 * (s.disk_used or 0) / s.disk_total
-            disk_extra = f"   {human_size(s.disk_used or 0)} / {human_size(s.disk_total)}"
+            disk_used = s.disk_used or 0
+            disk_pct = 100.0 * disk_used / s.disk_total
+            disk_free = max(0, s.disk_total - disk_used)
+            disk_extra = (f"   {human_size(disk_used)} / {human_size(s.disk_total)}"
+                          f"  ({human_size(disk_free)} free)")
         else:
             disk_pct, disk_extra = None, ""
         out = [
