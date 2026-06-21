@@ -11,7 +11,7 @@ from pathlib import Path
 from prompt_toolkit.application.current import get_app
 from prompt_toolkit.data_structures import Point
 from prompt_toolkit.filters import Condition
-from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.key_binding import DynamicKeyBindings, KeyBindings
 from prompt_toolkit.keys import Keys
 from prompt_toolkit.layout.containers import ScrollOffsets, Window
 from prompt_toolkit.layout.dimension import Dimension
@@ -71,12 +71,15 @@ class ExplorerView:
         self._rename_text = ""
         self._rename_pos = 0   # cursor index within _rename_text
 
+        # wrapped in DynamicKeyBindings so a live config reload (rebuild_keys)
+        # can swap the remapped action keys without restarting nsh
+        self._kb = self._build_key_bindings()
         self.control = WheelScrollControl(
             lambda d: self.move(d * 3),  # mouse wheel moves the cursor
             text=self._formatted_text,
             focusable=True,
             show_cursor=False,
-            key_bindings=self._build_key_bindings(),
+            key_bindings=DynamicKeyBindings(lambda: self._kb),
             get_cursor_position=lambda: Point(0, self.cursor - self._top),
         )
         self.window = Window(
@@ -260,15 +263,6 @@ class ExplorerView:
             self.app.set_cwd(entry.path)
         else:
             self.app.open_file(entry.path)
-
-    def expand_or_open(self):
-        """Right arrow (when right_expand is on): fold/unfold a directory
-        (including a symlinked one), else open a file, so it's never a dead end."""
-        entry = self.current()
-        if entry is not None and entry.is_dir:
-            self.toggle_expand()
-        else:
-            self.open()
 
     def toggle_expand(self):
         """Expand/collapse the directory under the cursor inline (tree view).
@@ -803,7 +797,8 @@ class ExplorerView:
     # -- help (?) -------------------------------------------------------------
     _NAV_HELP = [
         ("↑ ↓  k j", "move cursor"),
-        ("↵  l  →", "open file / enter directory"),
+        ("↵", "open file / enter directory"),
+        ("l  →", "expand / collapse directory"),
         ("⌫  h  ←", "parent directory"),
         ("g  G", "top / bottom"),
         ("PgUp PgDn", "page up / down"),
@@ -811,7 +806,9 @@ class ExplorerView:
     _ACTION_HELP = [
         ("select", "select / deselect (multi-select)"),
         ("select_pattern", "select by pattern (glob / substring)"),
-        ("two_pane", "toggle two-pane view (F7/F8 switch)"),
+        ("two_pane", "toggle two-pane view"),
+        ("pane_prev", "prev tab / switch pane / focus list"),
+        ("pane_next", "next tab / switch pane / focus preview"),
         ("menu", "action menu (copy, rename, git…)"),
         ("copy", "copy"), ("cut", "cut"), ("paste", "paste"),
         ("rename", "rename (also i)"), ("new_dir", "new folder"), ("new_file", "new file"),
@@ -1140,6 +1137,11 @@ class ExplorerView:
         asyncio.ensure_future(do())
 
     # -- key bindings ---------------------------------------------------------
+    def rebuild_keys(self):
+        """Rebuild the action-key bindings from the (reloaded) config; the
+        DynamicKeyBindings wrapper on the control then uses them live."""
+        self._kb = self._build_key_bindings()
+
     def _build_key_bindings(self):
         kb = KeyBindings()
 
@@ -1218,15 +1220,8 @@ class ExplorerView:
             self.cursor = max(0, len(self.entries) - 1)
             self.app.invalidate()
 
-        # [general] right_expand: when true (the default) Right/l fold/unfold a
-        # directory inline and the expand key (e) enters it; when false they swap,
-        # so Right/l enter the directory and e expands it. Enter always opens /
-        # enters regardless.
-        right_expand = (self.app.settings.get("right_expand") or "").strip().lower() \
-            not in ("false", "0", "no", "off")
-        right_handler = self.expand_or_open if right_expand else self.open
-        expand_key_handler = self.open if right_expand else self.toggle_expand
-
+        # Enter opens a file / enters a directory; Right (and l) always fold or
+        # unfold the directory under the cursor inline (tree view).
         @kb.add("enter")
         def _(event):
             self.open()
@@ -1234,7 +1229,7 @@ class ExplorerView:
         @kb.add("l")
         @kb.add("right")
         def _(event):
-            right_handler()
+            self.toggle_expand()
 
         @kb.add("h")
         @kb.add("left")
@@ -1262,7 +1257,6 @@ class ExplorerView:
             "paste": self.paste,
             "delete": self.delete_entry,
             "rename": self.rename_entry,
-            "expand": expand_key_handler,
             "new_dir": self.new_dir,
             "new_file": self.new_file,
             "select": self.toggle_select,

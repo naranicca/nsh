@@ -10,7 +10,7 @@ import asyncio
 import os
 
 from prompt_toolkit.data_structures import Point
-from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.key_binding import DynamicKeyBindings, KeyBindings
 from prompt_toolkit.layout.containers import ScrollOffsets, Window
 from prompt_toolkit.layout.dimension import Dimension
 
@@ -36,12 +36,15 @@ class GitView:
         self._top = 0  # first rendered row (windowing); see util.widgets
         self.selected = set()  # set[Path] of marked entries (multi-select)
 
+        # DynamicKeyBindings so a live config reload (rebuild_keys) can swap the
+        # remapped action keys without restarting nsh
+        self._kb = self._build_key_bindings()
         self.control = WheelScrollControl(
             lambda d: self.move(d * 3),  # mouse wheel moves the cursor
             text=self._formatted_text,
             focusable=True,
             show_cursor=False,
-            key_bindings=self._build_key_bindings(),
+            key_bindings=DynamicKeyBindings(lambda: self._kb),
             get_cursor_position=lambda: Point(0, self.cursor - self._top),
         )
         self.window = Window(
@@ -259,6 +262,11 @@ class GitView:
             self.app.edit_file(entry.path)
 
     # -- keys -----------------------------------------------------------------
+    def rebuild_keys(self):
+        """Rebuild the action-key bindings from the reloaded config (used live
+        via the control's DynamicKeyBindings)."""
+        self._kb = self._build_key_bindings()
+
     def _build_key_bindings(self):
         kb = KeyBindings()
 

@@ -91,6 +91,11 @@ Notable user-facing changes to the Python rewrite. Newest first.
   the list keeps its cursor visible. The header (filename) stays pinned and gains
   a background to show which pane has the focus, and a scrollbar appears whenever
   the content overflows. `F7`/`F8` or `Esc` returns to the list.
+- **The `F7`/`F8` pane keys are remappable.** The one pair that switches shell
+  tabs, moves between the two panes and toggles list ↔ preview focus is now
+  configurable via `[keys] pane_prev` / `pane_next` in nshrc, like the other
+  action keys — and a `Ctrl` combo (e.g. `c-o`) works as the value. The status
+  bar hints follow whatever you set.
 - **Two-pane view**: toggle it with the `2` key (remappable), or
   `[general] two_pane = true` in nshrc, to show two explorer panes side by
   side, each with its own directory, selection and cursor. The preview pane is
@@ -109,13 +114,10 @@ Notable user-facing changes to the Python rewrite. Newest first.
   their usual copy/cut-to-clipboard behaviour.
 - **Expand folders inline**: on a directory the Right arrow / `l` expands its
   contents as an indented tree under it (and again to collapse); the caret turns
-  from `▸` to `▾`, while `e` enters the directory. Inside an expanded tree,
-  Left/`h` moves the cursor up to the parent directory (leaving it expanded);
-  pressing it again on that expanded directory folds it. Expansions reset when
-  you change directory. Symlinked directories can
-  be expanded too. Set `[general] right_expand = false` in nshrc to swap the
-  two — then the Right arrow enters a directory and `e` expands it (Enter always
-  opens / enters).
+  from `▸` to `▾`. Enter opens a file or enters a directory. Inside an expanded
+  tree, Left/`h` moves the cursor up to the parent directory (leaving it
+  expanded); pressing it again on that expanded directory folds it. Expansions
+  reset when you change directory. Symlinked directories can be expanded too.
 - **Select by pattern** (`*`): opens a *Select pattern* dialog whose matches
   highlight live as you type — a plain word is a substring match (`txt` grabs
   every name containing it), a pattern with a glob metacharacter is matched as a
@@ -242,8 +244,12 @@ Notable user-facing changes to the Python rewrite. Newest first.
   into the shell. **File** starts the existing fuzzy file finder.
 - **nsh menu** (`F10`): opens a small menu from any mode with *Find*, *Notes*,
   *System*, *Preferences* — which opens your `nshrc` in the editor
-  (seeding the default first if it doesn't exist; changes apply on the next
-  start) — and *About*, a centered dialog showing the version and GitHub URL.
+  (seeding the default first if it doesn't exist) — and *About*, a centered
+  dialog showing the version and GitHub URL.
+- **Live config reload.** Saving an edit to `nshrc` — remapped keys, colours —
+  now applies within a second without restarting nsh (a *config reloaded*
+  message confirms it), whether you edited it from *Preferences* or in another
+  window.
 - **Fast with long lists.** The explorer, git mode and git log now render only
   the on-screen rows instead of the whole list every frame, and the git log
   parses each line's colours once (cached) rather than on every render — so

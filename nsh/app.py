@@ -4,6 +4,7 @@ import os
 import shlex
 import subprocess
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -11,7 +12,8 @@ from prompt_toolkit.application import Application
 from prompt_toolkit.application.current import get_app
 from prompt_toolkit.completion import CompleteEvent
 from prompt_toolkit.filters import Condition, has_completions
-from prompt_toolkit.key_binding import KeyBindings, merge_key_bindings
+from prompt_toolkit.key_binding import (
+    DynamicKeyBindings, KeyBindings, merge_key_bindings)
 from prompt_toolkit.key_binding.defaults import load_key_bindings
 from prompt_toolkit.layout.containers import (
     DynamicContainer,
@@ -117,6 +119,9 @@ class NshApp:
         self.style = config.build_style(color_overrides)
         self.settings = settings
         self.message = cfg_warning or ""
+        # watch nshrc so edits (e.g. remapped keys) apply without a restart
+        self._config_mtime = self._read_config_mtime()
+        self._config_check_at = 0.0  # throttle the stat to ~once a second
 
         # search-mode startup / result plumbing
         self._start_mode = start_mode
@@ -210,6 +215,78 @@ class NshApp:
         if parts:
             buff.text = " ".join(parts) + " "
             buff.cursor_position = len(buff.text)
+
+    def _build_pane_keys(self):
+        """The remappable pane_prev / pane_next pair (F7/F8 by default), in their
+        own KeyBindings so reload_config() can swap them live. One pair drives
+        every "move between siblings" action — previous/next shell tab, switching
+        the active pane in two-pane mode, and list <-> preview focus — with the
+        active mode's filter deciding which fires. Ctrl combos are allowed; a bad
+        key spec in nshrc is skipped, as elsewhere."""
+        kb = KeyBindings()
+        shell_mode = Condition(lambda: self.mode == SHELL)
+        two_pane_active = Condition(
+            lambda: self.mode == EXPLORER and self.two_pane)
+        preview_focus_mode = Condition(
+            lambda: self.mode in (GIT, LOG)
+            or (self.mode == EXPLORER and not self.two_pane))
+
+        def add(key, filt, handler):
+            if not key:
+                return
+            try:
+                kb.add(key, filter=filt)(lambda event: handler())
+            except Exception:  # noqa: BLE001 - bad key spec; skip it
+                pass
+
+        prev_key = self.keys.get("pane_prev")
+        next_key = self.keys.get("pane_next")
+        add(prev_key, shell_mode, self.shells.prev)
+        add(next_key, shell_mode, self.shells.next)
+        add(prev_key, two_pane_active, self.switch_pane)
+        add(next_key, two_pane_active, self.switch_pane)
+        add(prev_key, preview_focus_mode, self.toggle_preview_focus)
+        add(next_key, preview_focus_mode, self.toggle_preview_focus)
+        return kb
+
+    # -- live config reload ---------------------------------------------------
+    def _read_config_mtime(self):
+        try:
+            return config.config_path().stat().st_mtime
+        except (OSError, RuntimeError):
+            return None
+
+    def _maybe_reload_config(self):
+        """Reload nshrc when it changes on disk, so edits take effect without a
+        restart. Called from the (per-second) title render; the stat is throttled
+        so it doesn't run on every keypress."""
+        now = time.monotonic()
+        if now - self._config_check_at < 1.0:
+            return
+        self._config_check_at = now
+        mtime = self._read_config_mtime()
+        if mtime is not None and mtime != self._config_mtime:
+            self._config_mtime = mtime
+            self.reload_config()
+
+    def reload_config(self):
+        """Re-read nshrc and apply the new keys / colours without a restart.
+        Every config-driven key binding is wrapped in DynamicKeyBindings, so
+        rebuilding the underlying KeyBindings here makes the remaps take effect
+        live; the style is read through a DynamicStyle, so reassigning it
+        repaints with the new colours on the next frame."""
+        color_overrides, key_overrides, settings, warning = config.load_user_config()
+        self.keys = {**config.DEFAULT_KEYS, **key_overrides}
+        self.settings = settings
+        self.style = config.build_style(color_overrides)
+        self.application.style = self.style
+        self._pane_kb = self._build_pane_keys()
+        for ex in self.explorers:
+            ex.rebuild_keys()
+        self.gitview.rebuild_keys()
+        self.logview.rebuild_keys()
+        self.set_message(warning or "config reloaded")
+        self.invalidate()
 
     # -- layout ---------------------------------------------------------------
     def _build_application(self):
@@ -318,36 +395,17 @@ class NshApp:
         # PgDn is unusable — Windows Terminal forwards it without the Ctrl flag,
         # making it indistinguishable from a plain PageUp scroll.)
         @kb.add("escape", "left", filter=shell_mode)
-        @kb.add("f7", filter=shell_mode)
         def _(event):
             self.shells.prev()
 
         @kb.add("escape", "right", filter=shell_mode)
-        @kb.add("f8", filter=shell_mode)
         def _(event):
             self.shells.next()
 
-        # In two-pane explorer mode, F7/F8 move the cursor between the two panes
-        # (mirroring the shell's F7/F8 tab switch). The previous pane keeps its
-        # directory/selection but loses the cursor highlight.
-        two_pane_active = Condition(lambda: self.mode == EXPLORER and self.two_pane)
-
-        @kb.add("f7", filter=two_pane_active)
-        @kb.add("f8", filter=two_pane_active)
-        def _(event):
-            self.switch_pane()
-
-        # F7/F8 toggle focus between the list and the preview pane (so the
-        # preview can be scrolled with the arrows) — in single-pane explorer mode
-        # and in the git / git-log views, all of which show a preview.
-        preview_focus_mode = Condition(
-            lambda: self.mode in (GIT, LOG)
-            or (self.mode == EXPLORER and not self.two_pane))
-
-        @kb.add("f7", filter=preview_focus_mode)
-        @kb.add("f8", filter=preview_focus_mode)
-        def _(event):
-            self.toggle_preview_focus()
+        # pane_prev / pane_next (F7/F8 by default) live in their own KeyBindings
+        # (see _build_pane_keys), wrapped in DynamicKeyBindings below so a config
+        # reload can rebuild just them and have the new keys take effect live.
+        self._pane_kb = self._build_pane_keys()
 
         @kb.add("c-t", filter=shell_mode)
         def _(event):
@@ -555,7 +613,9 @@ class NshApp:
 
         application = Application(
             layout=Layout(root, focused_element=self.explorer.control),
-            key_bindings=merge_key_bindings([load_key_bindings(), kb]),
+            key_bindings=merge_key_bindings([
+                load_key_bindings(), kb,
+                DynamicKeyBindings(lambda: self._pane_kb)]),
             style=self.style,
             full_screen=True,
             mouse_support=True,  # enables mouse-wheel scrolling of the log/list
@@ -681,7 +741,18 @@ class NshApp:
             return "…"
         return "…" + self._tail_to_width(s, width - 1)
 
+    # the current mode shown alongside the "nsh" label as "nsh|mode"
+    _MODE_LABELS = {GIT: "git", LOG: "log", NOTES: "notes", SYSTEM: "system"}
+
+    def _name_label(self):
+        """The leading ``nsh`` label, suffixed with the active mode (e.g.
+        ``nsh|git``) so the mode is visible right next to the program name."""
+        mode = self._MODE_LABELS.get(self.mode)
+        return f" nsh|{mode} " if mode else " nsh "
+
     def _title_text(self):
+        # piggy-back on the per-second title repaint to pick up nshrc edits
+        self._maybe_reload_config()
         # the "nsh" label adopts the menu's header colour while a menu is open,
         # so it's obvious a popup is active; otherwise it blends into the bar.
         name_style = "class:menu.title" if self.menu.active else "class:titlebar.name"
@@ -689,7 +760,7 @@ class NshApp:
         if self.two_pane:
             return self._two_pane_title(name_style, clock)
         segs = [
-            (name_style, " nsh "),
+            (name_style, self._name_label()),
             ("class:titlebar", " "),
             ("class:titlebar.path", shorten_home(self.cwd)),
         ]
@@ -701,18 +772,6 @@ class NshApp:
                 segs.append(("class:titlebar", " "))
                 segs.append(("class:titlebar.branch.dirty",
                              f"⚠ {self.git_status.in_progress}"))
-        if self.mode == GIT:
-            segs.append(("class:titlebar", "   "))
-            segs.append(("class:titlebar.branch", "● git"))
-        if self.mode == LOG:
-            segs.append(("class:titlebar", "   "))
-            segs.append(("class:titlebar.branch", "● log"))
-        if self.mode == NOTES:
-            segs.append(("class:titlebar", "   "))
-            segs.append(("class:titlebar.branch", "● notes"))
-        if self.mode == SYSTEM:
-            segs.append(("class:titlebar", "   "))
-            segs.append(("class:titlebar.branch", "● system"))
         selected = self.active_selection()
         if selected:
             segs.append(("class:titlebar", "   "))
@@ -752,7 +811,7 @@ class NshApp:
             return [(style, marker + path)] + git_segs
 
         # left half: nsh label + left pane path + its branch/selected
-        label = [(name_style, " nsh "), ("class:titlebar", " ")]
+        label = [(name_style, self._name_label()), ("class:titlebar", " ")]
         label_w = sum(text_width(t) for _, t in label)
         left = label + pane_region(0, lw - label_w)
         left = self._clip_segs(left, lw, "class:titlebar")
@@ -762,12 +821,39 @@ class NshApp:
         right = self._clip_segs(right, max(0, rw - clock_w), "class:titlebar")
         return left + [("class:titlebar", " " * sep)] + right + clock
 
+    @staticmethod
+    def _fmt_key(spec):
+        """Render a key spec (as written in nshrc) for the status bar / help:
+        ``f7``->``F7``, ``c-p``->``^P``, ``s-tab``->``S-Tab``, space/esc named."""
+        if not spec:
+            return ""
+        if spec == " ":
+            return "Space"
+        s = spec.strip()
+        named = {"space": "Space", "escape": "ESC", "tab": "Tab", "enter": "↵"}
+        if s.lower() in named:
+            return named[s.lower()]
+        low = s.lower()
+        if len(low) >= 2 and low[0] == "f" and low[1:].isdigit():
+            return low.upper()              # f7 -> F7
+        if low.startswith("c-") and len(s) > 2:
+            return "^" + s[2:].upper()      # c-p -> ^P
+        if low.startswith("s-") and len(s) > 2:
+            return "S-" + s[2:].capitalize()  # s-tab -> S-Tab
+        if low.startswith(("a-", "m-")) and len(s) > 2:
+            return "Alt+" + s[2:].upper()   # a-x -> Alt+X
+        return s
+
     def _status_text(self):
+        # the F7/F8-style pane keys are remappable; reflect the live spec
+        pk = self._fmt_key(self.keys.get("pane_prev"))
+        nk = self._fmt_key(self.keys.get("pane_next"))
+        pane_pair = "/".join(p for p in (pk, nk) if p) or nk or pk
         if self.preview_focused() and self.mode in (EXPLORER, GIT, LOG):
-            # the preview pane holds the focus (F7/F8): it scrolls with arrows
+            # the preview pane holds the focus (pane keys): it scrolls with arrows
             hints = [
                 ("↑↓", "scroll"), ("PgUp/PgDn", "page"), ("g/G", "top/bottom"),
-                ("F7/8", "list"), ("ESC", "list"),
+                (pane_pair, "list"), ("ESC", "list"),
             ]
         elif self.mode == EXPLORER:
             hints = [
@@ -775,12 +861,12 @@ class NshApp:
                 ("Tab", "actions"), ("b", "marks"), ("/", "find"), ("*", "select"),
                 ("^N", "note"), (":", "cmd"),
             ]
-            # the 2-pane toggle; once in it, surface the F7/F8 pane switch instead
+            # the 2-pane toggle; once in it, surface the pane switch instead
             if self.two_pane:
-                hints.append(("F8", "pane"))
+                hints.append((nk, "pane"))
                 hints.append(("2", "1-pane"))
             else:
-                hints.append(("F8", "preview"))
+                hints.append((nk, "preview"))
                 hints.append(("2", "2-pane"))
             hints.append(("q", "quit"))
         elif self.mode == SEARCH:
@@ -791,13 +877,13 @@ class NshApp:
         elif self.mode == GIT:
             hints = [
                 ("↑↓", "move"), ("Space", "select"), ("Tab", "actions"),
-                ("b", "marks"), ("F8", "preview"), (":", "cmd"),
+                ("b", "marks"), (nk, "preview"), (":", "cmd"),
                 ("ESC", "exit"), ("q", "quit"),
             ]
         elif self.mode == LOG:
             hints = [
                 ("↑↓", "move"), ("↵", "actions"), ("/", "search"), ("n", "next"),
-                ("F7/8", "preview"), ("ESC/q", "back"),
+                (pane_pair, "preview"), ("ESC/q", "back"),
             ]
         elif self.mode == NOTES:
             hints = [
@@ -813,7 +899,8 @@ class NshApp:
         else:
             hints = [
                 ("Tab", "complete"), ("↵", "run"), ("↑↓", "history"),
-                ("PgUp/PgDn", "scroll"), ("^T/^W", "tab"), ("Alt+←→/F7·8", "switch"),
+                ("PgUp/PgDn", "scroll"), ("^T/^W", "tab"),
+                (f"Alt+←→/{pk}·{nk}", "switch"),
                 ("^C", "stop"), ("ESC", "explorer"),
             ]
         segs = []
@@ -1335,7 +1422,8 @@ class NshApp:
 
     def open_preferences(self):
         """Open the nshrc config file in the editor (seeding it first if absent).
-        Edits take effect the next time nsh starts."""
+        Edits are picked up automatically on save (see _maybe_reload_config), so
+        new keys / colours apply without restarting nsh."""
         config.ensure_default_config()
         self.edit_file(config.config_path())
 

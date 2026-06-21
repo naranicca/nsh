@@ -145,13 +145,16 @@ DEFAULT_KEYS = {
     "select": " ",
     "select_pattern": "*",
     "two_pane": "2",
+    # F7/F8: move between "siblings" — previous/next shell tab, the active pane
+    # in two-pane mode, and list <-> preview focus. Remappable (ctrl combos OK).
+    "pane_prev": "f7",
+    "pane_next": "f8",
     "menu": "tab",
     "copy": "y",
     "cut": "x",
     "paste": "p",
     "delete": "D",
     "rename": "f2",
-    "expand": "e",
     "new_dir": "m",
     "new_file": "N",
     "bookmark": "b",
@@ -216,10 +219,6 @@ def entry_icon(entry) -> str:
 DEFAULT_SETTINGS = {
     # editor for the "Edit" action; empty -> $EDITOR/$VISUAL, then a platform default
     "editor": "",
-    # what the Right arrow / l does on a directory: "true" (the default) folds /
-    # unfolds it inline as a tree and the e key enters it; "false" swaps them, so
-    # Right enters the directory and e expands it.
-    "right_expand": "true",
     # explorer sort order: name | size | date | type, and whether to reverse it
     "sort": "name",
     "sort_reverse": "false",
@@ -235,19 +234,15 @@ DEFAULT_NSHRC = """\
 #   "#ff8700 bold", "bg:#1c1c1c #ffffff", "italic underline".
 # [keys] remaps an explorer action to a key. A key is a single character, or a
 #   name: space, tab, escape, enter, f1..f12, or a modifier form like c-r
-#   (Ctrl-R) or s-tab (Shift-Tab). Navigation keys (arrows, j/k, …) are fixed.
+#   (Ctrl-R) or s-tab (Shift-Tab). A few ctrl combos can't be remapped because
+#   the terminal sends them as another key: c-i is Tab, c-m is Enter, c-h is
+#   Backspace, c-[ is Esc. Navigation keys (arrows, j/k, …) are fixed.
 
 [general]
 # editor used by the "Edit" action (Tab menu). When unset, nsh falls back to
 # $EDITOR / $VISUAL, then to notepad (Windows) or vi (Linux/macOS).
 # editor = code -w
 # editor = vim
-
-# What the Right arrow / l does on a directory:
-#   true (default) - fold/unfold the folder inline as a tree; e enters it
-#   false          - enter the directory; e expands it
-# (Enter always opens / enters either way.)
-# right_expand = false
 
 # Explorer sort order (change live with the 's' key). sort: name|size|date|type
 # sort = name
@@ -272,13 +267,14 @@ DEFAULT_NSHRC = """\
 # select = space
 # select_pattern = *   (select files by glob/substring pattern)
 # two_pane = 2         (toggle the two-pane view)
+# pane_prev = f7       (prev shell tab / switch pane / focus list)
+# pane_next = f8       (next shell tab / switch pane / focus preview)
 # menu = tab
 # copy = y
 # cut = x
 # paste = p
 # delete = D
 # rename = f2
-# expand = e
 # new_dir = m
 # new_file = N
 # bookmark = b
@@ -318,7 +314,10 @@ def ensure_default_config() -> None:
 
 
 def _norm_key(value: str) -> str:
-    value = value.strip()
+    # A key spec is a single token (no spaces), so keep only the first word: this
+    # drops any trailing "(...)" annotation the user left in place after
+    # uncommenting a template line (e.g. "f8   (next tab / switch pane)").
+    value = value.strip().split()[0] if value.strip() else ""
     return " " if value.lower() == "space" else value
 
 
