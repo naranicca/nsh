@@ -24,6 +24,7 @@ from prompt_toolkit.layout.containers import (
     Window,
 )
 from prompt_toolkit.layout.controls import FormattedTextControl
+from prompt_toolkit.layout.dimension import Dimension
 from prompt_toolkit.layout.layout import Layout
 from prompt_toolkit.layout.menus import CompletionsMenu
 
@@ -144,6 +145,9 @@ class NshApp:
         self.active_pane = 0
         self.two_pane = (self.settings.get("two_pane", "false").strip().lower()
                          in ("true", "1", "yes", "on"))
+        # zoom: when on, the split gives the focused pane a 9:1 share instead of
+        # an even 5:5 (the big pane follows the focus). See toggle_zoom / _pane_dim.
+        self.zoom = False
         self.shells = ShellTabs(self)  # the shell sessions, managed as tabs
         self.preview = PreviewView(self)
         self.show_preview = True
@@ -247,6 +251,13 @@ class NshApp:
         add(next_key, two_pane_active, self.switch_pane)
         add(prev_key, preview_focus_mode, self.toggle_preview_focus)
         add(next_key, preview_focus_mode, self.toggle_preview_focus)
+
+        # zoom (z by default): enlarge the focused pane wherever a split is on
+        # screen — the explorer (single + two-pane), git and log views. Guarded
+        # against firing while a menu/dialog is up.
+        zoom_mode = Condition(
+            lambda: self.mode in (EXPLORER, GIT, LOG) and not self._overlay_active())
+        add(self.keys.get("zoom"), zoom_mode, self.toggle_zoom)
         return kb
 
     # -- live config reload ---------------------------------------------------
@@ -323,6 +334,12 @@ class NshApp:
         def _(event):
             buff = self.shell.command_buffer
             self.message = ""  # ESC dismisses the status message
+            # a zoomed pane backs out to the even split first (before clearing a
+            # selection or leaving the mode); the preview pane handles its own
+            # Esc, so this covers the list-focused case.
+            if self._zoom_active():
+                self.toggle_zoom()
+                return
             if self.mode == SEARCH:
                 self.cancel_search()
             elif self.mode == SHELL:
@@ -500,6 +517,15 @@ class NshApp:
         @kb.add("c-d", filter=shell_line_empty)
         def _(event):
             self.close_shell_tab()
+
+        # zoom: give every split pane a focus-aware width weight, read live each
+        # frame (so toggling zoom or moving focus reshapes the split). Off, the
+        # weights are all 1 -> an even split; on, the focused pane wins 9:1.
+        self.explorers[0].window.width = lambda: self._pane_dim(self._explorer_focused(0))
+        self.explorers[1].window.width = lambda: self._pane_dim(self._explorer_focused(1))
+        self.preview.window.width = lambda: self._pane_dim(self.preview_focused())
+        self.gitview.window.width = lambda: self._pane_dim(not self.preview_focused())
+        self.logview.window.width = lambda: self._pane_dim(not self.preview_focused())
 
         self._explorer_split = VSplit(
             [
@@ -848,12 +874,13 @@ class NshApp:
         # the F7/F8-style pane keys are remappable; reflect the live spec
         pk = self._fmt_key(self.keys.get("pane_prev"))
         nk = self._fmt_key(self.keys.get("pane_next"))
+        zk = self._fmt_key(self.keys.get("zoom"))
         pane_pair = "/".join(p for p in (pk, nk) if p) or nk or pk
         if self.preview_focused() and self.mode in (EXPLORER, GIT, LOG):
             # the preview pane holds the focus (pane keys): it scrolls with arrows
             hints = [
                 ("↑↓", "scroll"), ("PgUp/PgDn", "page"), ("g/G", "top/bottom"),
-                (pane_pair, "list"), ("ESC", "list"),
+                (pane_pair, "list"), (zk, "zoom"), ("ESC", "list"),
             ]
         elif self.mode == EXPLORER:
             hints = [
@@ -868,6 +895,7 @@ class NshApp:
             else:
                 hints.append((nk, "preview"))
                 hints.append(("2", "2-pane"))
+            hints.append((zk, "zoom"))
             hints.append(("q", "quit"))
         elif self.mode == SEARCH:
             hints = [
@@ -877,18 +905,19 @@ class NshApp:
         elif self.mode == GIT:
             hints = [
                 ("↑↓", "move"), ("Space", "select"), ("Tab", "actions"),
-                ("b", "marks"), (nk, "preview"), (":", "cmd"),
+                ("b", "marks"), (nk, "preview"), (zk, "zoom"), (":", "cmd"),
                 ("ESC", "exit"), ("q", "quit"),
             ]
         elif self.mode == LOG:
             hints = [
                 ("↑↓", "move"), ("↵", "actions"), ("/", "search"), ("n", "next"),
-                (pane_pair, "preview"), ("ESC/q", "back"),
+                (pane_pair, "preview"), (zk, "zoom"), ("ESC/q", "back"),
             ]
         elif self.mode == NOTES:
             hints = [
                 ("^S", "save"), ("↑↓", "browse"), ("/", "search"), ("↵", "edit"),
-                ("d/x", "delete"), ("u", "undo"), ("ESC", "back"),
+                ("y", "copy"), ("^V", "paste"), ("d/x", "delete"), ("u", "undo"),
+                ("ESC", "back"),
             ]
         elif self.mode == SYSTEM:
             hints = [
@@ -1383,6 +1412,57 @@ class NshApp:
         # both panes already carry their own git status, so just re-focus and
         # repaint — no re-query needed
         self.application.layout.focus(self.explorer.control)
+        self.invalidate()
+
+    # -- zoom (9:1 split) -----------------------------------------------------
+    # the focused pane's width weight while zoomed; the other pane stays at 1
+    _ZOOM_WEIGHT = 9
+
+    def _overlay_active(self):
+        """True while any popup (menu / dialog) is up — keys shouldn't fall
+        through to the panes then."""
+        return (self.menu.active or self.dialog.active or self.confirm_dialog.active
+                or self.about_dialog.active or self.find_dialog.active)
+
+    def _zoom_active(self):
+        """Zoom only reshapes a split that's actually on screen: the explorer,
+        git and log views (not the shell's overlaid listing)."""
+        return self.zoom and self.mode in (EXPLORER, GIT, LOG)
+
+    def _pane_dim(self, focused):
+        """The width Dimension for a split pane: the focused one wins the 9:1
+        share while zoomed, otherwise everything is weight 1 (an even split)."""
+        weight = self._ZOOM_WEIGHT if (self._zoom_active() and focused) else 1
+        return Dimension(min=0, preferred=0, weight=weight)
+
+    def _explorer_focused(self, i):
+        """Whether explorer pane ``i`` is the one zoom should enlarge: the active
+        pane in two-pane view, else pane 0 unless the preview holds the focus."""
+        if self.two_pane:
+            return self.active_pane == i
+        return i == 0 and not self.preview_focused()
+
+    def list_cols(self, view, total):
+        """Columns the explorer listing ``view`` actually occupies, so it can
+        right-align its size column. Mirrors the VSplit's weights — including
+        zoom — instead of assuming an even split, which would leave the size
+        column stranded mid-pane once a pane is zoomed wide."""
+        # no split on screen: the listing owns the whole width
+        if not self.two_pane and not (self.show_preview and self._wide_enough()):
+            return total
+        avail = max(1, total - 1)  # minus the │ separator column
+        idx = 0 if view is self.explorers[0] else 1
+        w_self = self._pane_dim(self._explorer_focused(idx)).weight
+        if self.two_pane:
+            w_other = self._pane_dim(self._explorer_focused(1 - idx)).weight
+        else:
+            w_other = self._pane_dim(self.preview_focused()).weight
+        return max(4, round(avail * w_self / (w_self + w_other)))
+
+    def toggle_zoom(self):
+        """Toggle the 9:1 zoom. The enlarged pane follows the focus, so moving
+        focus (the pane keys) hands the space to the newly focused pane."""
+        self.zoom = not self.zoom
         self.invalidate()
 
     def toggle_two_pane(self):

@@ -180,15 +180,14 @@ class ExplorerView:
             return [("class:explorer.file", "  (empty directory)")]
         # Derive this pane's width from the layout directly. Reading the Window's
         # render_info instead would lag one frame behind any width change (app
-        # start, toggling the preview), briefly pushing the size column off-pane.
+        # start, toggling the preview, zooming), briefly pushing the size column
+        # off-pane. list_cols mirrors the split weights, so a zoomed (9:1) pane
+        # pads to its real width instead of an assumed even split.
         try:
             total = get_app().output.get_size().columns
         except Exception:
             total = 80
-        if self.app.show_preview and self.app._wide_enough():
-            cols = total // 2  # the listing's half of the even split (it gets the larger half)
-        else:
-            cols = total
+        cols = self.app.list_cols(self, total)
         # sel(2) + marker(2) + icon(2) + gap(1) + size
         name_w = max(4, cols - 7 - SIZE_COL)
         gs = self.git_status  # this pane's own status (works for the inactive pane too)
@@ -809,6 +808,7 @@ class ExplorerView:
         ("two_pane", "toggle two-pane view"),
         ("pane_prev", "prev tab / switch pane / focus list"),
         ("pane_next", "next tab / switch pane / focus preview"),
+        ("zoom", "enlarge the focused pane (9:1)"),
         ("menu", "action menu (copy, rename, git…)"),
         ("copy", "copy"), ("cut", "cut"), ("paste", "paste"),
         ("rename", "rename (also i)"), ("new_dir", "new folder"), ("new_file", "new file"),

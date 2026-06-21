@@ -96,6 +96,13 @@ Notable user-facing changes to the Python rewrite. Newest first.
   configurable via `[keys] pane_prev` / `pane_next` in nshrc, like the other
   action keys — and a `Ctrl` combo (e.g. `c-o`) works as the value. The status
   bar hints follow whatever you set.
+- **Zoom the focused pane** with `z` (remappable via `[keys] zoom`). It enlarges
+  whichever pane has the focus from an even 5:5 split to 9:1 — the list or the
+  preview in single-pane explorer / git / git-log, or the active pane in
+  two-pane view. The big pane follows the focus, so the pane keys hand the space
+  to the newly focused pane; press `z` again — or `Esc` — to go back to 5:5.
+  While zoomed, `Esc` backs out the zoom first (a second `Esc` then does its
+  usual job: clear a selection, return from the preview, or leave the mode).
 - **Two-pane view**: toggle it with the `2` key (remappable), or
   `[general] two_pane = true` in nshrc, to show two explorer panes side by
   side, each with its own directory, selection and cursor. The preview pane is
@@ -231,7 +238,13 @@ Notable user-facing changes to the Python rewrite. Newest first.
   to notes containing a query (Esc clears it), `Enter` loads the
   selected note back into the editbox to edit it
   (`Ctrl+S` saves the change in place, `Esc` cancels), `d`/`x` delete the
-  selected note, and `u` restores the last delete. The title bar above the
+  selected note, and `u` restores the last delete. `y` (or `Ctrl+C`) in the list
+  copies the selected note to the system clipboard, and `Ctrl+V` in the editbox
+  pastes the clipboard at the cursor (no third-party dependency — the Win32 API
+  on Windows, `pbcopy`/`pbpaste` or `wl-clipboard` / `xclip` / `xsel` elsewhere;
+  it's a no-op when none is available). `y` is the reliable copy key — some
+  terminals (Git Bash / MSYS, or Windows Terminal with a selection) never hand
+  `Ctrl+C` to the app. The title bar above the
   editbox is blue while the editbox is active (typing / editing) and grey once
   the cursor moves down into the list; the list's selection highlight only
   shows while the list is focused (it's hidden while you edit a note above).

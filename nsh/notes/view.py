@@ -3,8 +3,10 @@
 A multi-line editbox at the top for a new note, and the saved notes below.
 ``Ctrl+S`` saves the editbox as a new note (added at the top). ``Down`` from the
 editbox steps into the list; there ``j``/``k`` (or arrows) move between notes
-with line-level scrolling, ``d``/``x`` delete the selected note, and ``u`` undoes
-the last delete. Notes are multi-line; the list renders and scrolls by line.
+with line-level scrolling, ``d``/``x`` delete the selected note, ``u`` undoes
+the last delete, and ``y`` (or ``Ctrl+C``) copies the selected note to the
+system clipboard. In the editbox ``Ctrl+V`` pastes the clipboard at the cursor.
+Notes are multi-line; the list renders and scrolls by line.
 """
 from prompt_toolkit.application.current import get_app
 from prompt_toolkit.buffer import Buffer
@@ -19,6 +21,7 @@ from prompt_toolkit.layout.containers import (
 from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
 from prompt_toolkit.layout.margins import Margin
 
+from ..util import clipboard
 from ..util.notes import Notes
 from ..util.width import text_width
 
@@ -269,6 +272,17 @@ class NotesView:
         self.app.set_message("note deleted  (u to undo)")
         self.app.invalidate()
 
+    def copy_note(self):
+        """Copy the selected note's full text to the system clipboard (Ctrl+C in
+        the list)."""
+        real = self._real_index()
+        if real is None:
+            return
+        if clipboard.copy_text(self.notes.list()[real]):
+            self.app.set_message("note copied to clipboard")
+        else:
+            self.app.set_message("clipboard unavailable")
+
     def undo_delete(self):
         if not self._undo:
             self.app.set_message("nothing to undo")
@@ -364,6 +378,16 @@ class NotesView:
         def _(event):
             self.save_note()
 
+        # Ctrl+V pastes the system clipboard at the cursor. (Many terminals,
+        # Windows Terminal included, intercept Ctrl+V for their own paste — which
+        # already drops the text in via bracketed paste — so this mainly serves
+        # terminals that pass Ctrl+V through.)
+        @kb.add("c-v")
+        def _(event):
+            text = clipboard.paste_text()
+            if text:
+                event.current_buffer.insert_text(text)
+
         @kb.add("down")
         def _(event):
             buff = event.current_buffer
@@ -425,6 +449,16 @@ class NotesView:
         @kb.add("enter")
         def _(event):
             self.edit_note()
+
+        # Copy the selected note to the system clipboard. `y` (vim-style yank) is
+        # the reliable key: some terminals never deliver Ctrl+C as a keypress —
+        # Git Bash / MSYS turns it into SIGINT, and Windows Terminal copies its
+        # own selection — so Ctrl+C is offered only as a bonus. The Ctrl+C binding
+        # lives on the list control to override the global "stop command" one.
+        @kb.add("y")
+        @kb.add("c-c")
+        def _(event):
+            self.copy_note()
 
         @kb.add("/")
         def _(event):

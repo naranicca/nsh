@@ -149,6 +149,8 @@ DEFAULT_KEYS = {
     # in two-pane mode, and list <-> preview focus. Remappable (ctrl combos OK).
     "pane_prev": "f7",
     "pane_next": "f8",
+    # enlarge the focused pane to a 9:1 split (the big pane follows the focus)
+    "zoom": "z",
     "menu": "tab",
     "copy": "y",
     "cut": "x",
@@ -269,6 +271,7 @@ DEFAULT_NSHRC = """\
 # two_pane = 2         (toggle the two-pane view)
 # pane_prev = f7       (prev shell tab / switch pane / focus list)
 # pane_next = f8       (next shell tab / switch pane / focus preview)
+# zoom = z             (enlarge the focused pane to a 9:1 split)
 # menu = tab
 # copy = y
 # cut = x
