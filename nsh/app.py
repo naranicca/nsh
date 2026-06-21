@@ -27,6 +27,7 @@ from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.layout.dimension import Dimension
 from prompt_toolkit.layout.layout import Layout
 from prompt_toolkit.layout.menus import CompletionsMenu
+from prompt_toolkit.mouse_events import MouseEventType
 
 from . import __version__, config
 from .explorer import git
@@ -673,7 +674,8 @@ class NshApp:
             cols = get_app().output.get_size().columns
         except Exception:
             cols = 80
-        used = sum(text_width(t) for _, t in segs)
+        # fragments may be 2-tuples or (style, text, mouse_handler) 3-tuples
+        used = sum(text_width(seg[1]) for seg in segs)
         if used < cols:
             segs.append((style, " " * (cols - used)))
         return segs
@@ -883,75 +885,127 @@ class NshApp:
         nk = self._fmt_key(self.keys.get("pane_next"))
         zk = self._fmt_key(self.keys.get("zoom"))
         pane_pair = "/".join(p for p in (pk, nk) if p) or nk or pk
+        # Hints are (key, label) or (key, label, action); an action makes the
+        # hint clickable in the status bar. Directional / typing hints (arrows,
+        # PgUp/PgDn, "type", history) have no single action, so they stay inert.
+        ex = self.explorer
         if self.preview_focused() and self.mode in (EXPLORER, GIT, LOG):
             # the preview pane holds the focus (pane keys): it scrolls with arrows
             hints = [
                 ("↑↓", "scroll"), ("PgUp/PgDn", "page"), ("g/G", "top/bottom"),
-                (pane_pair, "list"), (zk, "zoom"), ("ESC", "list"),
+                (pane_pair, "list", self.focus_active_list),
+                (zk, "zoom", self.toggle_zoom),
+                ("ESC", "list", self.focus_active_list),
             ]
         elif self.mode == EXPLORER:
             hints = [
-                ("↵", "open"), ("Space", "select"),
-                ("Tab", "actions"), ("b", "marks"), ("/", "find"), ("*", "select"),
-                ("^N", "note"), (":", "cmd"),
+                ("↵", "open", ex.open), ("Space", "select", ex.toggle_select),
+                ("Tab", "actions", ex.open_command_menu),
+                ("b", "marks", self.open_bookmark_menu),
+                ("/", "find", self.enter_search),
+                ("*", "select", ex.select_pattern),
+                ("^N", "note", self.open_notes),
+                (":", "cmd", lambda: self.switch_mode(SHELL)),
             ]
             # the 2-pane toggle; once in it, surface the pane switch instead
             if self.two_pane:
-                hints.append((nk, "pane"))
-                hints.append(("2", "1-pane"))
+                hints.append((nk, "pane", self.switch_pane))
+                hints.append(("2", "1-pane", self.toggle_two_pane))
             else:
-                hints.append((nk, "preview"))
-                hints.append(("2", "2-pane"))
-            hints.append((zk, "zoom"))
-            hints.append(("q", "quit"))
+                hints.append((nk, "preview", self.toggle_preview_focus))
+                hints.append(("2", "2-pane", self.toggle_two_pane))
+            hints.append((zk, "zoom", self.toggle_zoom))
+            hints.append(("q", "quit", self.exit))
         elif self.mode == SEARCH:
             hints = [
                 ("type", "filter"), ("↑↓", "move"), ("↵", "select"),
-                ("ESC", "cancel"),
+                ("ESC", "cancel", self.cancel_search),
             ]
         elif self.mode == GIT:
             hints = [
-                ("↑↓", "move"), ("Space", "select"), ("Tab", "actions"),
-                ("b", "marks"), (nk, "preview"), (zk, "zoom"), (":", "cmd"),
-                ("ESC", "exit"), ("q", "quit"),
+                ("↑↓", "move"),
+                ("Space", "select", self.gitview.toggle_select),
+                ("Tab", "actions", self.gitview.open_action_menu),
+                ("b", "marks", self.open_bookmark_menu),
+                (nk, "preview", self.toggle_preview_focus),
+                (zk, "zoom", self.toggle_zoom),
+                (":", "cmd", lambda: self.switch_mode(SHELL)),
+                ("ESC", "exit", lambda: self.switch_mode(EXPLORER)),
+                ("q", "quit", self.exit),
             ]
         elif self.mode == LOG:
             hints = [
-                ("↑↓", "move"), ("↵", "actions"), ("/", "search"), ("n", "next"),
-                (pane_pair, "preview"), (zk, "zoom"), ("ESC/q", "back"),
+                ("↑↓", "move"),
+                ("↵", "actions", self.logview.open_action_menu),
+                ("/", "search", self.logview.search),
+                ("n", "next", lambda: self.logview._find(1)),
+                (pane_pair, "preview", self.toggle_preview_focus),
+                (zk, "zoom", self.toggle_zoom),
+                ("ESC/q", "back", self.close_log),
             ]
         elif self.mode == NOTES:
             hints = [
-                ("^S", "save"), ("↑↓", "browse"), ("/", "search"), ("↵", "edit"),
-                ("y", "copy"), ("^V", "paste"), ("d/x", "delete"), ("u", "undo"),
-                ("ESC", "back"),
+                ("^S", "save", self.notesview.save_note), ("↑↓", "browse"),
+                ("/", "search", self.notesview.start_search),
+                ("↵", "edit", self.notesview.edit_note),
+                ("y", "copy", self.notesview.copy_note), ("^V", "paste"),
+                ("d/x", "delete", self.notesview.delete_note),
+                ("u", "undo", self.notesview.undo_delete),
+                ("ESC", "back", self.leave_notes),
             ]
         elif self.mode == SYSTEM:
             hints = [
                 ("↑↓", "move"), ("c/m/n", "sort cpu/mem/name"),
-                ("/", "search"), ("x", "kill"), ("K", "force"), ("r", "refresh"),
-                ("ESC", "back"),
+                ("/", "search", self.systemview.start_search),
+                ("x", "kill", lambda: self.systemview.kill_selected(False)),
+                ("K", "force", lambda: self.systemview.kill_selected(True)),
+                ("r", "refresh", lambda: asyncio.ensure_future(self.systemview.refresh())),
+                ("ESC", "back", lambda: self.switch_mode(EXPLORER)),
             ]
         else:
             hints = [
                 ("Tab", "complete"), ("↵", "run"), ("↑↓", "history"),
                 ("PgUp/PgDn", "scroll"), ("^T/^W", "tab"),
                 (f"Alt+←→/{pk}·{nk}", "switch"),
-                ("^C", "stop"), ("ESC", "explorer"),
+                ("^C", "stop", lambda: self.shell.runner.interrupt()),
+                ("ESC", "explorer", lambda: self.switch_mode(self._shell_return)),
             ]
         segs = []
         # a yellow square at the very front whenever there are saved notes —
-        # ahead of the message and the shortcut hints (Ctrl+N to view them)
+        # ahead of the message and the shortcut hints; clicking it opens notes
+        # (like Ctrl+N)
         if len(self.notesview.notes) > 0:
-            segs.append(("class:statusbar.notes", " ■ "))
+            segs.append(("class:statusbar.notes", " ■ ",
+                         self._hint_click(self.open_notes)))
         # the message sits in front of the shortcuts and stays until it's
         # explicitly cleared (directory change, mode change, or ESC)
         if self.message:
             segs.append(("class:statusbar.msg", f" {self.message} "))
-        for key, label in hints:
-            segs.append(("class:statusbar.key", f" {key} "))
-            segs.append(("class:statusbar", f"{label} "))
+        for hint in hints:
+            key, label = hint[0], hint[1]
+            action = hint[2] if len(hint) > 2 else None
+            if action is not None:
+                handler = self._hint_click(action)
+                segs.append(("class:statusbar.key", f" {key} ", handler))
+                segs.append(("class:statusbar", f"{label} ", handler))
+            else:
+                segs.append(("class:statusbar.key", f" {key} "))
+                segs.append(("class:statusbar", f"{label} "))
         return self._fill(segs, "class:statusbar")
+
+    def _hint_click(self, action):
+        """A status-bar hint's mouse handler: run ``action`` on a click. While a
+        popup menu is up the click dismisses it instead (a dialog swallows it),
+        matching the click-outside-to-close behaviour elsewhere."""
+        def handler(mouse_event):
+            if mouse_event.event_type != MouseEventType.MOUSE_DOWN:
+                return None
+            if self._overlay_active():
+                self.consume_menu_click()  # dismiss a menu; dialogs stay modal
+                return None
+            action()
+            return None
+        return handler
 
     # -- modes ----------------------------------------------------------------
     def toggle_mode(self):
