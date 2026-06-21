@@ -20,6 +20,7 @@ from prompt_toolkit.layout.containers import (
 )
 from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
 from prompt_toolkit.layout.dimension import Dimension
+from prompt_toolkit.mouse_events import MouseEventType
 from prompt_toolkit.widgets import Frame
 
 from .width import char_width, cut_to_width, text_width
@@ -27,9 +28,21 @@ from .width import char_width, cut_to_width, text_width
 WIDTH = 50
 
 
-def _button(label, active):
+def _on_click(action):
+    """Wrap ``action`` (no args) as a fragment mouse handler firing on press."""
+    def handler(mouse_event):
+        if mouse_event.event_type == MouseEventType.MOUSE_DOWN:
+            action()
+        return None
+    return handler
+
+
+def _button(label, active, action=None):
+    """A button fragment; with ``action`` it carries a click handler (a 3-tuple
+    fragment), which prompt_toolkit routes through the centred row for us."""
     style = "class:dialog.button.focus" if active else "class:dialog.button"
-    return (style, f"  {label}  ")
+    text = f"  {label}  "
+    return (style, text, _on_click(action)) if action is not None else (style, text)
 
 
 class InputDialog:
@@ -103,9 +116,13 @@ class InputDialog:
     def _toggle(self):
         self.button = "cancel" if self.button == "ok" else "ok"
 
+    def _click_ok(self):
+        self.button = "ok"
+        self._accept()
+
     def _buttons(self):
-        return [_button("OK", self.button == "ok"), ("", "      "),
-                _button("Cancel", self.button == "cancel")]
+        return [_button("OK", self.button == "ok", self._click_ok), ("", "      "),
+                _button("Cancel", self.button == "cancel", self.cancel)]
 
     def _kb(self):
         kb = KeyBindings()
@@ -175,8 +192,9 @@ class ConfirmDialog:
         return [("class:dialog", " " + self.message)]
 
     def _buttons(self):
-        return [_button("OK", self.button == "ok"), ("", "      "),
-                _button("Cancel", self.button == "cancel")]
+        return [_button("OK", self.button == "ok", lambda: self._resolve(True)),
+                ("", "      "),
+                _button("Cancel", self.button == "cancel", lambda: self._resolve(False))]
 
     def _kb(self):
         kb = KeyBindings()
@@ -249,7 +267,7 @@ class InfoDialog:
         return out
 
     def _buttons(self):
-        return [_button("OK", True)]
+        return [_button("OK", True, self._close)]
 
     def _kb(self):
         kb = KeyBindings()
@@ -344,25 +362,37 @@ class FindTextDialog:
 
     def _render(self):
         field_w = WIDTH - text_width(self._LABEL) - 1
-        out = [("class:dialog.label", " " + self._LABEL)]
-        out += self._phrase_fragments(field_w)
+        focus_phrase = _on_click(lambda: setattr(self, "focus", self._PHRASE))
+        out = [("class:dialog.label", " " + self._LABEL, focus_phrase)]
+        # clicking the phrase field focuses it too
+        out += [(s, t, focus_phrase) for s, t in self._phrase_fragments(field_w)]
         out.append(("class:dialog", "\n\n"))
 
-        def check(idx, label, on):
+        def check(idx, label, on, action):
             box = "[x] " if on else "[ ] "
             style = "class:dialog.button.focus" if self.focus == idx else "class:dialog"
-            return [(style, " " + box + label + " "), ("class:dialog", "\n")]
+            return [(style, " " + box + label + " ", _on_click(action)),
+                    ("class:dialog", "\n")]
 
-        out += check(self._CASE, "Case sensitive", self.case_sensitive)
-        out += check(self._WHOLE, "Whole word", self.whole_word)
+        out += check(self._CASE, "Case sensitive", self.case_sensitive, self._toggle_case)
+        out += check(self._WHOLE, "Whole word", self.whole_word, self._toggle_whole)
         out.append(("class:dialog", "\n"))
         # buttons row
         ok = "class:dialog.button.focus" if self.focus == self._OK else "class:dialog.button"
         cancel = ("class:dialog.button.focus" if self.focus == self._CANCEL
                   else "class:dialog.button")
-        out += [("class:dialog", "   "), (ok, "  OK  "),
-                ("class:dialog", "    "), (cancel, "  Cancel  ")]
+        out += [("class:dialog", "   "), (ok, "  OK  ", _on_click(self._accept)),
+                ("class:dialog", "    "),
+                (cancel, "  Cancel  ", _on_click(self._close))]
         return out
+
+    def _toggle_case(self):
+        self.focus = self._CASE
+        self.case_sensitive = not self.case_sensitive
+
+    def _toggle_whole(self):
+        self.focus = self._WHOLE
+        self.whole_word = not self.whole_word
 
     # -- editing / keys -------------------------------------------------------
     def _insert(self, s):

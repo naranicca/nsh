@@ -51,6 +51,7 @@ class LogView:
         self._kb = self._build_key_bindings()
         self.control = WheelScrollControl(
             lambda d: self.move(d * 3),
+            on_click=self._on_mouse,  # click selects a commit, double-click acts
             text=self._formatted_text,
             focusable=True,
             show_cursor=False,
@@ -132,6 +133,20 @@ class LogView:
 
     def refresh(self):
         self.load()
+
+    def _on_mouse(self, mouse_event):
+        """Click moves to the clicked commit (graph-only rows are ignored); a
+        double-click opens its action menu."""
+        if self.app.consume_menu_click():
+            return
+        idx = self._top + mouse_event.position.y
+        if not (0 <= idx < len(self.lines)) or self.lines[idx].hash is None:
+            return
+        self.app.application.layout.focus(self.control)
+        self.cursor = idx
+        if self.app.double_click(("gitlog",), idx):
+            self.open_action_menu()
+        self.app.invalidate()
 
     # -- search ---------------------------------------------------------------
     def search(self):

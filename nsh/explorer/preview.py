@@ -13,13 +13,13 @@ from prompt_toolkit.formatted_text import ANSI, to_formatted_text
 from prompt_toolkit.formatted_text.utils import split_lines
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout.containers import Window
-from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.layout.dimension import Dimension
 from prompt_toolkit.layout.margins import Margin
 
 from .. import config
 from ..util.aio import run_in_thread
 from ..util.paths import human_size, norm
+from ..util.widgets import WheelScrollControl
 from ..util.width import text_width
 from . import git, model
 
@@ -121,10 +121,13 @@ class PreviewView:
         self._scroll_id = None    # identity of what's scrolled (reset on change)
         self._sb_total = 0        # full document line count (for the scrollbar)
         self._sb_view = 0         # visible line count (for the scrollbar)
-        # focusable so F7/F8 can move into the pane and scroll it (the list keeps
-        # its own cursor); the pinned header is tinted while it's focused.
-        self.control = FormattedTextControl(
-            self._visible_text, focusable=True, show_cursor=False,
+        # focusable so F7/F8 (or a click) can move into the pane and scroll it
+        # (the list keeps its own cursor); the pinned header is tinted while it's
+        # focused.
+        self.control = WheelScrollControl(
+            lambda d: self.scroll(d * 3),  # wheel scrolls the preview
+            on_click=self._on_mouse,       # a click focuses the pane
+            text=self._visible_text, focusable=True, show_cursor=False,
             key_bindings=self._kb())
         self.window = Window(
             self.control,
@@ -139,6 +142,13 @@ class PreviewView:
     def focus(self):
         self.app.application.layout.focus(self.control)
         self.app.invalidate()
+
+    def _on_mouse(self, mouse_event):
+        """A click focuses the preview pane — unless a menu is open, in which
+        case the click just dismisses it (like Esc)."""
+        if self.app.consume_menu_click():
+            return
+        self.focus()
 
     def _visible_height(self):
         ri = getattr(self.window, "render_info", None)

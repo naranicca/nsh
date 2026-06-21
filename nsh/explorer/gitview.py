@@ -41,6 +41,7 @@ class GitView:
         self._kb = self._build_key_bindings()
         self.control = WheelScrollControl(
             lambda d: self.move(d * 3),  # mouse wheel moves the cursor
+            on_click=self._on_mouse,     # click selects, double-click opens
             text=self._formatted_text,
             focusable=True,
             show_cursor=False,
@@ -153,6 +154,19 @@ class GitView:
         entry = self.current()
         if entry is not None:
             self.app.open_file(entry.path)
+
+    def _on_mouse(self, mouse_event):
+        """Click moves the cursor to the clicked change; a double-click opens it."""
+        if self.app.consume_menu_click():
+            return
+        idx = self._top + mouse_event.position.y
+        if not (0 <= idx < len(self.entries)):
+            return
+        self.app.application.layout.focus(self.control)
+        self.cursor = idx
+        if self.app.double_click(("git",), idx):
+            self.open()
+        self.app.invalidate()
 
     def refresh(self):
         asyncio.ensure_future(self.app.refresh_git())

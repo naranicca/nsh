@@ -43,6 +43,7 @@ from .util.bookmarks import Bookmarks
 from .util.dialog import ConfirmDialog, FindTextDialog, InfoDialog, InputDialog
 from .util.menu import Menu
 from .util.paths import shorten_home
+from .util.widgets import WheelScrollControl
 from .util.width import char_width, cut_to_width, text_width
 
 EXPLORER = "explorer"
@@ -148,6 +149,9 @@ class NshApp:
         # zoom: when on, the split gives the focused pane a 9:1 share instead of
         # an even 5:5 (the big pane follows the focus). See toggle_zoom / _pane_dim.
         self.zoom = False
+        # last (tag, index, time) left-click, for detecting a double-click that
+        # opens the row a single click only moved the cursor to (see double_click)
+        self._last_click = None
         self.shells = ShellTabs(self)  # the shell sessions, managed as tabs
         self.preview = PreviewView(self)
         self.show_preview = True
@@ -612,8 +616,11 @@ class NshApp:
         root = FloatContainer(
             content=HSplit(
                 [
-                    Window(FormattedTextControl(self._title_text), height=1,
-                           style="class:titlebar"),
+                    Window(WheelScrollControl(
+                        lambda d: None,  # the title bar doesn't scroll
+                        on_click=self._on_title_click,  # click "nsh" -> F10 menu
+                        text=self._title_text), height=1,
+                        style="class:titlebar"),
                     body,
                     Window(FormattedTextControl(self._status_text), height=1,
                            style="class:statusbar"),
@@ -1395,6 +1402,55 @@ class NshApp:
     def _menu_closed(self):
         self._restore_focus()
         self.invalidate()
+
+    # -- mouse ----------------------------------------------------------------
+    def consume_menu_click(self):
+        """When a popup menu is open, a click on any background pane dismisses it
+        (like Esc) and is otherwise ignored. Returns True when it did so, so the
+        caller skips its own click handling. Clicks inside the menu go to the
+        menu's own float and never reach here."""
+        if self.menu.active:
+            self.menu.close()
+            return True
+        return False
+
+    def _on_title_click(self, mouse_event):
+        """A click on the leading ``nsh`` label opens the nsh (F10) menu; the
+        rest of the title bar is inert. With a menu open the click dismisses it."""
+        if self.consume_menu_click():
+            return
+        if self._overlay_active():
+            return  # a dialog is up: leave the title inert
+        if mouse_event.position.x < text_width(self._name_label()):
+            self.open_nsh_menu()
+
+    def double_click(self, tag, index):
+        """Record a left-click and report whether it completes a double-click —
+        a second click on the same ``(tag, index)`` within 400 ms. The list
+        views use this to open on a double-click while a single click only moves
+        the cursor."""
+        now = time.monotonic()
+        prev = self._last_click
+        self._last_click = (tag, index, now)
+        return bool(prev and prev[0] == tag and prev[1] == index
+                    and now - prev[2] <= 0.4)
+
+    def focus_pane(self, view):
+        """Make the clicked explorer ``view`` the active pane (in two-pane mode)
+        and focus it; the cwd / git status / shell follow it as with the keys."""
+        try:
+            idx = self.explorers.index(view)
+        except ValueError:
+            idx = self.active_pane
+        if self.two_pane and idx != self.active_pane:
+            self.active_pane = idx
+            try:
+                os.chdir(self.explorer.cwd)  # process cwd follows the active pane
+            except OSError:
+                pass
+            self.message = ""
+            self.preview.clear()
+        self.application.layout.focus(view.control)
 
     # -- two-pane view --------------------------------------------------------
     def switch_pane(self):

@@ -23,6 +23,7 @@ from prompt_toolkit.layout.margins import Margin
 
 from ..util import clipboard
 from ..util.notes import Notes
+from ..util.widgets import WheelScrollControl
 from ..util.width import text_width
 
 INPUT_HEIGHT = 5  # rows reserved for the new-note editbox
@@ -76,8 +77,10 @@ class NotesView:
         self.search_buffer = Buffer(multiline=False, on_text_changed=self._on_search)
         self.search_control = BufferControl(
             self.search_buffer, key_bindings=self._search_kb())
-        self.list_control = FormattedTextControl(
-            self._list_text, focusable=True, show_cursor=False,
+        self.list_control = WheelScrollControl(
+            lambda d: self.move(d),   # wheel moves the note selection
+            on_click=self._on_mouse,  # click selects a note, double-click edits
+            text=self._list_text, focusable=True, show_cursor=False,
             key_bindings=self._list_kb())
         self.list_window = Window(
             self.list_control, wrap_lines=True, style="class:notes.item",
@@ -253,6 +256,23 @@ class NotesView:
         if n == 0:
             return
         self.cursor = max(0, min(n - 1, self.cursor + delta))
+        self.app.invalidate()
+
+    def _on_mouse(self, mouse_event):
+        """Click selects the note under the pointer; a double-click edits it."""
+        if self.app.consume_menu_click():
+            return
+        k = self.scroll + mouse_event.position.y
+        lines = self._display_lines()
+        if not (0 <= k < len(lines)):
+            return
+        pos = lines[k][0]
+        if pos is None:  # blank separator between notes
+            return
+        self.app.application.layout.focus(self.list_control)
+        self.cursor = pos
+        if self.app.double_click(("notes",), pos):
+            self.edit_note()
         self.app.invalidate()
 
     def delete_note(self):

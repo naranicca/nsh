@@ -221,6 +221,19 @@ Notable user-facing changes to the Python rewrite. Newest first.
   and git mode.
 
 ### UI & dialogs
+- **Mouse clicks.** On top of the existing wheel scrolling, the mouse now
+  clicks. In the explorer, git and git-log lists a click moves the cursor to the
+  row (and activates that pane in two-pane view); a double-click opens it — a
+  file/dir, a changed file, or a commit's action menu. Clicking a directory's
+  ▸/▾ caret in the explorer expands or collapses it inline. The same applies to
+  the notes list (double-click edits a note) and the System process list (a
+  click selects the row). Clicking the preview pane (or the other pane in
+  two-pane view) moves the focus there. A click in any popup menu
+  invokes that row directly (and a click anywhere outside an open menu dismisses
+  it, like Esc), and clicking a shell tab switches to it (the wheel cycles
+  tabs). Clicking the `nsh` label at the left of the title bar opens the nsh
+  (F10) menu. Dialog buttons (OK / Cancel) and the find dialog's *case
+  sensitive* / *whole word* checkboxes are clickable too.
 - **Process manager** (*System* in the F10 menu): a small task manager. A header
   shows overall CPU, memory and disk usage as bars; below it a scrolling,
   cursor-selectable list of the running processes with their CPU% / MEM% / RSS.

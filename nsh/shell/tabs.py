@@ -10,9 +10,9 @@ from prompt_toolkit.layout.containers import (
     HSplit,
     Window,
 )
-from prompt_toolkit.layout.controls import FormattedTextControl
 
-from ..util.width import cut_to_width
+from ..util.widgets import WheelScrollControl
+from ..util.width import cut_to_width, text_width
 from .view import ShellView
 
 MAX_TAB_LABEL = 14
@@ -23,9 +23,13 @@ class ShellTabs:
         self.app = app
         self.sessions = [ShellView(app)]
         self.active = 0
+        self._tab_spans = []  # [(start_col, end_col, idx)] for click hit-testing
 
         self._tabbar = Window(
-            FormattedTextControl(self._tabbar_text),
+            WheelScrollControl(
+                lambda d: self.next() if d > 0 else self.prev(),  # wheel cycles
+                on_click=self._on_mouse,  # click a tab to switch to it
+                text=self._tabbar_text),
             height=1,
             style="class:shell.tabbar",
         )
@@ -99,8 +103,21 @@ class ShellTabs:
         self.app.invalidate()
 
     # -- rendering ------------------------------------------------------------
+    def _on_mouse(self, mouse_event):
+        """Switch to the tab under the click (x maps through the spans recorded
+        while rendering the bar). With a menu open the click dismisses it."""
+        if self.app.consume_menu_click():
+            return
+        x = mouse_event.position.x
+        for start, end, idx in self._tab_spans:
+            if start <= x < end:
+                self.select(idx)
+                return
+
     def _tabbar_text(self):
         frags = []
+        spans = []
+        col = 0
         for i, s in enumerate(self.sessions):
             active = i == self.active
             busy = s.busy()
@@ -111,11 +128,16 @@ class ShellTabs:
             else:
                 base = "class:shell.tab.busy" if busy else "class:shell.tab"
             label = cut_to_width(s.custom_title or s.title or "shell", MAX_TAB_LABEL)
-            frags.append((base, f" {i + 1}:{label} "))
+            main = f" {i + 1}:{label} "
+            start = col
+            frags.append((base, main))
             # a dot still marks a running command (a blank keeps the width steady
             # so labels don't shift when it finishes); it rides the tab's own
             # style, orange included.
             frags.append((base, "●" if busy else " "))
             frags.append((base, " "))
             frags.append(("class:shell.tabbar", " "))
+            col += text_width(main) + 3  # dot + gap + tabbar separator
+            spans.append((start, col, i))
+        self._tab_spans = spans
         return frags

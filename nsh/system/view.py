@@ -22,6 +22,7 @@ from prompt_toolkit.layout.margins import Margin
 
 from ..util.aio import run_in_thread
 from ..util.paths import human_size
+from ..util.widgets import WheelScrollControl
 from ..util.width import cut_to_width, pad_to_width
 from . import sysinfo
 
@@ -74,8 +75,10 @@ class SystemView:
         self.search_buffer = Buffer(multiline=False, on_text_changed=self._on_search)
         self.search_control = BufferControl(
             self.search_buffer, key_bindings=self._search_kb())
-        self.list_control = FormattedTextControl(
-            self._list_text, focusable=True, show_cursor=False,
+        self.list_control = WheelScrollControl(
+            lambda d: self.move(d * 3),  # wheel moves the cursor
+            on_click=self._on_mouse,     # click selects the process row
+            text=self._list_text, focusable=True, show_cursor=False,
             key_bindings=self._kb())
         self.list_window = Window(
             self.list_control, style="class:explorer.file",
@@ -197,6 +200,17 @@ class SystemView:
         if n == 0:
             return
         self.cursor = max(0, min(n - 1, self.cursor + delta))
+        self.app.invalidate()
+
+    def _on_mouse(self, mouse_event):
+        """Click selects the process row under the pointer."""
+        if self.app.consume_menu_click():
+            return
+        idx = self._top + mouse_event.position.y
+        if not (0 <= idx < self._visible_count()):
+            return
+        self.app.application.layout.focus(self.list_control)
+        self.cursor = idx
         self.app.invalidate()
 
     def _visible_height(self):

@@ -8,8 +8,8 @@ from prompt_toolkit.application.current import get_app
 from prompt_toolkit.filters import Condition
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout.containers import ConditionalContainer, Window
-from prompt_toolkit.layout.controls import FormattedTextControl
 
+from .widgets import WheelScrollControl
 from .width import text_width
 
 
@@ -27,8 +27,10 @@ class Menu:
         self.cursor = 0
         self.scroll = 0
 
-        self.control = FormattedTextControl(
-            self._text,
+        self.control = WheelScrollControl(
+            lambda d: self._move(d),  # wheel moves the selection
+            on_click=self._on_mouse,  # click a row to invoke it
+            text=self._text,
             focusable=True,
             show_cursor=False,
             key_bindings=self._build_kb(),
@@ -64,6 +66,17 @@ class Menu:
     def _move(self, delta):
         if self.items:
             self.cursor = max(0, min(len(self.items) - 1, self.cursor + delta))
+
+    def _on_mouse(self, mouse_event):
+        """Click a menu row to invoke it directly. Row 0 is the title; items
+        start at row 1, offset by the current scroll."""
+        y = mouse_event.position.y
+        if y < 1:
+            return
+        i = self.scroll + (y - 1)
+        if 0 <= i < len(self.items):
+            self.cursor = i
+            self._invoke()
 
     # -- rendering ------------------------------------------------------------
     def _visible_rows(self):
