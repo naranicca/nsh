@@ -233,7 +233,8 @@ Notable user-facing changes to the Python rewrite. Newest first.
   row's multi-selection in the explorer and git views (like Space). Clicking a directory's
   ▸/▾ caret in the explorer expands or collapses it inline. The same applies to
   the notes list (double-click edits a note) and the System process list (a
-  click selects the row). Clicking the preview pane (or the other pane in
+  click selects the row; clicking the `CPU%` / `MEM%` / `PROC` column header
+  sorts by it). Clicking the preview pane (or the other pane in
   two-pane view) moves the focus there. A click in any popup menu
   invokes that row directly (and a click anywhere outside an open menu dismisses
   it, like Esc), and clicking a shell tab switches to it (the wheel cycles

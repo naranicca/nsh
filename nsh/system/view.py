@@ -19,6 +19,7 @@ from prompt_toolkit.layout.containers import (
 )
 from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
 from prompt_toolkit.layout.margins import Margin
+from prompt_toolkit.mouse_events import MouseEventType
 
 from ..util.aio import run_in_thread
 from ..util.paths import human_size
@@ -284,14 +285,23 @@ class SystemView:
         out += self._column_header()
         return out
 
+    def _sort_click(self, mode):
+        """A column-header mouse handler that sorts by ``mode`` on a click."""
+        def handler(mouse_event):
+            if mouse_event.event_type == MouseEventType.MOUSE_DOWN:
+                self.set_sort(mode)
+            return None
+        return handler
+
     def _column_header(self):
         # ▼ on a descending column (cpu/mem, highest first), ▲ on the ascending
-        # name column — so the marker also hints the sort direction
+        # name column — so the marker also hints the sort direction. The CPU% /
+        # MEM% / PROC headers are clickable to sort by that column.
         def col(label, key, w):
             arrow = " ▼" if self.sort == key else ""
             text = (label + arrow).rjust(w)
             style = "class:system.sortcol" if self.sort == key else "class:system.colhead"
-            return (style, text)
+            return (style, text, self._sort_click(key))
         cols = self._term_cols()
         name_w = max(4, cols - (W_PID + W_CPU + W_MEM + W_RSS + 5))
         ch = "class:system.colhead"
@@ -307,7 +317,7 @@ class SystemView:
             (ch, "RSS".rjust(W_RSS)),
             (ch, " "),
             ("class:system.sortcol" if name_on else ch,
-             pad_to_width(proc_label, name_w)),
+             pad_to_width(proc_label, name_w), self._sort_click("name")),
         ]
 
     def _list_text(self):
