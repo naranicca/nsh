@@ -13,6 +13,7 @@ from prompt_toolkit.data_structures import Point
 from prompt_toolkit.key_binding import DynamicKeyBindings, KeyBindings
 from prompt_toolkit.layout.containers import ScrollOffsets, Window
 from prompt_toolkit.layout.dimension import Dimension
+from prompt_toolkit.mouse_events import MouseModifier
 
 from .. import config
 from ..util.widgets import WheelScrollControl, visible_slice
@@ -137,12 +138,15 @@ class GitView:
         entry = self.current()
         if entry is None:
             return
+        self._toggle_selection(entry)
+        self.move(1)  # toggle-and-advance
+        self.app.invalidate()
+
+    def _toggle_selection(self, entry):
         if entry.path in self.selected:
             self.selected.discard(entry.path)
         else:
             self.selected.add(entry.path)
-        self.move(1)  # toggle-and-advance
-        self.app.invalidate()
 
     def clear_selection(self):
         if self.selected:
@@ -156,7 +160,8 @@ class GitView:
             self.app.open_file(entry.path)
 
     def _on_mouse(self, mouse_event):
-        """Click moves the cursor to the clicked change; a double-click opens it."""
+        """Click moves the cursor to the clicked change; Ctrl+click toggles its
+        selection; a double-click opens it."""
         if self.app.consume_menu_click():
             return
         idx = self._top + mouse_event.position.y
@@ -164,7 +169,10 @@ class GitView:
             return
         self.app.application.layout.focus(self.control)
         self.cursor = idx
-        if self.app.double_click(("git",), idx):
+        # Ctrl+click toggles this row's multi-selection (like Space), staying put
+        if MouseModifier.CONTROL in getattr(mouse_event, "modifiers", frozenset()):
+            self._toggle_selection(self.entries[idx])
+        elif self.app.double_click(("git",), idx):
             self.open()
         self.app.invalidate()
 

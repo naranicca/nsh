@@ -224,7 +224,8 @@ Notable user-facing changes to the Python rewrite. Newest first.
 - **Mouse clicks.** On top of the existing wheel scrolling, the mouse now
   clicks. In the explorer, git and git-log lists a click moves the cursor to the
   row (and activates that pane in two-pane view); a double-click opens it — a
-  file/dir, a changed file, or a commit's action menu. Clicking a directory's
+  file/dir, a changed file, or a commit's action menu. Ctrl+click toggles a
+  row's multi-selection in the explorer and git views (like Space). Clicking a directory's
   ▸/▾ caret in the explorer expands or collapses it inline. The same applies to
   the notes list (double-click edits a note) and the System process list (a
   click selects the row). Clicking the preview pane (or the other pane in

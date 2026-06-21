@@ -15,6 +15,7 @@ from prompt_toolkit.key_binding import DynamicKeyBindings, KeyBindings
 from prompt_toolkit.keys import Keys
 from prompt_toolkit.layout.containers import ScrollOffsets, Window
 from prompt_toolkit.layout.dimension import Dimension
+from prompt_toolkit.mouse_events import MouseModifier
 
 from .. import config
 from ..util.paths import human_size, norm, shorten_home
@@ -266,8 +267,9 @@ class ExplorerView:
 
     def _on_mouse(self, mouse_event):
         """Left-click moves the cursor to the clicked row (and activates this
-        pane in two-pane view). Clicking a directory's ▸/▾ caret expands or
-        collapses it inline; a double-click anywhere else on the row opens it."""
+        pane in two-pane view). Ctrl+click toggles the row's selection; clicking
+        a directory's ▸/▾ caret expands or collapses it inline; a double-click
+        anywhere else on the row opens it."""
         if self.app.consume_menu_click():
             return
         idx = self._top + mouse_event.position.y
@@ -276,6 +278,12 @@ class ExplorerView:
         self.app.focus_pane(self)
         self.cursor = idx
         entry = self.entries[idx]
+        # Ctrl+click toggles this row's multi-selection (like Space, but it stays
+        # put and never opens/expands)
+        if MouseModifier.CONTROL in getattr(mouse_event, "modifiers", frozenset()):
+            self._toggle_selection(entry)
+            self.app.invalidate()
+            return
         # the caret sits at: sel marker (2) + git marker (1) + leading space (1)
         # + indent (2 per depth) — see _formatted_text's row layout
         caret_col = 4 + 2 * entry.depth
@@ -336,12 +344,15 @@ class ExplorerView:
         entry = self.current()
         if entry is None:
             return
+        self._toggle_selection(entry)
+        self.move(1)  # toggle-and-advance
+        self.app.invalidate()
+
+    def _toggle_selection(self, entry):
         if entry.path in self.selected:
             self.selected.discard(entry.path)
         else:
             self.selected.add(entry.path)
-        self.move(1)  # toggle-and-advance
-        self.app.invalidate()
 
     def clear_selection(self):
         if self.selected:
