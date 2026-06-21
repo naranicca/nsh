@@ -1,8 +1,8 @@
 """Manage several :class:`ShellView` sessions as tabs.
 
 Only one session is visible at a time (its output + input line); a thin tab bar
-below the prompt lists the others and marks which ones still have a command
-running. A new session is spawned automatically when a command is entered while
+below the prompt lists the others; a tab whose command is still running is
+tinted orange. A new session is spawned automatically when a command is entered while
 the active session is busy, or explicitly with Ctrl-T.
 """
 from prompt_toolkit.layout.containers import (
@@ -103,15 +103,19 @@ class ShellTabs:
         frags = []
         for i, s in enumerate(self.sessions):
             active = i == self.active
-            base = "class:shell.tab.active" if active else "class:shell.tab"
+            busy = s.busy()
+            # a still-running tab goes orange (the active variant fills the tab so
+            # the blue highlight doesn't fight the orange)
+            if active:
+                base = "class:shell.tab.active.busy" if busy else "class:shell.tab.active"
+            else:
+                base = "class:shell.tab.busy" if busy else "class:shell.tab"
             label = cut_to_width(s.custom_title or s.title or "shell", MAX_TAB_LABEL)
             frags.append((base, f" {i + 1}:{label} "))
-            # running indicator: a green dot, or a blank to keep the width steady.
-            # Layer the dot's green fg (shell.running carries no background) over
-            # the tab's own class so it keeps the tab background — the active
-            # tab's highlight, not a black block.
-            frags.append((f"{base} class:shell.running" if s.busy() else base,
-                          "●" if s.busy() else " "))
+            # a dot still marks a running command (a blank keeps the width steady
+            # so labels don't shift when it finishes); it rides the tab's own
+            # style, orange included.
+            frags.append((base, "●" if busy else " "))
             frags.append((base, " "))
             frags.append(("class:shell.tabbar", " "))
         return frags

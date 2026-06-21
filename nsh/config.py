@@ -79,7 +79,6 @@ STYLE_DEFAULTS = {
         "shell.path": "#5fffff",
         "shell.error": "#ff5f5f",
         "shell.elapsed": "#ffaf00",  # running-time counter before the prompt
-        "shell.busy": "#ffaf00 bold",  # the trailing $ while a command is running
         # finished-command run time, tinted by exit status (green ok / red fail)
         "shell.elapsed.ok": "bg:#5faf5f #000000 bold",
         "shell.elapsed.err": "bg:#ff5f5f #000000 bold",
@@ -87,10 +86,11 @@ STYLE_DEFAULTS = {
         "shell.tabbar": "bg:#1c1c1c",
         "shell.tab": "bg:#1c1c1c #999999",
         "shell.tab.active": "bg:#5f87af #ffffff bold",
-        # the running-dot fg only. Deliberately NOT under the "shell.tab."
-        # namespace: as a child it would re-apply shell.tab's background and
-        # wipe the active tab's highlight when layered on top of it.
-        "shell.running": "#5fff5f bold",
+        # a tab whose command is still running goes orange (matching the busy
+        # prompt's #ffaf00): orange text while inactive, an orange fill when it
+        # is the active tab so it stays legible.
+        "shell.tab.busy": "bg:#1c1c1c #ffaf00 bold",
+        "shell.tab.active.busy": "bg:#ffaf00 #000000 bold",
         # completion popup
         "completion-menu.completion": "bg:#303030 #d0d0d0",
         "completion-menu.completion.current": "bg:#5fafff #000000 bold",

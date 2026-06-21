@@ -45,8 +45,8 @@ Notable user-facing changes to the Python rewrite. Newest first.
 - **Shell tabs / multiple sessions.** Entering a command while the current one
   is still running opens it in a new shell tab instead of interleaving output;
   each tab has its own scrollback and process. Switch with Alt+←/→, open a tab
-  with Ctrl+T, close with Ctrl+W. A tab bar below the prompt marks which
-  sessions are still running.
+  with Ctrl+T, close with Ctrl+W. A tab bar below the prompt lists the
+  sessions, and any tab whose command is still running is tinted orange.
 - **Selected files seed the prompt.** Opening the command line from the explorer
   while files are selected drops their names (relative, quoted if they contain a
   space) into the empty prompt, ready to use as command arguments.
