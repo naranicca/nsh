@@ -36,6 +36,7 @@ class Entry:
     size: int
     mtime: int = 0  # st_mtime_ns (files only); used for change detection
     depth: int = 0  # indentation level when the listing is shown as a tree
+    is_parent: bool = False  # the synthetic ".." row (go to the parent dir)
 
 
 def _is_exec(dir_entry, name: str) -> bool:

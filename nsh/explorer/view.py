@@ -102,8 +102,15 @@ class ExplorerView:
 
     def _list(self):
         """The cwd listing flattened into a tree: each expanded directory's
-        contents follow it, indented one level deeper."""
-        return self._flatten(self.cwd, 0)
+        contents follow it, indented one level deeper. A ``..`` row is prepended
+        when the cwd has a parent, so you can step up without the keyboard."""
+        entries = self._flatten(self.cwd, 0)
+        parent = self.cwd.parent
+        if parent != self.cwd:  # not already at a filesystem / drive root
+            entries.insert(0, model.Entry(
+                path=parent, name="..", is_dir=True, is_link=False,
+                is_exec=False, is_image=False, size=0, is_parent=True))
+        return entries
 
     def _flatten(self, directory, depth):
         out = []
@@ -117,11 +124,19 @@ class ExplorerView:
                 out.extend(self._flatten(e.path, depth + 1))
         return out
 
+    def first_index(self):
+        """The first selectable row — skips a leading ``..`` so entering a
+        directory lands on real content rather than the parent shortcut."""
+        return 1 if (self.entries and self.entries[0].is_parent
+                     and len(self.entries) > 1) else 0
+
     def load(self):
         self.entries = self._list()
         self._signature = self._sig(self.entries)
         if self.cursor >= len(self.entries):
             self.cursor = max(0, len(self.entries) - 1)
+        if self.cursor == 0:  # don't rest on the leading ".." by default
+            self.cursor = self.first_index()
 
     def _apply_listing(self, entries):
         """Swap in a fresh listing, keeping the cursor on the same entry."""
@@ -131,7 +146,9 @@ class ExplorerView:
         self._signature = self._sig(entries)
         if self.selected:  # drop selections that no longer exist
             self.selected &= {e.path for e in entries}
-        self.cursor = 0
+        # default to the first real row; restore the previous entry if it's still
+        # here (including ".." itself, so a refresh keeps the cursor put)
+        self.cursor = self.first_index()
         if cur_path is not None:
             for i, e in enumerate(entries):
                 if e.path == cur_path:
@@ -209,7 +226,7 @@ class ExplorerView:
             marker = config.GIT_SYMBOL.get(code, " ")
             mstyle = config.GIT_STYLE.get(code, "")
             estyle = "class:explorer.selected" if sel else config.entry_style(e)
-            name = e.name + ("/" if e.is_dir else "")
+            name = ".." if e.is_parent else e.name + ("/" if e.is_dir else "")
             size = "" if e.is_dir else human_size(e.size)
             # on the cursor row the size uses the row (name) style so the "reverse"
             # highlight stays one solid colour instead of a darker grey block at
@@ -220,8 +237,12 @@ class ExplorerView:
             # shrinks to match so the size column stays put.
             indent = "  " * e.depth
             nw = max(4, name_w - len(indent))
-            # expanded directories get a down-pointing caret instead of ▸
-            icon = "▾" if (e.is_dir and e.path in self.expanded) else config.entry_icon(e)
+            # expanded directories get a down-pointing caret instead of ▸; the
+            # ".." row has no caret (it isn't expandable)
+            if e.is_parent:
+                icon = " "
+            else:
+                icon = "▾" if (e.is_dir and e.path in self.expanded) else config.entry_icon(e)
             # the row being renamed shows an editable name cell instead of the name
             if self._renaming and on:
                 name_frags = self._rename_name_fragments(nw)
@@ -260,7 +281,10 @@ class ExplorerView:
         entry = self.current()
         if entry is None:
             return
-        if entry.is_dir:
+        if entry.is_parent:
+            # step up, landing the cursor on the directory we're leaving
+            self.app.set_cwd(self.cwd.parent, select_name=self.cwd.name)
+        elif entry.is_dir:
             self.app.set_cwd(entry.path)
         else:
             self.app.open_file(entry.path)
@@ -287,7 +311,7 @@ class ExplorerView:
         # the caret sits at: sel marker (2) + git marker (1) + leading space (1)
         # + indent (2 per depth) — see _formatted_text's row layout
         caret_col = 4 + 2 * entry.depth
-        if entry.is_dir and mouse_event.position.x == caret_col:
+        if entry.is_dir and not entry.is_parent and mouse_event.position.x == caret_col:
             self.toggle_expand()
         elif self.app.double_click(("explorer", id(self)), idx):
             self.open()
@@ -300,7 +324,7 @@ class ExplorerView:
         symlinks to files (is_dir=False) are not.
         """
         entry = self.current()
-        if entry is None or not entry.is_dir:
+        if entry is None or not entry.is_dir or entry.is_parent:
             return
         if entry.path in self.expanded:
             self.expanded.discard(entry.path)
@@ -349,6 +373,8 @@ class ExplorerView:
         self.app.invalidate()
 
     def _toggle_selection(self, entry):
+        if entry.is_parent:  # the ".." row is navigation only, never selectable
+            return
         if entry.path in self.selected:
             self.selected.discard(entry.path)
         else:
@@ -384,8 +410,9 @@ class ExplorerView:
             return set()
         if any(c in pat for c in "*?["):
             return {e.path for e in self.entries
-                    if fnmatch.fnmatchcase(e.name.lower(), pat)}
-        return {e.path for e in self.entries if pat in e.name.lower()}
+                    if not e.is_parent and fnmatch.fnmatchcase(e.name.lower(), pat)}
+        return {e.path for e in self.entries
+                if not e.is_parent and pat in e.name.lower()}
 
     def _set_pattern_selection(self, pattern):
         self.selected.clear()
@@ -466,7 +493,7 @@ class ExplorerView:
             # preserve listing order, drop anything that has since vanished
             return [e.path for e in self.entries if e.path in self.selected]
         entry = self.current()
-        return [entry.path] if entry else []
+        return [entry.path] if entry and not entry.is_parent else []
 
     # -- file operations ------------------------------------------------------
     def copy_entry(self):
@@ -615,7 +642,7 @@ class ExplorerView:
     def rename_entry(self):
         """Begin editing the cursor row's name in place (no dialog)."""
         entry = self.current()
-        if entry is None:
+        if entry is None or entry.is_parent:
             return
         self._rename_entry = entry
         self._rename_text = entry.name

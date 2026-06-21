@@ -1323,8 +1323,9 @@ class NshApp:
         self.explorer.selected.clear()
         self.explorer.expanded.clear()  # the tree is relative to the old cwd
         self.explorer.load()
-        # put the cursor on ``select_name`` (e.g. the directory we came up from)
-        self.explorer.cursor = 0
+        # put the cursor on ``select_name`` (e.g. the directory we came up from),
+        # else the first real row (past the leading "..")
+        self.explorer.cursor = self.explorer.first_index()
         if select_name:
             for i, e in enumerate(self.explorer.entries):
                 if e.name == select_name:

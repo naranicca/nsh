@@ -119,6 +119,11 @@ Notable user-facing changes to the Python rewrite. Newest first.
   into the other pane's directory and `x` moves it there — each after a confirm
   dialog, since it's easy to hit the wrong key. In single-pane the keys keep
   their usual copy/cut-to-clipboard behaviour.
+- **`..` parent row.** The listing starts with a `..` entry whenever the
+  current directory has a parent (so not at a drive / filesystem root); opening
+  it (Enter or double-click) steps up, landing the cursor on the directory you
+  left. It's navigation-only — never selected, renamed, deleted or expanded —
+  and entering a directory skips past it onto the first real row.
 - **Expand folders inline**: on a directory the Right arrow / `l` expands its
   contents as an indented tree under it (and again to collapse); the caret turns
   from `▸` to `▾`. Enter opens a file or enters a directory. Inside an expanded
