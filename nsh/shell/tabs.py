@@ -100,6 +100,17 @@ class ShellTabs:
 
         self.app.open_input_dialog("Rename tab", current, len(current), _apply)
 
+    def request_close(self, session=None):
+        """Close a tab, but if its command is still running, confirm first."""
+        session = session or self.current()
+        if session.busy():
+            label = session.custom_title or session.title or "shell"
+            self.app.confirm(
+                f"'{label}' is still running. Close the tab and stop it?",
+                lambda ok: self.close(session) if ok else None)
+        else:
+            self.close(session)
+
     def close(self, session=None):
         """Close a tab (default: the active one); its process is killed.
 
@@ -122,23 +133,31 @@ class ShellTabs:
     # -- rendering ------------------------------------------------------------
     def _on_mouse(self, mouse_event):
         """Switch to the tab under the click (x maps through the spans recorded
-        while rendering the bar). With a menu open the click dismisses it."""
+        while rendering the bar); a double-click closes it. With a menu open the
+        click dismisses it."""
         if self.app.consume_menu_click():
             return
         x = mouse_event.position.x
         for start, end, idx in self._tab_spans:
             if start <= x < end:
-                self.select(idx)
+                if self.app.double_click(("shelltab",), idx):
+                    self.request_close(self.sessions[idx])
+                else:
+                    self.select(idx)
                 return
 
     def _on_overview_mouse(self, mouse_event):
-        """Click on the out-of-shell-mode bar: jump into that shell tab."""
+        """Click on the out-of-shell-mode bar: jump into that shell tab (a
+        double-click closes it instead)."""
         if self.app.consume_menu_click():
             return
         x = mouse_event.position.x
         for start, end, idx in self._tab_spans:
             if start <= x < end:
-                self.app.open_shell_tab(idx)
+                if self.app.double_click(("shelltab",), idx):
+                    self.request_close(self.sessions[idx])
+                else:
+                    self.app.open_shell_tab(idx)
                 return
 
     def _tabbar_text(self):

@@ -262,8 +262,9 @@ Notable user-facing changes to the Python rewrite. Newest first.
   the shell is focused closes the shell and moves focus to the clicked pane. A
   click in any popup menu
   invokes that row directly (and a click anywhere outside an open menu dismisses
-  it, like Esc), and clicking a shell tab switches to it (the wheel cycles
-  tabs). Clicking the `nsh` label at the left of the title bar opens the nsh
+  it, like Esc), and clicking a shell tab switches to it while a double-click
+  closes it — with a confirm first if that tab's command is still running (the
+  wheel cycles tabs). Clicking the `nsh` label at the left of the title bar opens the nsh
   (F10) menu. Dialog buttons (OK / Cancel) and the find dialog's *case
   sensitive* / *whole word* checkboxes are clickable too. The status bar's
   shortcut hints are clickable — clicking a hint (its key or its label) runs that
