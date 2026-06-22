@@ -293,6 +293,10 @@ Notable user-facing changes to the Python rewrite. Newest first.
   *System*, *Preferences* — which opens your `nshrc` in the editor
   (seeding the default first if it doesn't exist) — and *About*, a centered
   dialog showing the version and GitHub URL.
+- **Menu colours in the config template.** The seeded `nshrc` now lists the
+  popup action-menu styles (`menu` for its background, plus `menu.title` /
+  `menu.item` / `menu.selected`) among the `[colors]` examples, so they're easy
+  to find and override — the override itself already worked for any style class.
 - **Live config reload.** Saving an edit to `nshrc` — remapped keys, colours —
   now applies within a second without restarting nsh (a *config reloaded*
   message confirms it), whether you edited it from *Preferences* or in another

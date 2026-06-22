@@ -263,6 +263,9 @@ DEFAULT_NSHRC = """\
 # titlebar.clock = bg:#303030 #d0d0d0 bold
 # shell.command = #5fafff bold
 # shell.string = #ffff87
+# menu = bg:#1c1c1c            (popup action-menu background)
+# menu.title = bg:#5f87af #ffffff bold
+# menu.item = bg:#1c1c1c #d0d0d0
 # menu.selected = bg:#5fafff #000000 bold
 
 [keys]
