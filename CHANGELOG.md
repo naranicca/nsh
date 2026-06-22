@@ -247,11 +247,14 @@ Notable user-facing changes to the Python rewrite. Newest first.
   at the far left opens notes, like Ctrl+N.
 - **Process manager** (*System* in the F10 menu): a small task manager. A header
   shows overall CPU, memory and disk usage as bars; below it a scrolling,
-  cursor-selectable list of the running processes with their CPU% / MEM% / RSS.
-  `c` sorts by CPU, `m` by memory, `n` by name (A→Z); `/` filters the list by
-  process name or PID (Esc clears it); `x` terminates the selected process and `K`
+  cursor-selectable list of the running processes with their CPU% / MEM% / RSS
+  and full command line (with arguments — falling back to the process name when
+  the command line can't be read). `c` sorts by CPU, `m` by memory, `n` by name
+  (A→Z); `/` filters the list by command line or PID (Esc clears it); `x`
+  terminates the selected process and `K`
   force-kills it (each with a confirm); `r` refreshes and the list re-samples
-  every couple of seconds on its own. No third-party deps — it reads ctypes +
+  every couple of seconds on its own. `Ctrl+N` opens Notes from here too. No
+  third-party deps — it reads ctypes +
   PowerShell on Windows, `/proc` on Linux and `ps`/`sysctl` on macOS, degrading
   to *n/a* for anything it can't read. Esc returns to the explorer.
 - **Notes** (`Ctrl+N`, or *Notes* in the F10 menu): a scratch pad of multi-line

@@ -17,7 +17,9 @@ from collections import namedtuple
 IS_WIN = os.name == "nt"
 IS_MAC = sys.platform == "darwin"
 
-Proc = namedtuple("Proc", "pid name cpu mem rss")  # cpu/mem are percentages
+Proc = namedtuple("Proc", "pid name cmd cpu mem rss")  # cpu/mem are percentages
+# name is the short process name (used to sort / in the kill prompt); cmd is the
+# full command line with arguments (shown in the list), falling back to name.
 Snapshot = namedtuple("Snapshot", "cpu mem_used mem_total disk_used disk_total procs")
 
 _NO_WINDOW = 0x08000000  # CREATE_NO_WINDOW, so PowerShell never flashes a console
@@ -214,10 +216,16 @@ class Monitor:
         return self._posix_processes()
 
     def _win_processes(self, mem_total):
+        # Get-Process gives CPU seconds + working set; the full command line
+        # lives on Win32_Process, so build a PID->CommandLine map and graft it
+        # on. CommandLine is null for processes we can't open (system / other
+        # users) -> the row's Cmd comes back empty and we fall back to the name.
         out = _run([
             "powershell", "-NoProfile", "-NonInteractive", "-Command",
-            "Get-Process | Select-Object Id,ProcessName,CPU,WorkingSet64 | "
-            "ConvertTo-Csv -NoTypeInformation",
+            "$c=@{}; Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |"
+            " ForEach-Object { $c[[int]$_.ProcessId]=$_.CommandLine };"
+            " Get-Process | Select-Object Id,ProcessName,CPU,WorkingSet64,"
+            "@{N='Cmd';E={$c[[int]$_.Id]}} | ConvertTo-Csv -NoTypeInformation",
         ])
         now = time.monotonic()
         elapsed = (now - self._prev_proc_t) if self._prev_proc_t else None
@@ -245,13 +253,16 @@ class Monitor:
                 delta = cpu_sec - self._prev_proc[pid]
                 cpu_pct = max(0.0, min(100.0, 100.0 * delta / (elapsed * self.ncpu)))
             mem_pct = (100.0 * rss / mem_total) if mem_total else 0.0
-            procs.append(Proc(pid, name, cpu_pct, mem_pct, rss))
+            cmd = (row.get("Cmd") or "").strip() or name
+            procs.append(Proc(pid, name, cmd, cpu_pct, mem_pct, rss))
         self._prev_proc = cur_cpu
         return procs
 
     def _posix_processes(self):
-        # ps gives %cpu, %mem and rss (KiB) directly — no sampling needed
-        out = _run(["ps", "-eo", "pid=,pcpu=,pmem=,rss=,comm="])
+        # ps gives %cpu, %mem and rss (KiB) directly — no sampling needed.
+        # args is the full command line; the short name is the basename of its
+        # first token (argv[0]).
+        out = _run(["ps", "-eo", "pid=,pcpu=,pmem=,rss=,args="])
         procs = []
         for line in out.splitlines():
             parts = line.split(None, 4)
@@ -264,8 +275,10 @@ class Monitor:
                 rss = int(parts[3]) * 1024
             except ValueError:
                 continue
-            name = os.path.basename(parts[4].strip()) or "?"
-            procs.append(Proc(pid, name, cpu, mem, rss))
+            cmd = parts[4].strip()
+            argv0 = cmd.split()[0] if cmd else ""
+            name = os.path.basename(argv0) or "?"
+            procs.append(Proc(pid, name, cmd or name, cpu, mem, rss))
         return procs
 
 

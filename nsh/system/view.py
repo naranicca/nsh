@@ -150,7 +150,8 @@ class SystemView:
         q = self._query()
         if not q:
             return self.procs
-        return [p for p in self.procs if q in p.name.lower() or q in str(p.pid)]
+        return [p for p in self.procs
+                if q in (p.cmd or p.name).lower() or q in str(p.pid)]
 
     def _visible_count(self):
         return len(self._visible())
@@ -346,7 +347,7 @@ class SystemView:
             on = i == self.cursor
             row = (f" {p.pid:>{W_PID}} {p.cpu:>{W_CPU}.1f} {p.mem:>{W_MEM}.1f} "
                    f"{human_size(p.rss):>{W_RSS}} ")
-            name = cut_to_width(p.name, name_w)
+            name = cut_to_width(p.cmd or p.name, name_w)
             cell = row + name
             base = "class:system.row.sel" if on else "class:system.row"
             frags.append((base, pad_to_width(cell, cols - sb)))

@@ -328,8 +328,8 @@ class NshApp:
             self.open_find()
 
         # Ctrl+N: Notes (a scratch pad of multi-line notes). Available from the
-        # explorer, the git view, and the shell.
-        notes_modes = Condition(lambda: self.mode in (EXPLORER, GIT, SHELL))
+        # explorer, the git view, the shell, and the process manager.
+        notes_modes = Condition(lambda: self.mode in (EXPLORER, GIT, SHELL, SYSTEM))
 
         @kb.add("c-n", filter=~overlay_open & notes_modes)
         def _(event):
@@ -960,6 +960,7 @@ class NshApp:
                 ("x", "kill", lambda: self.systemview.kill_selected(False)),
                 ("K", "force", lambda: self.systemview.kill_selected(True)),
                 ("r", "refresh", lambda: asyncio.ensure_future(self.systemview.refresh())),
+                ("^N", "note", self.open_notes),
                 ("ESC", "back", lambda: self.switch_mode(EXPLORER)),
             ]
         else:
@@ -1098,7 +1099,8 @@ class NshApp:
 
     # -- notes ----------------------------------------------------------------
     def open_notes(self):
-        self._notes_return = self.mode if self.mode in (EXPLORER, GIT, SHELL) else EXPLORER
+        self._notes_return = (self.mode if self.mode in (EXPLORER, GIT, SHELL, SYSTEM)
+                              else EXPLORER)
         self.switch_mode(NOTES)
 
     def leave_notes(self):
