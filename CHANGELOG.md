@@ -19,6 +19,14 @@ Notable user-facing changes to the Python rewrite. Newest first.
   rest of the session, so later commands — in any tab — inherit it (`echo $a`
   prints `10`). Quoting, `$other` expansion and `$(…)` all work. (POSIX shells /
   Git Bash.)
+- **`source` persists too.** `source FILE` (or `. FILE`) used to be lost — each
+  command runs in its own subprocess, so the script's functions / aliases /
+  variables vanished before the next command. nsh now remembers each sourced
+  file and silently re-sources it ahead of every later command, so its functions
+  and variables stay usable for the rest of the session (in any tab). The files
+  are re-sourced each command, so a script meant only to define helpers is ideal;
+  one with side effects would repeat them (their output is suppressed). (POSIX
+  shells / Git Bash.)
 - **Tab-completion menu navigation.** When there's a single candidate, Tab
   applies it directly without a menu; a unique directory is entered and the menu
   of its contents opens without pre-selecting an item (the focus stays on the

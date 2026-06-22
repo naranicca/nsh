@@ -145,6 +145,10 @@ class NshApp:
         # shell variables set with a bare `a=10` line; shared by every tab and
         # passed to each child command's environment (see CommandRunner).
         self.shell_vars = {}
+        # files the user `source`d: each command runs in its own subprocess, so a
+        # sourced script's functions/aliases/vars would vanish — instead we re-
+        # source these (silently) ahead of every later command (see CommandRunner).
+        self.sourced_files = []
         # two side-by-side explorer panes (Norton/MC-style). In single-pane mode
         # only the active pane is shown; in two-pane mode both are, and F7/F8
         # switch which one is active (and holds the cursor). Each pane keeps its
@@ -1240,12 +1244,27 @@ class NshApp:
         if session.busy():
             session = self.shells.new_session()
         session.title = self._cmd_title(cmd)
+        # a `source FILE` line: each command runs in its own subprocess, so note
+        # the file and re-source it ahead of every later command (CommandRunner)
+        src = session.runner.sourced_file(cmd)
+        if src:
+            self._record_source(src)
         # echo the command first: it bakes the previous command's run-time badge
         # into the scrolled-up line, so reset only clears the live prompt below.
         session.append_command(cmd)
         session.runner.reset_result()  # clear the previous command's status tint
         if not self._handle_builtin(session, cmd):
             asyncio.ensure_future(self._exec(session, cmd))
+
+    def _record_source(self, raw):
+        """Remember a `source`d file (resolved to an absolute path) so it's
+        re-sourced before later commands. Skipped if the file doesn't exist."""
+        path = os.path.expanduser(raw)
+        if not os.path.isabs(path):
+            path = os.path.join(str(self.cwd), path)
+        path = os.path.normpath(path)
+        if os.path.isfile(path) and path not in self.sourced_files:
+            self.sourced_files.append(path)
 
     @staticmethod
     def _cmd_title(cmd):

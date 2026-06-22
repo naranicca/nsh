@@ -240,6 +240,41 @@ class CommandRunner:
             names.append(m.group(1))
         return names
 
+    def sourced_file(self, command: str):
+        """If ``command`` is a plain ``source FILE`` / ``. FILE`` line, return its
+        FILE argument, else ``None``.
+
+        Each command runs in its own subprocess, so a ``source``d script's
+        functions/aliases/variables don't survive into the next command. nsh
+        notes the file here and re-sources it ahead of every later command (see
+        :meth:`sourced_prefix`). Compound lines (``; | & `` …) are skipped — they
+        may have side effects we must not re-run. POSIX shells only.
+        """
+        if not self._is_posix:
+            return None
+        line = command.strip()
+        if not line or any(c in line for c in ";|&\n`"):
+            return None
+        try:
+            tokens = shlex.split(line)
+        except ValueError:
+            return None
+        if len(tokens) >= 2 and tokens[0] in (".", "source"):
+            return tokens[1]
+        return None
+
+    def sourced_prefix(self) -> str:
+        """A shell snippet that silently re-sources every file the user has
+        ``source``d, to be prepended to a command so its functions/aliases/vars
+        are in scope. Empty when nothing's been sourced (or on cmd/PowerShell)."""
+        files = getattr(self.app, "sourced_files", None)
+        if not files or not self._is_posix:
+            return ""
+        dots = " ".join(f". {shlex.quote(f)} ;" for f in files)
+        # group + redirect so the re-source itself prints nothing and a missing
+        # file can't abort the real command (which follows the ';')
+        return "{ " + dots + " } >/dev/null 2>&1 ; "
+
     async def eval_assignment(self, command: str):
         """Evaluate a bare assignment line once and store it in nsh's own env.
 
@@ -391,6 +426,8 @@ class CommandRunner:
         self._interrupted = False
         self._started_at = time.monotonic()
         self._tail = ""
+        # bring any `source`d scripts' functions/aliases/vars into scope first
+        command = self.sourced_prefix() + command
         kwargs = dict(
             cwd=str(self.app.cwd),
             env=self._child_env(allow_prompt=allow_prompt),
@@ -466,7 +503,8 @@ class CommandRunner:
         # own quotes — a [cmd, "/c", command] list would let list2cmdline escape
         # the inner quotes (e.g. a quoted path) into \" and mis-parse.
         if self._is_posix:
-            argv, kwargs = [self.shell, *self.shell_args, command], {}
+            sourced = self.sourced_prefix() + command  # sourced funcs in scope
+            argv, kwargs = [self.shell, *self.shell_args, sourced], {}
         else:
             argv, kwargs = command, {"shell": True}
 
