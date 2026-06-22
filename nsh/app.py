@@ -1104,17 +1104,12 @@ class NshApp:
         self.switch_mode(NOTES)
 
     def leave_notes(self):
-        """Leave notes mode. If the editbox holds an unsaved draft, ask whether
-        to save it first."""
+        """Leave notes mode, auto-saving any unsaved draft in the editbox (no
+        prompt) so nothing is lost on the way out."""
         dest = getattr(self, "_notes_return", EXPLORER)
         if self.notesview.input.text.strip():
-            def resolve(save):
-                if save:
-                    self.notesview.save_note()
-                self.switch_mode(dest)
-            self.confirm("Save the note you're writing?", resolve)
-        else:
-            self.switch_mode(dest)
+            self.notesview.save_note()
+        self.switch_mode(dest)
 
     # -- system (process manager) ---------------------------------------------
     def open_system(self):

@@ -232,7 +232,8 @@ Notable user-facing changes to the Python rewrite. Newest first.
   file/dir, a changed file, or a commit's action menu. Ctrl+click toggles a
   row's multi-selection in the explorer and git views (like Space). Clicking a directory's
   ▸/▾ caret in the explorer expands or collapses it inline. The same applies to
-  the notes list (double-click edits a note) and the System process list (a
+  the notes list (double-click edits a note; clicking the editbox above moves
+  focus there to start writing) and the System process list (a
   click selects the row; clicking the `CPU%` / `MEM%` / `PROC` column header
   sorts by it). Clicking the preview pane (or the other pane in
   two-pane view) moves the focus there. A click in any popup menu
@@ -275,7 +276,8 @@ Notable user-facing changes to the Python rewrite. Newest first.
   editbox is blue while the editbox is active (typing / editing) and grey once
   the cursor moves down into the list; the list's selection highlight only
   shows while the list is focused (it's hidden while you edit a note above).
-  Notes persist in `~/.config/nsh/notes.json`. Esc returns to the explorer.
+  Notes persist in `~/.config/nsh/notes.json`. Esc returns to the explorer,
+  auto-saving any unsaved draft still in the editbox first (no prompt).
 - **Find** (`Ctrl+F`, or *Find* in the F10 menu): asks whether to search file
   *contents* or file *names*. **Text** opens a small form — the phrase plus
   *case sensitive* and *whole word* checkboxes (Tab/↑↓ between fields, Space

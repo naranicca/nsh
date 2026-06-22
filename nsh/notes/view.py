@@ -72,8 +72,10 @@ class NotesView:
         self._searching = False  # the search bar is open / filtering
 
         self.input = Buffer(multiline=True)
+        # focus_on_click so clicking anywhere in the editbox (including its empty
+        # rows) moves focus here from the notes list below
         self.input_control = BufferControl(
-            self.input, key_bindings=self._input_kb())
+            self.input, key_bindings=self._input_kb(), focus_on_click=True)
         self.search_buffer = Buffer(multiline=False, on_text_changed=self._on_search)
         self.search_control = BufferControl(
             self.search_buffer, key_bindings=self._search_kb())
