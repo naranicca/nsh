@@ -6,6 +6,8 @@ only active while the explorer has focus.
 """
 import asyncio
 import fnmatch
+import os
+import stat
 from pathlib import Path
 
 from prompt_toolkit.application.current import get_app
@@ -643,6 +645,38 @@ class ExplorerView:
             await self.app.refresh_git()
         asyncio.ensure_future(do())
 
+    def chmod_entry(self):
+        """Open the permission grid for the target(s), seeded from the first
+        one's current mode, and apply the chosen mode to all of them."""
+        targets = self._targets()
+        if not targets:
+            return
+        try:
+            mode = stat.S_IMODE(os.stat(targets[0]).st_mode)
+        except OSError:
+            mode = 0o644
+        name = (targets[0].name if len(targets) == 1
+                else f"{len(targets)} items")
+        self.app.open_chmod_dialog(
+            f"Permissions · {name}", mode,
+            lambda m: self._do_chmod(targets, m))
+
+    def _do_chmod(self, targets, mode):
+        done, err = 0, None
+        for path in targets:
+            try:
+                os.chmod(path, mode)
+                done += 1
+            except OSError as exc:
+                err = f"{path.name}: {exc}"
+        self.selected.clear()
+        self.refresh_listing()
+        if err:
+            self.app.set_message(err)
+        else:
+            self.app.set_message(f"chmod {mode:03o} · {done} item(s)")
+        self.app.invalidate()
+
     def rename_entry(self):
         """Begin editing the cursor row's name in place (no dialog)."""
         entry = self.current()
@@ -802,6 +836,10 @@ class ExplorerView:
             items.append(("Paste", self.paste))
         if has_target:
             items += [("Rename", self.rename_entry), ("Delete", self.delete_entry)]
+            # chmod is a POSIX concept; on Windows it has essentially no effect,
+            # so only offer it where it means something
+            if os.name != "nt":
+                items.append(("chmod…", self.chmod_entry))
         items += [("New folder", self.new_dir), ("New file", self.new_file)]
         if self.app.git_status and self.app.git_status.is_repo:
             gs = self.app.git_status

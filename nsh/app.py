@@ -43,7 +43,8 @@ from .shell.quoting import quote_arg, unquote_body
 from .shell.runner import CommandRunner
 from .shell.tabs import ShellTabs
 from .util.bookmarks import Bookmarks
-from .util.dialog import ConfirmDialog, FindTextDialog, InfoDialog, InputDialog
+from .util.dialog import (
+    ChmodDialog, ConfirmDialog, FindTextDialog, InfoDialog, InputDialog)
 from .util.menu import Menu
 from .util.paths import shorten_home
 from .util.widgets import WheelScrollControl
@@ -183,6 +184,7 @@ class NshApp:
         self.confirm_dialog = ConfirmDialog(self._dialog_closed)
         self.about_dialog = InfoDialog(self._dialog_closed)
         self.find_dialog = FindTextDialog(self._dialog_closed)
+        self.chmod_dialog = ChmodDialog(self._dialog_closed)
 
         self.application = self._build_application()
 
@@ -325,7 +327,9 @@ class NshApp:
         dialog_open = Condition(lambda: self.dialog.active)
         about_open = Condition(lambda: self.about_dialog.active)
         find_open = Condition(lambda: self.find_dialog.active)
-        overlay_open = confirm_open | menu_open | dialog_open | about_open | find_open
+        chmod_open = Condition(lambda: self.chmod_dialog.active)
+        overlay_open = (confirm_open | menu_open | dialog_open | about_open
+                        | find_open | chmod_open)
 
         kb = KeyBindings()
 
@@ -663,6 +667,7 @@ class NshApp:
                 Float(content=self.confirm_dialog.container),
                 Float(content=self.about_dialog.container),
                 Float(content=self.find_dialog.container),
+                Float(content=self.chmod_dialog.container),
             ],
         )
 
@@ -1466,6 +1471,13 @@ class NshApp:
         self.application.layout.focus(self.confirm_dialog.control)
         self.invalidate()
 
+    def open_chmod_dialog(self, title, mode, on_accept):
+        """Show the permission grid seeded with ``mode``; ``on_accept(mode_int)``
+        gets the chosen 0-0o777 value."""
+        self.chmod_dialog.open(title, mode, on_accept)
+        self.application.layout.focus(self.chmod_dialog.control)
+        self.invalidate()
+
     # -- action menu ----------------------------------------------------------
     def open_menu(self, title, items, on_close=None):
         self.menu.open(title, items, on_close)
@@ -1559,7 +1571,8 @@ class NshApp:
         """True while any popup (menu / dialog) is up — keys shouldn't fall
         through to the panes then."""
         return (self.menu.active or self.dialog.active or self.confirm_dialog.active
-                or self.about_dialog.active or self.find_dialog.active)
+                or self.about_dialog.active or self.find_dialog.active
+                or self.chmod_dialog.active)
 
     def _zoom_active(self):
         """Zoom only reshapes a split that's actually on screen: the explorer,

@@ -195,6 +195,12 @@ Notable user-facing changes to the Python rewrite. Newest first.
   an unmodified or no file. The forced mark is temporary: it's cleared once the
   menu closes (whether an action ran or it was cancelled), while a real
   selection you made yourself is left untouched.
+- **chmod** (action menu → *chmod…*, POSIX only): a permission editor for the
+  selected file(s). A 3×3 grid of rwx toggles for owner / group / other with a
+  live `rwxr-xr-x (755)` readout; arrow keys / Tab / Space move and toggle, a
+  digit 0-7 sets a whole row at once, and every cell and button is clickable.
+  The grid is seeded from the first target's current mode and the chosen mode is
+  applied to all selected items.
 - **Symlinked directories keep their logical path** (`cd -L`): entering a
   symlinked subdir shows the path you followed (not the link target), and going
   up returns to the directory that holds the link instead of the target's real

@@ -4,6 +4,7 @@
 ``ConfirmDialog`` — a message with Yes / No buttons.
 ``InfoDialog`` — read-only text with an OK button.
 ``FindTextDialog`` — a phrase plus case-sensitive / whole-word toggles.
+``ChmodDialog`` — a 3×3 rwx grid (owner/group/other) with a live octal readout.
 
 All: arrow keys / Tab move between fields/buttons, Enter runs the primary action,
 Esc dismisses.
@@ -456,6 +457,199 @@ class FindTextDialog:
                 self._accept()
             elif self.focus == self._CANCEL:
                 self._close()
+
+        @kb.add("enter")
+        def _(event):
+            if self.focus == self._CANCEL:
+                self._close()
+            else:
+                self._accept()
+
+        @kb.add("escape")
+        @kb.add("c-c")
+        def _(event):
+            self._close()
+
+        return kb
+
+
+class ChmodDialog:
+    """Edit Unix permissions on a 3×3 grid: rows are owner / group / other, the
+    columns are read / write / execute. A live readout shows the symbolic mode
+    (``rwxr-xr-x``) and its octal value (``755``).
+
+    Arrow keys (or h/j/k/l) move around the grid and down to the OK / Cancel
+    buttons; Tab cycles every cell and button; Space toggles the focused cell or
+    presses the focused button; a digit 0-7 typed over a row sets that row's
+    three bits at once; Enter applies; Esc cancels. Every cell and button is also
+    clickable."""
+
+    # focus indices: 0-8 the grid cells (row-major), 9 OK, 10 Cancel
+    _OK, _CANCEL = 9, 10
+    _ROWS = ("Owner", "Group", "Other")
+
+    def __init__(self, on_close):
+        self._on_close = on_close
+        self.active = False
+        self.title = ""
+        self._on_accept = None
+        self.bits = [False] * 9
+        self.focus = 0
+
+        self.control = FormattedTextControl(
+            self._render, focusable=True, show_cursor=False, key_bindings=self._kb()
+        )
+        body = HSplit(
+            [Window(self.control, height=9, width=Dimension.exact(WIDTH),
+                    align=WindowAlign.CENTER)],
+            style="class:dialog",
+            padding=0,
+        )
+        self.container = ConditionalContainer(
+            Frame(body, title=lambda: self.title),
+            filter=Condition(lambda: self.active),
+        )
+
+    def open(self, title, mode, on_accept):
+        """``mode`` is the initial permission bits (low 9 bits of st_mode);
+        ``on_accept(mode_int)`` receives the chosen 0-0o777 value."""
+        self.title = title
+        self._on_accept = on_accept
+        self.bits = [bool(mode & (1 << b)) for b in range(8, -1, -1)]
+        self.focus = 0
+        self.active = True
+
+    def _close(self):
+        self.active = False
+        self._on_accept = None
+        self._on_close()
+
+    def _mode(self):
+        m = 0
+        for i, on in enumerate(self.bits):
+            if on:
+                m |= 1 << (8 - i)
+        return m
+
+    def _accept(self):
+        cb = self._on_accept
+        mode = self._mode()
+        self._close()
+        if cb:
+            cb(mode)
+
+    # -- rendering ------------------------------------------------------------
+    def _symbolic(self):
+        return "".join(c if on else "-"
+                       for c, on in zip("rwxrwxrwx", self.bits))
+
+    def _cell(self, idx, letter):
+        on = self.bits[idx]
+        if self.focus == idx:
+            style = "class:dialog.button.focus"
+        elif on:
+            style = "class:dialog.button"
+        else:
+            style = "class:dialog"
+        return (style, f" [{letter if on else '-'}] ",
+                _on_click(lambda: self._toggle(idx)))
+
+    def _render(self):
+        # The window centres each line. The header and the three rows are built
+        # to the same width (a 7-col label + three 5-col cells) so they centre to
+        # the same offset and the r/w/x columns stay aligned; the readout and
+        # buttons centre on their own.
+        out = [("class:dialog", "\n")]
+        header = " " * 7 + "  r  " + "  w  " + "  x  "  # letters over the cells
+        out.append(("class:dialog", header + "\n"))
+        for r, name in enumerate(self._ROWS):
+            out.append(("class:dialog", f"{name}  "))   # 5-char name + 2 spaces
+            for c in range(3):
+                out.append(self._cell(r * 3 + c, "rwx"[c]))
+            out.append(("class:dialog", "\n"))
+        out.append(("class:dialog", "\n"))
+        out.append(("class:dialog.label",
+                    f"{self._symbolic()}   ({self._mode():03o})\n"))
+        out.append(("class:dialog", "\n"))
+        ok = ("class:dialog.button.focus" if self.focus == self._OK
+              else "class:dialog.button")
+        cancel = ("class:dialog.button.focus" if self.focus == self._CANCEL
+                  else "class:dialog.button")
+        out += [(ok, "  OK  ", _on_click(self._accept)),
+                ("class:dialog", "    "),
+                (cancel, "  Cancel  ", _on_click(self._close))]
+        return out
+
+    # -- editing / navigation -------------------------------------------------
+    def _toggle(self, idx):
+        self.focus = idx
+        self.bits[idx] = not self.bits[idx]
+
+    def _set_row(self, row, value):
+        """Set a row's three bits from an octal digit (0-7)."""
+        for c in range(3):
+            self.bits[row * 3 + c] = bool(value & (1 << (2 - c)))
+
+    def _pos(self):
+        if self.focus <= 8:
+            return self.focus // 3, self.focus % 3
+        return 3, 0 if self.focus == self._OK else 1
+
+    def _move(self, d_row, d_col):
+        row, col = self._pos()
+        new_row = max(0, min(3, row + d_row))
+        new_col = col + d_col
+        if new_row <= 2:
+            self.focus = new_row * 3 + max(0, min(2, new_col))
+        else:
+            self.focus = self._OK + max(0, min(1, new_col))
+
+    def _kb(self):
+        kb = KeyBindings()
+
+        @kb.add("left")
+        @kb.add("h")
+        def _(event):
+            self._move(0, -1)
+
+        @kb.add("right")
+        @kb.add("l")
+        def _(event):
+            self._move(0, 1)
+
+        @kb.add("up")
+        @kb.add("k")
+        def _(event):
+            self._move(-1, 0)
+
+        @kb.add("down")
+        @kb.add("j")
+        def _(event):
+            self._move(1, 0)
+
+        @kb.add("tab")
+        def _(event):
+            self.focus = (self.focus + 1) % 11
+
+        @kb.add("s-tab")
+        def _(event):
+            self.focus = (self.focus - 1) % 11
+
+        @kb.add(" ")
+        def _(event):
+            if self.focus <= 8:
+                self._toggle(self.focus)
+            elif self.focus == self._OK:
+                self._accept()
+            else:
+                self._close()
+
+        # type an octal digit to set the focused row at once (e.g. 7 = rwx)
+        for d in "01234567":
+            @kb.add(d)
+            def _(event, d=d):
+                if self.focus <= 8:
+                    self._set_row(self.focus // 3, int(d))
 
         @kb.add("enter")
         def _(event):
