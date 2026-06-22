@@ -297,10 +297,13 @@ class ExplorerView:
         anywhere else on the row opens it."""
         if self.app.consume_menu_click():
             return
+        # any click in this pane activates it (and closes the shell if focused),
+        # even on the empty area below the listing
+        self.app.focus_pane(self)
         idx = self._top + mouse_event.position.y
         if not (0 <= idx < len(self.entries)):
+            self.app.invalidate()
             return
-        self.app.focus_pane(self)
         self.cursor = idx
         entry = self.entries[idx]
         # Ctrl+click toggles this row's multi-selection (like Space, but it stays

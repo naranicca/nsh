@@ -37,6 +37,23 @@ class ShellTabs:
             DynamicContainer(lambda: self.current().container),
             self._tabbar,  # below the prompt; always shown, even with one tab
         ])
+        # a second copy of the bar shown outside shell mode (above the status
+        # bar) so open shells stay visible; clicking a tab jumps into it
+        self.overview_bar = Window(
+            WheelScrollControl(
+                lambda d: self.next() if d > 0 else self.prev(),
+                on_click=self._on_overview_mouse,
+                text=self._tabbar_text),
+            height=1,
+            style="class:shell.tabbar",
+        )
+
+    def has_open_shell(self) -> bool:
+        """True when there's a shell worth showing outside shell mode: more than
+        one tab, a running command, or a session with scrollback."""
+        if len(self.sessions) > 1:
+            return True
+        return any(s.busy() or s.lines for s in self.sessions)
 
     # -- access ---------------------------------------------------------------
     def current(self) -> ShellView:
@@ -112,6 +129,16 @@ class ShellTabs:
         for start, end, idx in self._tab_spans:
             if start <= x < end:
                 self.select(idx)
+                return
+
+    def _on_overview_mouse(self, mouse_event):
+        """Click on the out-of-shell-mode bar: jump into that shell tab."""
+        if self.app.consume_menu_click():
+            return
+        x = mouse_event.position.x
+        for start, end, idx in self._tab_spans:
+            if start <= x < end:
+                self.app.open_shell_tab(idx)
                 return
 
     def _tabbar_text(self):

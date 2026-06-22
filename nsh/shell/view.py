@@ -70,6 +70,9 @@ class ShellView:
             complete_while_typing=False,
             history=InMemoryHistory(),
             accept_handler=self._accept,
+            # typing while scrolled up jumps the view back to the bottom, so the
+            # (collapsed) input line reappears and you can see what you type
+            on_text_changed=self._on_command_changed,
         )
 
         # wrap_lines=True so long output stays readable. prompt_toolkit ignores
@@ -106,6 +109,12 @@ class ShellView:
     def _accept(self, buff):
         self.app.run_in_shell(self, buff.text)
         return False  # clear the input line
+
+    def _on_command_changed(self, _buff):
+        # follow the bottom as soon as the user starts typing (no-op when already
+        # following, so it doesn't fight a deliberate scroll-up that has no input)
+        if self.scroll_top is not None:
+            self.scroll_to_bottom()
 
     def busy(self) -> bool:
         return self.runner.is_running()

@@ -144,10 +144,12 @@ class PreviewView:
         self.app.invalidate()
 
     def _on_mouse(self, mouse_event):
-        """A click focuses the preview pane — unless a menu is open, in which
-        case the click just dismisses it (like Esc)."""
+        """A click focuses the preview pane (closing the shell if it was focused)
+        — unless a menu is open, in which case the click just dismisses it (like
+        Esc)."""
         if self.app.consume_menu_click():
             return
+        self.app.close_shell_if_open()
         self.focus()
 
     def _visible_height(self):

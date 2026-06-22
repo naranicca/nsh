@@ -51,7 +51,11 @@ Notable user-facing changes to the Python rewrite. Newest first.
   is still running opens it in a new shell tab instead of interleaving output;
   each tab has its own scrollback and process. Switch with Alt+←/→, open a tab
   with Ctrl+T, close with Ctrl+W. A tab bar below the prompt lists the
-  sessions, and any tab whose command is still running is tinted orange.
+  sessions, and any tab whose command is still running is tinted orange. The tab
+  bar also stays visible outside shell mode (just above the status bar) whenever
+  there's an open shell — a running command, multiple tabs, or one with
+  scrollback — so background shells aren't hidden; clicking a tab there jumps
+  straight into it.
 - **Selected files seed the prompt.** Opening the command line from the explorer
   while files are selected drops their names (relative, quoted if they contain a
   space) into the empty prompt, ready to use as command arguments.
@@ -70,6 +74,9 @@ Notable user-facing changes to the Python rewrite. Newest first.
   stop registering after running certain commands. Interactive tools still get a
   real terminal via the run-on-terminal path.
 - **Alt+Up / Alt+Down** scroll the output one line at a time.
+- **Typing jumps back to the bottom.** When you've scrolled up through the output
+  (which hides the input line), starting to type a command snaps the view back to
+  the newest line so the prompt reappears and you can see what you're typing.
 - **Correct non-UTF-8 output.** Output is decoded as UTF-8 with a fallback to
   the OS OEM code page (e.g. cp949), so localized tool/`cmd` messages render
   correctly.
@@ -251,7 +258,9 @@ Notable user-facing changes to the Python rewrite. Newest first.
   focus there to start writing) and the System process list (a
   click selects the row; clicking the `CPU%` / `MEM%` / `PROC` column header
   sorts by it). Clicking the preview pane (or the other pane in
-  two-pane view) moves the focus there. A click in any popup menu
+  two-pane view) moves the focus there. Clicking the explorer or preview while
+  the shell is focused closes the shell and moves focus to the clicked pane. A
+  click in any popup menu
   invokes that row directly (and a click anywhere outside an open menu dismisses
   it, like Esc), and clicking a shell tab switches to it (the wheel cycles
   tabs). Clicking the `nsh` label at the left of the title bar opens the nsh

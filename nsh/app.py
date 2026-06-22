@@ -16,6 +16,7 @@ from prompt_toolkit.key_binding import (
     DynamicKeyBindings, KeyBindings, merge_key_bindings)
 from prompt_toolkit.key_binding.defaults import load_key_bindings
 from prompt_toolkit.layout.containers import (
+    ConditionalContainer,
     DynamicContainer,
     Float,
     FloatContainer,
@@ -208,6 +209,13 @@ class NshApp:
 
     def focus_shell(self):
         self.application.layout.focus(self.shells.current().command_buffer)
+
+    def open_shell_tab(self, idx):
+        """Make tab ``idx`` active and enter shell mode showing it (used when a
+        shell tab is clicked from the out-of-shell-mode tab bar)."""
+        if 0 <= idx < len(self.shells.sessions):
+            self.shells.active = idx
+            self.switch_mode(SHELL)
 
     def _prefill_selection(self):
         """Entering the shell from the explorer with files selected drops their
@@ -629,6 +637,13 @@ class NshApp:
                         text=self._title_text), height=1,
                         style="class:titlebar"),
                     body,
+                    # outside shell mode, keep any open shells' tabs visible
+                    # just above the status bar (click a tab to jump into it)
+                    ConditionalContainer(
+                        self.shells.overview_bar,
+                        filter=Condition(lambda: self.mode != SHELL
+                                         and self.shells.has_open_shell()),
+                    ),
                     Window(FormattedTextControl(self._status_text), height=1,
                            style="class:statusbar"),
                 ]
@@ -1493,9 +1508,17 @@ class NshApp:
         return bool(prev and prev[0] == tag and prev[1] == index
                     and now - prev[2] <= 0.4)
 
+    def close_shell_if_open(self):
+        """A click on the explorer or preview while the shell is focused leaves
+        shell mode (closing it) so the focus can move to the clicked pane."""
+        if self.mode == SHELL:
+            self.switch_mode(EXPLORER)
+
     def focus_pane(self, view):
         """Make the clicked explorer ``view`` the active pane (in two-pane mode)
-        and focus it; the cwd / git status / shell follow it as with the keys."""
+        and focus it; the cwd / git status / shell follow it as with the keys.
+        Clicking a pane while the shell is focused also closes the shell."""
+        self.close_shell_if_open()
         try:
             idx = self.explorers.index(view)
         except ValueError:
