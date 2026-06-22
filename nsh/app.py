@@ -38,6 +38,7 @@ from .explorer.view import ExplorerView
 from .notes.view import NotesView
 from .search.view import SearchView
 from .system.view import SystemView
+from .shell.quoting import quote_arg, unquote_body
 from .shell.runner import CommandRunner
 from .shell.tabs import ShellTabs
 from .util.bookmarks import Bookmarks
@@ -63,9 +64,11 @@ SHELL_MIN_EXPLORER = 5
 def _unquote_arg(s):
     """Strip a surrounding quote pair from a single shell argument.
 
-    Tab-completion wraps a name with a space in double quotes (a directory keeps
-    its quote open, e.g. ``"New folder/``); ``cd`` gets the raw line, so peel the
-    leading quote and a matching trailing one before treating it as a path.
+    Tab-completion wraps a name with a metacharacter in double quotes (a
+    directory keeps its quote open, e.g. ``"New folder/``); ``cd`` gets the raw
+    line, so peel the leading quote and a matching trailing one before treating
+    it as a path. A double-quoted POSIX name may carry backslash escapes (``\\$``
+    etc.) — undo those too, since ``cd`` resolves the path itself without a shell.
     """
     s = s.strip()
     if s[:1] in ("'", '"'):
@@ -73,6 +76,8 @@ def _unquote_arg(s):
         s = s[1:]
         if s.endswith(q):
             s = s[:-1]
+        if q == '"':
+            s = unquote_body(s)
     return s
 
 
@@ -214,13 +219,14 @@ class NshApp:
         if buff.text:
             return  # don't clobber a half-typed command
         # listing order, then any selected paths not currently listed; each is
-        # relative to the cwd and quoted when it contains a space
+        # relative to the cwd and quoted when it holds a shell metacharacter
+        is_posix = self.shells.current().runner._is_posix
         ordered = [e.path for e in self.explorer.entries if e.path in sel]
         listed = set(ordered)
         parts = []
         for p in ordered + [q for q in sel if q not in listed]:
             rel = os.path.relpath(str(p), str(self.cwd)).replace(os.sep, "/")
-            parts.append(f'"{rel}"' if " " in rel else rel)
+            parts.append(quote_arg(rel, is_posix))
         if parts:
             buff.text = " ".join(parts) + " "
             buff.cursor_position = len(buff.text)

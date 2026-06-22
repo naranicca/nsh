@@ -17,6 +17,8 @@ from pathlib import Path
 
 from prompt_toolkit.completion import Completer, Completion
 
+from . import quoting
+
 MAX_PATHS = 300
 MAX_COMMANDS = 200
 
@@ -56,31 +58,36 @@ class ShellCompleter(Completer):
                 start = i + 1
         return start
 
-    @staticmethod
-    def _quote(full, is_dir):
-        """Wrap ``full`` in double quotes when it contains a space. A directory
-        is left with its quote open (no closing ``"``) and the trailing
-        separator outside nothing, so the menu can be reopened to drill in; a
-        file gets a closing quote.
+    def _is_posix(self):
+        try:
+            return self.app.shell.runner._is_posix
+        except Exception:
+            return os.name != "nt"
+
+    def _quote(self, full, is_dir):
+        """Wrap ``full`` in double quotes when it contains a shell metacharacter
+        (a space, parentheses, ``&``, …). A directory is left with its quote
+        open (no closing ``"``) so the menu can be reopened to drill in; a file
+        gets a closing quote. On POSIX the characters still special inside double
+        quotes are backslash-escaped.
 
         A leading ``~`` (or ``~user``) is kept *outside* the quotes — the shell
         only performs tilde expansion on an unquoted tilde, so quoting the whole
         path would leave a literal ``~`` the shell can't resolve."""
-        if " " not in full:
-            return full
-        prefix = ""
+        prefix, rest = "", full
         if full.startswith("~"):
             sep = min((i for i in (full.find("/"), full.find("\\")) if i != -1),
                       default=-1)
             if sep != -1:
-                prefix, full = full[:sep + 1], full[sep + 1:]
-            else:  # ~name with a space and no separator: ~ still goes outside
-                prefix, full = full[:1], full[1:]
-            if " " not in full:
-                return prefix + full
-        if is_dir and full.endswith(("/", "\\")):
-            return prefix + '"' + full
-        return prefix + '"' + full + '"'
+                prefix, rest = full[:sep + 1], full[sep + 1:]
+            else:  # ~name with no separator: ~ still goes outside
+                prefix, rest = full[:1], full[1:]
+        if not quoting.needs_quoting(rest):
+            return prefix + rest
+        body = quoting.quote_body(rest, self._is_posix())
+        if is_dir and rest.endswith(("/", "\\")):
+            return prefix + '"' + body
+        return prefix + '"' + body + '"'
 
     def _completion(self, raw, full, display, is_dir, style):
         return Completion(

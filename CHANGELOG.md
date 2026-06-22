@@ -28,11 +28,16 @@ Notable user-facing changes to the Python rewrite. Newest first.
   move through it. `Tab` and `Space` both accept the highlighted item — a directory
   is reopened so you can keep drilling in (no trailing space), and anything else
   ends with a trailing space.
-- **Completions quote names with spaces.** Tab-completing a file or directory
-  whose path contains a space now wraps it in double quotes so the shell sees
-  one argument (`cat "New folder/my file.txt"`). A directory keeps its quote
-  open (`"New folder/`) so you can keep drilling into it, and `cd` strips the
-  quotes back off.
+- **Completions quote names with shell metacharacters.** Tab-completing a file
+  or directory whose path contains a space — or parentheses, `&`, `;`, `|`, `$`
+  and the like — now wraps it in double quotes so the shell sees one argument
+  (`cat "file (1).txt"`); previously only a space triggered quoting, so a name
+  with parentheses was left bare and the command failed to run. On POSIX shells
+  the characters still special inside double quotes (`$`, `` ` ``, `"`, `\`) are
+  backslash-escaped as well. A directory keeps its quote open (`"New folder/`) so
+  you can keep drilling into it, and `cd` strips the quotes (and escapes) back
+  off. The same quoting applies to filenames dropped into the prompt when you
+  enter the shell with files selected in the explorer.
 - **Fuzzy path completion.** After the exact (prefix) path matches, Tab also
   offers pseudo-fuzzy matches — the typed characters need only appear in order
   (`abc` matches `a…b…c`). Every path component is matched this way, not just the
