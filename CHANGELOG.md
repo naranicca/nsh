@@ -231,6 +231,16 @@ Notable user-facing changes to the Python rewrite. Newest first.
   and git mode.
 
 ### UI & dialogs
+- **Keys work with the Korean IME on.** A console app can't intercept keys
+  before the IME composes them, so with the Korean IME switched on, pressing `j`
+  to scroll used to deliver the jamo `ㅓ` and do nothing — you had to flip to
+  English first. The navigation / action keys now also bind the two-beolsik
+  (두벌식) jamo each key produces, so `j`/`k`/`g`/… keep working whatever the IME
+  state, in the explorer, git, git-log, process and notes lists and in popup
+  menus. Text-entry areas (the shell, search, rename, the note editbox) are
+  untouched, so Korean input there stays Korean. Only lowercase letters are
+  recovered — a Shift'd letter composes to the same jamo as its lowercase form,
+  so keys like `G` / `D` still need the English IME.
 - **Mouse clicks.** On top of the existing wheel scrolling, the mouse now
   clicks. In the explorer, git and git-log lists a click moves the cursor to the
   row (and activates that pane in two-pane view); a double-click opens it — a

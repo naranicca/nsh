@@ -18,6 +18,7 @@ from prompt_toolkit.layout.dimension import Dimension
 from prompt_toolkit.mouse_events import MouseModifier
 
 from .. import config
+from ..util import hangul
 from ..util.paths import human_size, norm, shorten_home
 from ..util.widgets import WheelScrollControl, visible_slice
 from ..util.width import char_width, cut_to_width, pad_to_width, text_width
@@ -1344,6 +1345,7 @@ class ExplorerView:
             except Exception:  # noqa: BLE001 - invalid key spec in nshrc; skip it
                 pass
 
+        hangul.add_hangul_aliases(kb)  # let the keys work with the Korean IME on
         return kb
 
     @staticmethod

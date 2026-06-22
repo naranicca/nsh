@@ -16,6 +16,7 @@ from prompt_toolkit.key_binding import DynamicKeyBindings, KeyBindings
 from prompt_toolkit.layout.containers import ScrollOffsets, Window
 from prompt_toolkit.layout.dimension import Dimension
 
+from ..util import hangul
 from ..util.widgets import WheelScrollControl, visible_slice
 from . import git
 
@@ -364,4 +365,5 @@ class LogView:
         # (explorer / git mode) rather than quitting nsh — like Esc
         bind("quit", self.app.close_log)
 
+        hangul.add_hangul_aliases(kb)  # let the keys work with the Korean IME on
         return kb

@@ -21,6 +21,7 @@ from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
 from prompt_toolkit.layout.margins import Margin
 from prompt_toolkit.mouse_events import MouseEventType
 
+from ..util import hangul
 from ..util.aio import run_in_thread
 from ..util.paths import human_size
 from ..util.widgets import WheelScrollControl
@@ -428,6 +429,7 @@ class SystemView:
         def _(event):
             asyncio.ensure_future(self.refresh())
 
+        hangul.add_hangul_aliases(kb)  # let the keys work with the Korean IME on
         return kb
 
     def _search_kb(self):

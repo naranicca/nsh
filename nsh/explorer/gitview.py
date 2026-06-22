@@ -16,6 +16,7 @@ from prompt_toolkit.layout.dimension import Dimension
 from prompt_toolkit.mouse_events import MouseModifier
 
 from .. import config
+from ..util import hangul
 from ..util.widgets import WheelScrollControl, visible_slice
 from . import git, model
 
@@ -355,4 +356,5 @@ class GitView:
         bind("refresh", self.refresh)
         bind("quit", self.app.exit)
 
+        hangul.add_hangul_aliases(kb)  # let the keys work with the Korean IME on
         return kb

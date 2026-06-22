@@ -9,6 +9,7 @@ from prompt_toolkit.filters import Condition
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout.containers import ConditionalContainer, Window
 
+from . import hangul
 from .widgets import WheelScrollControl
 from .width import text_width
 
@@ -146,4 +147,5 @@ class Menu:
         def _(event):
             self.close()
 
+        hangul.add_hangul_aliases(kb)  # j/k/q work with the Korean IME on too
         return kb

@@ -21,7 +21,7 @@ from prompt_toolkit.layout.containers import (
 from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
 from prompt_toolkit.layout.margins import Margin
 
-from ..util import clipboard
+from ..util import clipboard, hangul
 from ..util.notes import Notes
 from ..util.widgets import WheelScrollControl
 from ..util.width import text_width
@@ -520,4 +520,5 @@ class NotesView:
         def _(event):
             self.undo_delete()
 
+        hangul.add_hangul_aliases(kb)  # let the keys work with the Korean IME on
         return kb
