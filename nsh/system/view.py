@@ -70,6 +70,7 @@ class SystemView:
         self.cursor = 0
         self._top = 0            # first rendered row (windowing)
         self.sort = "cpu"        # "cpu" | "mem"
+        self.detail = True       # show the full command line vs. the short name
         self._searching = False  # the search bar is open / filtering
         self._task = None
 
@@ -141,6 +142,14 @@ class SystemView:
             self._apply_sort()
             self._restore_cursor(pid)
             self.app.invalidate()
+
+    def toggle_detail(self):
+        """Switch the process column between the full command line and the short
+        process name."""
+        self.detail = not self.detail
+        self.app.set_message("showing full command" if self.detail
+                             else "showing process name")
+        self.app.invalidate()
 
     # -- search / filtering ---------------------------------------------------
     def _query(self):
@@ -348,7 +357,8 @@ class SystemView:
             on = i == self.cursor
             row = (f" {p.pid:>{W_PID}} {p.cpu:>{W_CPU}.1f} {p.mem:>{W_MEM}.1f} "
                    f"{human_size(p.rss):>{W_RSS}} ")
-            name = cut_to_width(p.cmd or p.name, name_w)
+            text = (p.cmd or p.name) if self.detail else p.name
+            name = cut_to_width(text, name_w)
             cell = row + name
             base = "class:system.row.sel" if on else "class:system.row"
             frags.append((base, pad_to_width(cell, cols - sb)))
@@ -405,6 +415,10 @@ class SystemView:
         @kb.add("n")
         def _(event):
             self.set_sort("name")
+
+        @kb.add("v")
+        def _(event):
+            self.toggle_detail()
 
         @kb.add("/")
         def _(event):

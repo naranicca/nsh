@@ -986,6 +986,7 @@ class NshApp:
         elif self.mode == SYSTEM:
             hints = [
                 ("↑↓", "move"), ("c/m/n", "sort cpu/mem/name"),
+                ("v", "cmd/name", self.systemview.toggle_detail),
                 ("/", "search", self.systemview.start_search),
                 ("x", "kill", lambda: self.systemview.kill_selected(False)),
                 ("K", "force", lambda: self.systemview.kill_selected(True)),
