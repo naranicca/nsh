@@ -7,7 +7,10 @@ files. Reads happen in a worker thread and results are cached per path, so
 scrolling the listing never blocks the UI.
 """
 import asyncio
+import os
+import stat
 import struct
+from datetime import datetime
 
 from prompt_toolkit.formatted_text import ANSI, to_formatted_text
 from prompt_toolkit.formatted_text.utils import split_lines
@@ -480,7 +483,7 @@ class PreviewView:
         if entry.is_image:
             return self._build_image(entry)
         if not chunk:
-            return self._header(entry) + [("class:preview.dim", " (empty file)\n")]
+            return self._header(entry) + self._meta_line(entry, ["empty file"])
         if b"\x00" in chunk:
             return self._build_binary(entry, chunk)
         text = self._decode(chunk)
@@ -493,6 +496,35 @@ class PreviewView:
         return [("class:preview.header", f" {entry.name}\n")]
 
     @staticmethod
+    def _meta_line(entry, parts=()):
+        """Header meta: for a symlink, a first line ``→ target`` with the path it
+        points to; then a line of permissions (``ls -l`` style) · the given
+        ``parts`` (e.g. line count, size) · the modified date. Falls back to just
+        ``parts`` if the file can't be stat'd."""
+        try:
+            st = os.lstat(entry.path)
+        except OSError:
+            st = None
+        out = []
+        if st is not None and entry.is_link:
+            try:
+                target = os.readlink(entry.path)
+            except OSError:
+                target = "?"
+            out.append(("class:preview.dim", "  →  "))
+            out.append(("class:explorer.link", target + "\n"))
+        if st is not None:
+            out.append(("class:preview.meta", f" {stat.filemode(st.st_mode)}"))
+        extras = list(parts)
+        if st is not None:
+            extras.append(datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M"))
+        if extras:
+            prefix = "  ·  " if st is not None else " "
+            out.append(("class:preview.dim", prefix + "  ·  ".join(extras)))
+        out.append(("class:preview", "\n"))
+        return out
+
+    @staticmethod
     def _decode(chunk):
         for enc in ("utf-8", "cp949", "latin-1"):
             try:
@@ -503,10 +535,9 @@ class PreviewView:
 
     def _build_dir(self, entry):
         items = model.list_dir(entry.path, self.app.explorer.show_hidden)
-        frags = [
-            ("class:preview.header", f" {entry.name}/  "),
-            ("class:preview.dim", f"({len(items)} items)\n\n"),
-        ]
+        frags = [("class:preview.header", f" {entry.name}/\n")]
+        frags += self._meta_line(entry, [f"{len(items)} items"])
+        frags.append(("class:preview", "\n"))
         for e in items[:MAX_DIR_ITEMS]:
             name = e.name + ("/" if e.is_dir else "")
             frags.append((config.entry_style(e), f" {config.entry_icon(e)} {name}\n"))
@@ -516,20 +547,18 @@ class PreviewView:
 
     def _build_image(self, entry):
         dims = image_dimensions(entry.path)
-        frags = self._header(entry) + [
-            ("class:preview.meta", " [image] "),
-            ("class:preview.dim", human_size(entry.size)),
-        ]
+        parts = ["[image]", human_size(entry.size)]
         if dims:
-            frags.append(("class:preview.dim", f"  ·  {dims[0]}×{dims[1]} px"))
+            parts.append(f"{dims[0]}×{dims[1]} px")
+        frags = self._header(entry) + self._meta_line(entry, parts)
         frags.append(("class:preview", "\n"))
         return frags
 
     def _build_text(self, entry, text, truncated):
         lines = text.splitlines()
-        frags = self._header(entry) + [
-            ("class:preview.dim", f" {len(lines)} lines · {human_size(entry.size)}\n\n"),
-        ]
+        frags = self._header(entry) + self._meta_line(
+            entry, [f"{len(lines)} lines", human_size(entry.size)])
+        frags.append(("class:preview", "\n"))
         for ln in lines[:MAX_LINES]:
             frags.append(("class:preview", _sanitize(ln) + "\n"))
         if len(lines) > MAX_LINES or truncated:
@@ -537,10 +566,9 @@ class PreviewView:
         return frags
 
     def _build_binary(self, entry, chunk):
-        frags = self._header(entry) + [
-            ("class:preview.meta", " [binary] "),
-            ("class:preview.dim", f"{human_size(entry.size)}\n\n"),
-        ]
+        frags = self._header(entry) + self._meta_line(
+            entry, ["[binary]", human_size(entry.size)])
+        frags.append(("class:preview", "\n"))
         for off in range(0, min(len(chunk), HEX_BYTES), 16):
             row = chunk[off:off + 16]
             hexpart = " ".join(f"{b:02x}" for b in row)

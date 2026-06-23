@@ -109,6 +109,11 @@ Notable user-facing changes to the Python rewrite. Newest first.
   (e.g. `python -c "..."`).
 
 ### Explorer & Git
+- **Preview shows permissions, size and modified date.** Under the filename the
+  preview pane has one meta line: the permissions in `ls -l` style (e.g.
+  `-rw-r--r--`, `drwxr-xr-x`) · the size / line count / item count · the modified
+  date. For a symbolic link it shows the link's mode (`lrwxrwxrwx`) followed by
+  `→ <target>` (the path it points to).
 - **Scroll the preview pane.** In single-pane explorer mode and in the git /
   git-log views, `F7`/`F8` move focus between the list and the preview; while the
   preview is focused the arrows (plus `PgUp`/`PgDn` and `g`/`G`) scroll it, and
