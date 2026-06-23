@@ -67,6 +67,10 @@ Notable user-facing changes to the Python rewrite. Newest first.
 - **Selected files seed the prompt.** Opening the command line from the explorer
   while files are selected drops their names (relative, quoted if they contain a
   space) into the empty prompt, ready to use as command arguments.
+- **Send a file to the command line.** `Ctrl+J` (or `Ctrl+Down`) in the explorer
+  opens the shell and splices the cursor file — or the whole selection — into the
+  command line at the cursor (quoted, relative to the cwd), so you can build a
+  command like `cat <name>` without retyping the name.
 - **Word-wrap output.** Long lines now wrap instead of being cut off at the
   right edge, so you can read them in full.
 - **Backspace-aware output.** A `\b` (0x08) in command output is resolved the

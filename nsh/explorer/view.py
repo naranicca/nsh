@@ -645,6 +645,11 @@ class ExplorerView:
             await self.app.refresh_git()
         asyncio.ensure_future(do())
 
+    def send_to_shell(self):
+        """Open the shell with the target file name(s) — the selection, else the
+        cursor file — spliced into the command line (Ctrl+J / Ctrl+Down)."""
+        self.app.shell_insert_paths(self._targets())
+
     def chmod_entry(self):
         """Open the permission grid for the target(s), seeded from the first
         one's current mode, and apply the chosen mode to all of them."""
@@ -1301,6 +1306,12 @@ class ExplorerView:
         @kb.add("up")
         def _(event):
             self.move(-1)
+
+        # send the cursor / selected file name(s) to the shell command line
+        @kb.add("c-j")
+        @kb.add("c-down")
+        def _(event):
+            self.send_to_shell()
 
         @kb.add("pagedown")
         def _(event):

@@ -245,6 +245,24 @@ class NshApp:
             buff.text = " ".join(parts) + " "
             buff.cursor_position = len(buff.text)
 
+    def shell_insert_paths(self, paths):
+        """Open the shell and insert ``paths`` (quoted, relative to the cwd) at
+        the command-line cursor — used by the explorer's "send to shell" key."""
+        if not paths:
+            return
+        is_posix = self.shells.current().runner._is_posix
+        parts = [quote_arg(os.path.relpath(str(p), str(self.cwd)).replace(os.sep, "/"),
+                           is_posix) for p in paths]
+        text = " ".join(parts)
+        # switch without the empty-prompt prefill so we don't double-insert; then
+        # splice the names in at the cursor, space-separated from any existing text
+        self.switch_mode(SHELL, prefill=False)
+        buff = self.shells.current().command_buffer
+        before = buff.document.text_before_cursor
+        if before and not before.endswith(" "):
+            buff.insert_text(" ")  # keep names separate from what's already typed
+        buff.insert_text(text + " ")
+
     def _build_pane_keys(self):
         """The remappable pane_prev / pane_next pair (F7/F8 by default), in their
         own KeyBindings so reload_config() can swap them live. One pair drives
@@ -1043,7 +1061,7 @@ class NshApp:
     def toggle_mode(self):
         self.switch_mode(EXPLORER if self.mode == SHELL else SHELL)
 
-    def switch_mode(self, mode):
+    def switch_mode(self, mode, prefill=True):
         # remember where the shell was opened from, to return there on ESC
         from_mode = self.mode
         if mode == SHELL and self.mode in (EXPLORER, GIT):
@@ -1052,7 +1070,7 @@ class NshApp:
             self.message = ""  # a mode change dismisses the status message
         self.mode = mode
         if mode == SHELL:
-            if from_mode == EXPLORER:
+            if from_mode == EXPLORER and prefill:
                 self._prefill_selection()
             self.focus_shell()
         elif mode == SEARCH:
