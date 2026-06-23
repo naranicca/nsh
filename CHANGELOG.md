@@ -127,6 +127,9 @@ Notable user-facing changes to the Python rewrite. Newest first.
   to the newly focused pane; press `z` again — or `Esc` — to go back to 5:5.
   While zoomed, `Esc` backs out the zoom first (a second `Esc` then does its
   usual job: clear a selection, return from the preview, or leave the mode).
+  Clicking a *different* pane with the mouse cancels the zoom (back to 5:5)
+  instead of handing the big share over — use the preview header's `[+]`/`[-]`
+  button to zoom with the mouse.
 - **Two-pane view**: toggle it with the `2` key (remappable), or
   `[general] two_pane = true` in nshrc, to show two explorer panes side by
   side, each with its own directory, selection and cursor. The preview pane is

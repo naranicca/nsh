@@ -155,6 +155,10 @@ class PreviewView:
             self._toggle_zoom()
             return
         self.app.close_shell_if_open()
+        # clicking the preview while the list is the zoomed pane cancels zoom
+        # rather than handing the big share over (the [+]/[-] button is for that)
+        if self.app.zoom and not self.app.preview_focused():
+            self.app.zoom = False
         self.focus()
 
     def _visible_height(self):

@@ -1569,6 +1569,10 @@ class NshApp:
         and focus it; the cwd / git status / shell follow it as with the keys.
         Clicking a pane while the shell is focused also closes the shell."""
         self.close_shell_if_open()
+        # a mouse click that moves to a different pane cancels zoom (rather than
+        # handing the big 9:1 share to the clicked pane, the way the keys do)
+        if self.zoom and not self.application.layout.has_focus(view.control):
+            self.zoom = False
         try:
             idx = self.explorers.index(view)
         except ValueError:
