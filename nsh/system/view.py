@@ -69,7 +69,10 @@ class SystemView:
         self.procs = []          # sorted process list (sysinfo.Proc)
         self.cursor = 0
         self._top = 0            # first rendered row (windowing)
-        self.sort = "cpu"        # "cpu" | "mem"
+        # "cpu" | "mem" | "name"; persisted across runs
+        self.sort = state.get("system_sort", "cpu")
+        if self.sort not in ("cpu", "mem", "name"):
+            self.sort = "cpu"
         # show the short process name vs. the full command; persisted across runs
         self.detail = bool(state.get("system_detail", False))
         self._searching = False  # the search bar is open / filtering
@@ -140,6 +143,7 @@ class SystemView:
         if mode != self.sort:
             pid = self._selected_pid()
             self.sort = mode
+            state.set("system_sort", mode)  # remembered for next time
             self._apply_sort()
             self._restore_cursor(pid)
             self.app.invalidate()

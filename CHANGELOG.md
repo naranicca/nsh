@@ -292,7 +292,8 @@ Notable user-facing changes to the Python rewrite. Newest first.
   the command line can't be read); `v` toggles that column between the full
   command and just the short process name (the default), and the choice is
   remembered for next time. `c` sorts by CPU, `m` by memory, `n`
-  by name (A→Z); `/` filters the list by command line or PID (Esc clears it); `x`
+  by name (A→Z) — the sort order is remembered across runs too; `/` filters the
+  list by command line or PID (Esc clears it); `x`
   terminates the selected process and `K`
   force-kills it (each with a confirm); `r` refreshes and the list re-samples
   every couple of seconds on its own. `Ctrl+N` opens Notes from here too. No
