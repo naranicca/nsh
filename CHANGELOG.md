@@ -290,7 +290,8 @@ Notable user-facing changes to the Python rewrite. Newest first.
   cursor-selectable list of the running processes with their CPU% / MEM% / RSS
   and full command line (with arguments — falling back to the process name when
   the command line can't be read); `v` toggles that column between the full
-  command and just the short process name. `c` sorts by CPU, `m` by memory, `n`
+  command and just the short process name (the default), and the choice is
+  remembered for next time. `c` sorts by CPU, `m` by memory, `n`
   by name (A→Z); `/` filters the list by command line or PID (Esc clears it); `x`
   terminates the selected process and `K`
   force-kills it (each with a confirm); `r` refreshes and the list re-samples

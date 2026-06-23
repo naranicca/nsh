@@ -308,6 +308,15 @@ def config_path() -> Path:
     return config_dir() / "nshrc"
 
 
+def cache_dir() -> Path:
+    """Where transient, machine-written state lives (UI toggles, lastdir, …) —
+    ``$XDG_CACHE_HOME/nsh`` or ``~/.cache/nsh``, separate from the user's config."""
+    base = os.environ.get("XDG_CACHE_HOME")
+    if base:
+        return Path(base) / "nsh"
+    return Path.home() / ".cache" / "nsh"
+
+
 def ensure_default_config() -> None:
     """Seed a commented template nshrc on first run (best-effort)."""
     path = config_path()

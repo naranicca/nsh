@@ -21,7 +21,7 @@ from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
 from prompt_toolkit.layout.margins import Margin
 from prompt_toolkit.mouse_events import MouseEventType
 
-from ..util import hangul
+from ..util import hangul, state
 from ..util.aio import run_in_thread
 from ..util.paths import human_size
 from ..util.widgets import WheelScrollControl
@@ -70,7 +70,8 @@ class SystemView:
         self.cursor = 0
         self._top = 0            # first rendered row (windowing)
         self.sort = "cpu"        # "cpu" | "mem"
-        self.detail = True       # show the full command line vs. the short name
+        # show the short process name vs. the full command; persisted across runs
+        self.detail = bool(state.get("system_detail", False))
         self._searching = False  # the search bar is open / filtering
         self._task = None
 
@@ -145,8 +146,9 @@ class SystemView:
 
     def toggle_detail(self):
         """Switch the process column between the full command line and the short
-        process name."""
+        process name, remembering the choice for next time."""
         self.detail = not self.detail
+        state.set("system_detail", self.detail)
         self.app.set_message("showing full command" if self.detail
                              else "showing process name")
         self.app.invalidate()
