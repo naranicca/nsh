@@ -20,6 +20,7 @@ from prompt_toolkit.layout.containers import (
 )
 from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
 from prompt_toolkit.layout.margins import Margin
+from prompt_toolkit.mouse_events import MouseEventType
 
 from ..util import clipboard, hangul
 from ..util.notes import Notes
@@ -128,9 +129,24 @@ class NotesView:
         return "class:notes.label" if active else "class:notes.label.inactive"
 
     def _label_text(self):
-        # just a title — the shortcuts live in the status bar
+        # just a title — the shortcuts live in the status bar — plus a clickable
+        # [x] in the top-right corner that leaves notes mode
         label = " Notes — editing " if self._editing is not None else " Notes "
-        return [(self._label_style(), label)]
+        style = self._label_style()
+        try:
+            width = get_app().output.get_size().columns
+        except Exception:
+            width = 80
+        pad = " " * max(1, width - text_width(label) - 3)
+        return [(style, label), (style, pad),
+                (style, "[x]", self._close_click)]
+
+    def _close_click(self, mouse_event):
+        """The header's [x] button: leave notes mode (auto-saving a draft)."""
+        if mouse_event.event_type == MouseEventType.MOUSE_DOWN:
+            if not self.app.consume_menu_click():
+                self.app.leave_notes()
+        return None
 
     def _search_count(self):
         return [("class:notes.input", f" {self._visible_count()}/{len(self.notes)} ")]

@@ -25,7 +25,7 @@ from ..util import hangul, state
 from ..util.aio import run_in_thread
 from ..util.paths import human_size
 from ..util.widgets import WheelScrollControl
-from ..util.width import cut_to_width, pad_to_width
+from ..util.width import cut_to_width, pad_to_width, text_width
 from . import sysinfo
 
 REFRESH = 2.0          # seconds between samples
@@ -286,9 +286,15 @@ class SystemView:
                           f"  ({human_size(disk_free)} free)")
         else:
             disk_pct, disk_extra = None, ""
+        # a clickable [x] in the top-right corner closes the process view
+        cpu_bar = self._bar(cpu)
+        used = text_width(" CPU  ") + text_width(cpu_bar)
+        pad = " " * max(1, self._term_cols() - used - 3)
         out = [
             ("class:system.label", " CPU  "),
-            ("class:system.bar", self._bar(cpu)),
+            ("class:system.bar", cpu_bar),
+            ("class:system.dim", pad),
+            ("#ffffff bold", "[x]", self._close_click),
             ("", "\n"),
             ("class:system.label", " MEM  "),
             ("class:system.bar", self._bar(mem_pct)),
@@ -309,6 +315,14 @@ class SystemView:
                 self.set_sort(mode)
             return None
         return handler
+
+    def _close_click(self, mouse_event):
+        """The header's [x] button: leave the process view."""
+        if mouse_event.event_type == MouseEventType.MOUSE_DOWN:
+            if not self.app.consume_menu_click():
+                from ..app import EXPLORER
+                self.app.switch_mode(EXPLORER)
+        return None
 
     def _column_header(self):
         # ▼ on a descending column (cpu/mem, highest first), ▲ on the ascending

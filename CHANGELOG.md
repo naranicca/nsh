@@ -273,7 +273,10 @@ Notable user-facing changes to the Python rewrite. Newest first.
   click selects the row; clicking the `CPU%` / `MEM%` / `PROC` column header
   sorts by it). Clicking the preview pane (or the other pane in
   two-pane view) moves the focus there. Clicking the explorer or preview while
-  the shell is focused closes the shell and moves focus to the clicked pane. A
+  the shell is focused closes the shell and moves focus to the clicked pane.
+  Header corner buttons: the preview header's `[+]` / `[-]` (top-right) zooms the
+  pane in and out, and the process and notes headers carry an `[x]` that closes
+  that view. A
   click in any popup menu
   invokes that row directly (and a click anywhere outside an open menu dismisses
   it, like Esc), and clicking a shell tab switches to it while a double-click

@@ -146,8 +146,13 @@ class PreviewView:
     def _on_mouse(self, mouse_event):
         """A click focuses the preview pane (closing the shell if it was focused)
         — unless a menu is open, in which case the click just dismisses it (like
-        Esc)."""
+        Esc). The [+]/[-] zoom button in the header's top-right corner is handled
+        here too (the control swallows per-fragment handlers)."""
         if self.app.consume_menu_click():
+            return
+        if (mouse_event.position.y == 0
+                and mouse_event.position.x >= self._width() - 3):
+            self._toggle_zoom()
             return
         self.app.close_shell_if_open()
         self.focus()
@@ -173,6 +178,40 @@ class PreviewView:
         if width - used > 0:
             out.append(("class:preview.header.focus", " " * (width - used)))
         return out
+
+    def _zoom_label(self):
+        # [-] while the preview is the zoomed pane, [+] otherwise (click to zoom)
+        return "[-]" if (self.app.zoom and self.app.preview_focused()) else "[+]"
+
+    def _line_with_button(self, line, width, focused):
+        """Append a right-aligned [+]/[-] zoom button to a header line (the click
+        itself is hit-tested in :meth:`_on_mouse` — WheelScrollControl ignores
+        per-fragment handlers)."""
+        label = self._zoom_label()
+        used = sum(text_width(f[1]) for f in line)
+        pad = max(1, width - used - text_width(label))
+        fill = "class:preview.header.focus" if focused else "class:preview.header"
+        bstyle = "class:preview.header.focus" if focused else "class:preview.meta"
+        return list(line) + [(fill, " " * pad), (bstyle, label)]
+
+    @staticmethod
+    def _flatten_lines(lines):
+        out = []
+        for ln in lines:
+            out.extend(ln)
+            out.append(("", "\n"))
+        return out
+
+    def _toggle_zoom(self):
+        """The header's [+]/[-] button: zoom the preview pane, or un-zoom it."""
+        if self.app.zoom and self.app.preview_focused():
+            self.app.toggle_zoom()       # [-]: back to the even split
+        else:
+            self.focus()                 # make the preview the pane zoom enlarges
+            if not self.app.zoom:
+                self.app.toggle_zoom()   # [+]: zoom in
+            else:
+                self.app.invalidate()    # already zoomed (on the list): swap here
 
     def _current_identity(self):
         """A lightweight id of what's previewed, so scroll resets when it changes."""
@@ -203,7 +242,10 @@ class PreviewView:
         self._sb_view = height
         if not self.app.preview_focused():
             self._scroll = 0
-            return frags
+            width = self._width()
+            if lines:  # add the [+] zoom button to the (first) header line
+                lines = [self._line_with_button(lines[0], width, False)] + lines[1:]
+            return self._flatten_lines(lines)
         # keep the leading title lines (filename / meta) pinned — every builder
         # emits them before the first blank line — and scroll only the body.
         hdr = 0
@@ -213,15 +255,19 @@ class PreviewView:
         body_h = max(1, height - hdr)
         max_scroll = max(0, len(body) - body_h)
         self._scroll = max(0, min(self._scroll, max_scroll))
-        # tint the pinned header so the focused pane is obvious
+        # tint the pinned header so the focused pane is obvious; the first header
+        # line also carries the right-aligned [-]/[+] zoom button
         width = self._width()
-        header = [self._focus_header(ln, width) for ln in header]
-        shown = header + body[self._scroll:self._scroll + body_h]
-        out = []
-        for ln in shown:
-            out.extend(ln)
-            out.append(("", "\n"))
-        return out
+        header_lines = []
+        for i, ln in enumerate(header):
+            if i == 0:
+                styled = [((s + " class:preview.header.focus").strip(), t)
+                          for s, t in ln]
+                header_lines.append(self._line_with_button(styled, width, True))
+            else:
+                header_lines.append(self._focus_header(ln, width))
+        shown = header_lines + body[self._scroll:self._scroll + body_h]
+        return self._flatten_lines(shown)
 
     def _kb(self):
         kb = KeyBindings()
