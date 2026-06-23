@@ -27,6 +27,14 @@ Notable user-facing changes to the Python rewrite. Newest first.
   are re-sourced each command, so a script meant only to define helpers is ideal;
   one with side effects would repeat them (their output is suppressed). (POSIX
   shells / Git Bash.)
+- **Completion menu no longer jumps to the top.** Completing a long filename used
+  to throw the popup menu to the top-left corner of the screen: the single-line
+  prompt scrolls horizontally to keep the cursor visible, pushing the start of
+  the completion (where the menu anchors) off-screen, and prompt_toolkit then
+  fell back to position (0, 0). The menu keeps its stable anchor (the completion
+  start) while that's on screen — so it stays put as you cycle candidates — and
+  only re-anchors at the always-visible cursor once the start has scrolled off,
+  so it never leaps to the top.
 - **Tab-completion menu navigation.** When there's a single candidate, Tab
   applies it directly without a menu; a unique directory is entered and the menu
   of its contents opens without pre-selecting an item (the focus stays on the

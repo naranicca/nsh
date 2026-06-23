@@ -23,7 +23,7 @@ from .. import config
 from ..util.aio import run_in_thread
 from ..util.paths import human_size, norm
 from ..util.widgets import WheelScrollControl
-from ..util.width import text_width
+from ..util.width import cut_to_width, text_width
 from . import git, model
 
 READ_BYTES = 64 * 1024   # cap how much of a file we pull in for preview
@@ -190,16 +190,33 @@ class PreviewView:
         # [-] while the preview is the zoomed pane, [+] otherwise (click to zoom)
         return "[-]" if (self.app.zoom and self.app.preview_focused()) else "[+]"
 
+    @staticmethod
+    def _truncate_frags(line, width):
+        """Truncate a fragment line to ``width`` columns, preserving per-fragment
+        styles. Returns ``(fragments, used_width)``."""
+        out, used = [], 0
+        for frag in line:
+            if used >= width:
+                break
+            seg = cut_to_width(frag[1], width - used)
+            if seg:
+                out.append((frag[0], seg))
+                used += text_width(seg)
+        return out, used
+
     def _line_with_button(self, line, width, focused):
-        """Append a right-aligned [+]/[-] zoom button to a header line (the click
-        itself is hit-tested in :meth:`_on_mouse` — WheelScrollControl ignores
-        per-fragment handlers)."""
+        """Append a right-aligned [+]/[-] zoom button to a header line, pinned to
+        the pane's top-right corner. The header text is truncated so the line
+        never wraps and push the button onto a second row. (The click itself is
+        hit-tested in :meth:`_on_mouse` — WheelScrollControl ignores per-fragment
+        handlers.)"""
         label = self._zoom_label()
-        used = sum(text_width(f[1]) for f in line)
-        pad = max(1, width - used - text_width(label))
+        lw = text_width(label)
+        shown, used = self._truncate_frags(line, max(0, width - lw - 1))
+        pad = max(1, width - used - lw)
         fill = "class:preview.header.focus" if focused else "class:preview.header"
         bstyle = "class:preview.header.focus" if focused else "class:preview.meta"
-        return list(line) + [(fill, " " * pad), (bstyle, label)]
+        return shown + [(fill, " " * pad), (bstyle, label)]
 
     @staticmethod
     def _flatten_lines(lines):

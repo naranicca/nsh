@@ -95,16 +95,47 @@ class ShellView:
         # The input line collapses to height 0 while the user is scrolled up
         # (kept in the layout — not removed — so focus and the scroll key
         # bindings stay live to bring it back).
+        self.command_window = Window(
+            BufferControl(
+                buffer=self.command_buffer, lexer=ShellLexer(),
+                # Keep the completion menu anchored sensibly on a single, non-
+                # wrapping input line (see _menu_position).
+                menu_position=self._menu_position),
+            height=1)
         self.input_window = VSplit(
             [
                 Window(FormattedTextControl(self._prompt_text),
                        dont_extend_width=True, height=1),
-                Window(BufferControl(buffer=self.command_buffer, lexer=ShellLexer()),
-                       height=1),
+                self.command_window,
             ],
             height=self._input_height,
         )
         self.container = HSplit([self.output_window, self.input_window])
+
+    def _menu_position(self):
+        """Where the completion menu attaches on the single-line, non-wrapping
+        input.
+
+        prompt_toolkit's default anchors the menu at the start of the completion
+        (a fixed document index), which is stable while you cycle candidates — so
+        we keep it (return ``None``) whenever that point is still on screen.
+
+        But completing a long name scrolls that start off the left edge; the
+        renderer then can't map its (off-screen) column to a screen position,
+        falls back to (0, 0), and throws the menu to the top of the screen. Only
+        then do we re-anchor at the cursor, which the input always keeps visible.
+        """
+        buff = self.command_buffer
+        state = buff.complete_state
+        if not state:
+            return None
+        anchor = min(buff.cursor_position, state.original_document.cursor_position)
+        # the Window tracks its own left scroll (display column of the first
+        # visible char); when the stable anchor falls left of it, it's off-screen
+        h_scroll = getattr(self.command_window, "horizontal_scroll", 0)
+        if anchor < h_scroll:
+            return buff.cursor_position  # the stable anchor scrolled off-screen
+        return None  # on screen: keep prompt_toolkit's stable default
 
     def _accept(self, buff):
         self.app.run_in_shell(self, buff.text)
