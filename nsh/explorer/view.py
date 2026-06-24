@@ -520,22 +520,34 @@ class ExplorerView:
         self.app.set_message(f"cut {len(targets)} item(s)  (p to paste)")
         self.app.invalidate()
 
-    def _paste_dest(self):
-        """Where a paste lands: the directory holding the entry under the cursor.
-        In the tree view that may be an expanded subdirectory rather than the
-        top-level cwd, so paste follows the cursor. Falls back to this pane's
-        directory when the cursor is on ``..`` or there's no entry."""
+    def _target_dir(self):
+        """The directory to act on, based on the cursor: a directory under the
+        cursor is targeted *inside* (paste/create lands within it); a file
+        targets its containing directory. In the tree view that may be an
+        expanded subdirectory rather than the top-level cwd, so paste / new file
+        / new folder follow the cursor. Falls back to this pane's directory when
+        the cursor is on ``..`` or there's no entry."""
         entry = self.current()
         if entry is None or entry.is_parent:
             return self.cwd
+        if entry.is_dir:
+            return entry.path
         return entry.path.parent
+
+    def _reveal_target(self):
+        """Make a target directory under the cursor visible after the listing
+        refreshes — expand it inline so a paste / new item created inside it
+        shows up (and can be selected) rather than hiding in a collapsed row."""
+        entry = self.current()
+        if entry is not None and entry.is_dir and not entry.is_parent:
+            self.expanded.add(entry.path)
 
     def paste(self):
         if not self.clipboard:
             self.app.set_message("clipboard empty")
             return
         paths, op = self.clipboard
-        dest = self._paste_dest()
+        dest = self._target_dir()
 
         async def do():
             done = 0
@@ -555,6 +567,7 @@ class ExplorerView:
                     self.app.set_message(f"{src.name}: {exc}")
             if op == "cut":
                 self.clipboard = None
+            self._reveal_target()  # expand the target dir so the result shows
             self.refresh_listing(select_name=last.name if last else None)
             verb = "copied" if op == "copy" else "moved"
             self.app.set_message(f"{verb} {done}/{len(paths)} item(s)")
@@ -789,7 +802,8 @@ class ExplorerView:
             self.app.set_message("cancelled")
             return
         try:
-            target = fileops.make_dir(self.app.cwd, name)
+            target = fileops.make_dir(self._target_dir(), name)
+            self._reveal_target()  # expand the target dir so the new folder shows
             self.refresh_listing(select_name=target.name)
             self.app.set_message(f"created folder: {target.name}")
         except Exception as exc:  # noqa: BLE001
@@ -804,7 +818,8 @@ class ExplorerView:
             self.app.set_message("cancelled")
             return
         try:
-            target = fileops.make_file(self.app.cwd, name)
+            target = fileops.make_file(self._target_dir(), name)
+            self._reveal_target()  # expand the target dir so the new file shows
             self.refresh_listing(select_name=target.name)
             self.app.set_message(f"created file: {target.name}")
             asyncio.ensure_future(self.app.refresh_git())

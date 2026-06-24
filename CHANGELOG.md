@@ -148,11 +148,13 @@ Notable user-facing changes to the Python rewrite. Newest first.
   setting, `search_exclude` (comma/space separated) — seeded with the defaults
   (`.git`, `node_modules`, `__pycache__`, …) so you can edit the list: add a
   noisy `build/`, remove a name to search it, or clear it to search everything.
-- **Paste follows the cursor.** Paste now lands in the directory that holds the
-  entry under the cursor, rather than always the top-level cwd — so in the tree
-  view, with the cursor on a file inside an expanded subdirectory, paste drops
-  the items into that subdirectory. (On `..` or an empty listing it still uses
-  the current directory.)
+- **Paste / New file / New folder follow the cursor.** They now act relative to
+  the entry under the cursor instead of always the top-level cwd: a directory
+  under the cursor is the target itself (the item lands *inside* it, and it
+  auto-expands so the result shows), while a file targets its containing
+  directory. So in the tree view you can drop a paste or a new file/folder into
+  exactly the spot you're pointing at. (On `..` or an empty listing they still
+  use the current directory.)
 - **Right arrow focuses the preview.** In the explorer, a directory still
   folds/unfolds under the cursor with Right (l), but a plain file has nothing to
   expand — so Right hands focus to the preview pane (when it's on screen) to
