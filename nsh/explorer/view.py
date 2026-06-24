@@ -1333,8 +1333,10 @@ class ExplorerView:
             self.cursor = max(0, len(self.entries) - 1)
             self.app.invalidate()
 
-        # Enter opens a file / enters a directory; Right (and l) always fold or
-        # unfold the directory under the cursor inline (tree view).
+        # Enter opens a file / enters a directory; Right (and l) folds or unfolds
+        # the directory under the cursor inline (tree view). On a plain file —
+        # which has nothing to expand — Right instead hands focus to the preview
+        # pane (when it's on screen) so it reads as "step into the preview".
         @kb.add("enter")
         def _(event):
             self.open()
@@ -1342,7 +1344,11 @@ class ExplorerView:
         @kb.add("l")
         @kb.add("right")
         def _(event):
-            self.toggle_expand()
+            entry = self.current()
+            if entry is not None and not entry.is_dir:
+                self.app.focus_preview()
+            else:
+                self.toggle_expand()
 
         @kb.add("h")
         @kb.add("left")

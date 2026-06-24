@@ -1279,6 +1279,15 @@ class NshApp:
         else:
             self.preview.focus()
 
+    def focus_preview(self):
+        """Move focus to the preview pane, but only when it's actually on screen
+        (single-pane explorer with the preview shown, wide enough). Used by Right
+        on a non-expandable file. A no-op otherwise, so the key stays inert when
+        there's no preview to step into."""
+        if self.two_pane or not self.show_preview or not self._wide_enough():
+            return
+        self.preview.focus()
+
     def _wide_enough(self):
         try:
             return get_app().output.get_size().columns >= 80
