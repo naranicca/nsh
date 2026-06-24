@@ -141,6 +141,11 @@ Notable user-facing changes to the Python rewrite. Newest first.
   (e.g. `python -c "..."`).
 
 ### Explorer & Git
+- **Files in an untracked directory show the untracked marker.** git collapses a
+  brand-new directory into a single `dir/` entry, so files inside it had no
+  status of their own — they showed no `?` marker and the action menu offered no
+  *Git: Add*. nsh now tracks which directories are untracked and lets the files
+  (at any depth) inherit the `?`, so the marker shows and *Git: Add* appears.
 - **Fuzzy search finds build artifacts, and the skip list is configurable.** The
   file finder (`/`) used to skip `build/` and `dist/` entirely, so a built
   executable (e.g. `build/.../Release/mario.exe`) never showed up. Those output

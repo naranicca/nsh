@@ -21,7 +21,7 @@ from prompt_toolkit.mouse_events import MouseModifier
 
 from .. import config
 from ..util import hangul
-from ..util.paths import human_size, norm, shorten_home
+from ..util.paths import human_size, shorten_home
 from ..util.widgets import WheelScrollControl, visible_slice
 from ..util.width import char_width, cut_to_width, pad_to_width, text_width
 from . import fileops, git, model
@@ -225,7 +225,7 @@ class ExplorerView:
             e = self.entries[i]
             on = cursor_shown and (i == self.cursor)
             sel = e.path in self.selected
-            code = gs.files.get(norm(e.path)) if (gs and gs.is_repo) else None
+            code = gs.code_for(e.path) if (gs and gs.is_repo) else None
             marker = config.GIT_SYMBOL.get(code, " ")
             mstyle = config.GIT_STYLE.get(code, "")
             estyle = "class:explorer.selected" if sel else config.entry_style(e)
@@ -874,7 +874,7 @@ class ExplorerView:
         items += [("New folder", self.new_dir), ("New file", self.new_file)]
         if self.app.git_status and self.app.git_status.is_repo:
             gs = self.app.git_status
-            code = gs.files.get(norm(cur.path)) if cur else None
+            code = gs.code_for(cur.path) if cur else None
             if code == "?":
                 # untracked file: stage/unstage, commit and diff don't apply
                 # yet, so only offer to start tracking it.

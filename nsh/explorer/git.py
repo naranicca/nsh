@@ -24,6 +24,10 @@ class GitStatus:
     # changed files in original case/order: [(abspath Path, code)] — used by git
     # mode, which displays real paths (``files`` keys are normcased for matching)
     entries: list = field(default_factory=list)
+    # normcased abspaths of untracked directories. git collapses an untracked
+    # directory into a single "dir/" entry, so files inside it never appear in
+    # ``files``; code_for() consults this set so they still inherit the '?' marker
+    untracked_dirs: set = field(default_factory=set)
     behind: int = 0  # commits the upstream has that we don't
     ahead: int = 0   # commits we have that the upstream doesn't
     has_upstream: bool = False  # the branch has a configured @{upstream}
@@ -53,6 +57,29 @@ class GitStatus:
         behind count, which is stale until a fetch — pulling is how you find out
         about new upstream commits.)"""
         return self.has_upstream
+
+    def code_for(self, path) -> Optional[str]:
+        """Porcelain code for ``path`` — a direct match, else inherited from an
+        untracked ancestor directory.
+
+        git collapses an untracked directory into a single ``dir/`` entry, so a
+        file inside it has no status line of its own — yet it *is* untracked.
+        When the path isn't listed directly, walk up toward the repo root: if it
+        sits under one of the untracked directories, report it as untracked
+        ('?'). This is what makes the marker (and the Add action) show for files
+        in a brand-new directory."""
+        code = self.files.get(norm(path))
+        if code is not None:
+            return code
+        if self.untracked_dirs:
+            root_key = norm(self.root) if self.root is not None else None
+            for parent in Path(path).parents:
+                pk = norm(parent)
+                if pk == root_key:
+                    break
+                if pk in self.untracked_dirs:
+                    return "?"
+        return None
 
 
 async def run_git(args, cwd, env=None):
@@ -123,6 +150,7 @@ async def query(directory) -> GitStatus:
             if " -> " in path:  # rename: keep the destination
                 path = path.split(" -> ", 1)[1]
             path = path.strip().strip('"')
+            is_dir_entry = path.endswith("/")  # git marks an untracked dir "dir/"
             abspath = st.root / path.rstrip("/")
             x, y = code[0], code[1]
             if "U" in code or code in ("AA", "DD"):
@@ -135,6 +163,8 @@ async def query(directory) -> GitStatus:
                 c = "M"
             st.files[norm(abspath)] = c
             st.entries.append((abspath, c))
+            if c == "?" and is_dir_entry:
+                st.untracked_dirs.add(norm(abspath))
     return st
 
 
