@@ -124,6 +124,7 @@ class PreviewView:
         self._scroll_id = None    # identity of what's scrolled (reset on change)
         self._sb_total = 0        # full document line count (for the scrollbar)
         self._sb_view = 0         # visible line count (for the scrollbar)
+        self._btn_chars = 0       # char count of the header's [+]/[-] button row
         # focusable so F7/F8 (or a click) can move into the pane and scroll it
         # (the list keeps its own cursor); the pinned header is tinted while it's
         # focused.
@@ -153,8 +154,12 @@ class PreviewView:
         here too (the control swallows per-fragment handlers)."""
         if self.app.consume_menu_click():
             return
-        if (mouse_event.position.y == 0
-                and mouse_event.position.x >= self._width() - 3):
+        # the click column is a character index (not a display column), so test
+        # against the button row's character count — the button is its last three
+        # characters. This keeps it clickable when the header has wide (CJK) names.
+        btn_chars = getattr(self, "_btn_chars", 0)
+        if (mouse_event.position.y == 0 and btn_chars
+                and mouse_event.position.x >= btn_chars - 3):
             self._toggle_zoom()
             return
         self.app.close_shell_if_open()
@@ -176,6 +181,17 @@ class PreviewView:
             return ri.window_width
         return 40
 
+    def _content_width(self):
+        """The pane's true content width for the current frame.
+
+        The control records the width it was last rendered at; that is lag-free,
+        whereas ``render_info.window_width`` trails a frame behind the scrollbar
+        appearing — which let the right-aligned header button spill onto a second
+        row the moment a long file (or a wrapped name) first overflowed. Falls
+        back to the render_info width before the first render."""
+        w = getattr(self.control, "last_width", None)
+        return w if w else self._width()
+
     @staticmethod
     def _focus_header(line, width):
         """Re-style a pinned header line with the focus background, padded to the
@@ -191,32 +207,64 @@ class PreviewView:
         return "[-]" if (self.app.zoom and self.app.preview_focused()) else "[+]"
 
     @staticmethod
-    def _truncate_frags(line, width):
-        """Truncate a fragment line to ``width`` columns, preserving per-fragment
-        styles. Returns ``(fragments, used_width)``."""
-        out, used = [], 0
-        for frag in line:
-            if used >= width:
-                break
-            seg = cut_to_width(frag[1], width - used)
-            if seg:
-                out.append((frag[0], seg))
+    def _wrap_frags(line, first_width, rest_width):
+        """Split a fragment line into multiple lines, wrapping by display width.
+        The first wrapped line is limited to ``first_width`` (room for the button),
+        the rest to ``rest_width``. Per-fragment styles are preserved."""
+        lines, cur, used = [], [], 0
+        limit = max(1, first_width)
+        rest = max(1, rest_width)
+        for style, text in line:
+            text = text.replace("\n", "")
+            while text:
+                seg = cut_to_width(text, limit - used)
+                if not seg:
+                    if not cur and used == 0:
+                        seg = text[:1]   # guarantee progress on a too-narrow line
+                    else:
+                        lines.append(cur)
+                        cur, used, limit = [], 0, rest
+                        continue
+                cur.append((style, seg))
                 used += text_width(seg)
-        return out, used
+                text = text[len(seg):]
+                if used >= limit and text:
+                    lines.append(cur)
+                    cur, used, limit = [], 0, rest
+        lines.append(cur)
+        return lines
 
     def _line_with_button(self, line, width, focused):
-        """Append a right-aligned [+]/[-] zoom button to a header line, pinned to
-        the pane's top-right corner. The header text is truncated so the line
-        never wraps and push the button onto a second row. (The click itself is
+        """Wrap a header line to the pane width and append a right-aligned [+]/[-]
+        zoom button to the first row (pinned to the top-right corner). A long
+        filename wraps across rows so it stays fully visible; the button never
+        gets pushed down. Returns a *list* of lines. (The click itself is
         hit-tested in :meth:`_on_mouse` — WheelScrollControl ignores per-fragment
         handlers.)"""
         label = self._zoom_label()
         lw = text_width(label)
-        shown, used = self._truncate_frags(line, max(0, width - lw - 1))
-        pad = max(1, width - used - lw)
         fill = "class:preview.header.focus" if focused else "class:preview.header"
-        bstyle = "class:preview.header.focus" if focused else "class:preview.meta"
-        return shown + [(fill, " " * pad), (bstyle, label)]
+        # the [+]/[-] button is white; when focused it keeps the header background
+        # so it stays legible against the focus tint
+        bstyle = ("class:preview.header.focus #ffffff bold" if focused
+                  else "#ffffff bold")
+        wrapped = self._wrap_frags(line, width - lw - 1, width)
+        out = []
+        for i, wl in enumerate(wrapped):
+            used = sum(text_width(t) for _, t in wl)
+            if i == 0:
+                pad = max(1, width - used - lw)
+                out.append(wl + [(fill, " " * pad), (bstyle, label)])
+            else:
+                pad = max(0, width - used)
+                out.append(wl + ([(fill, " " * pad)] if pad else []))
+        # Remember how many *characters* the button row holds: prompt_toolkit's
+        # mouse handler reports a click's column as a character index, not a
+        # display column, so a header with wide (CJK) characters can't be
+        # hit-tested against the display width. The button is the trailing
+        # three characters, so the click test keys off this count instead.
+        self._btn_chars = sum(len(t) for _, t in out[0])
+        return out
 
     @staticmethod
     def _flatten_lines(lines):
@@ -264,11 +312,12 @@ class PreviewView:
         # totals drive the scrollbar (shown whenever the content overflows)
         self._sb_total = len(lines)
         self._sb_view = height
+        self._btn_chars = 0  # set by _line_with_button when the button is drawn
         if not self.app.preview_focused():
             self._scroll = 0
-            width = self._width()
+            width = self._content_width()
             if lines:  # add the [+] zoom button to the (first) header line
-                lines = [self._line_with_button(lines[0], width, False)] + lines[1:]
+                lines = self._line_with_button(lines[0], width, False) + lines[1:]
             return self._flatten_lines(lines)
         # keep the leading title lines (filename / meta) pinned — every builder
         # emits them before the first blank line — and scroll only the body.
@@ -281,13 +330,13 @@ class PreviewView:
         self._scroll = max(0, min(self._scroll, max_scroll))
         # tint the pinned header so the focused pane is obvious; the first header
         # line also carries the right-aligned [-]/[+] zoom button
-        width = self._width()
+        width = self._content_width()
         header_lines = []
         for i, ln in enumerate(header):
             if i == 0:
                 styled = [((s + " class:preview.header.focus").strip(), t)
                           for s, t in ln]
-                header_lines.append(self._line_with_button(styled, width, True))
+                header_lines.extend(self._line_with_button(styled, width, True))
             else:
                 header_lines.append(self._focus_header(ln, width))
         shown = header_lines + body[self._scroll:self._scroll + body_h]

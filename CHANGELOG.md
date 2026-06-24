@@ -122,6 +122,14 @@ Notable user-facing changes to the Python rewrite. Newest first.
   `-rw-r--r--`, `drwxr-xr-x`) · the size / line count / item count · the modified
   date. For a symbolic link it shows the link's mode (`lrwxrwxrwx`) followed by
   `→ <target>` (the path it points to).
+- **Long filenames wrap in the preview header.** A name too long for the pane
+  used to be cut off; it now wraps across as many header rows as it needs so the
+  whole name is visible. The `[+]`/`[-]` zoom button stays pinned to the
+  top-right corner of the first row — and stays clickable: it's positioned
+  against the pane's true current-frame width, so the scrollbar appearing (which
+  a wrapped name often triggers) no longer pushes the button onto a second row,
+  and the click is hit-tested by character index (not display column) so it
+  works for wide (CJK) filenames too.
 - **Scroll the preview pane.** In single-pane explorer mode and in the git /
   git-log views, `F7`/`F8` move focus between the list and the preview; while the
   preview is focused the arrows (plus `PgUp`/`PgDn` and `g`/`G`) scroll it, and

@@ -41,7 +41,17 @@ class WheelScrollControl(FormattedTextControl):
     def __init__(self, on_scroll, on_click=None, **kwargs):
         self._on_scroll = on_scroll
         self._on_click = on_click
+        # the content width this control was last rendered at. Unlike
+        # ``window.render_info.window_width`` (which trails a frame behind a
+        # scrollbar appearing/disappearing) this is the exact width prompt_toolkit
+        # lays the content into *this* frame, so callers can right-align without
+        # spilling onto a second row on the transition frame.
+        self.last_width = None
         super().__init__(**kwargs)
+
+    def create_content(self, width, height):
+        self.last_width = width
+        return super().create_content(width, height)
 
     def mouse_handler(self, mouse_event):
         et = mouse_event.event_type
