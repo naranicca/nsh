@@ -1316,11 +1316,21 @@ class NshApp:
     # -- command line ---------------------------------------------------------
     def run_in_shell(self, session, cmd):
         """Run ``cmd`` typed in ``session``. If that session is still running a
-        command, the new one opens in a fresh tab instead of interleaving."""
+        command, the new one opens in a fresh tab instead of interleaving.
+
+        A leading ``!`` forces the rest of the line onto the real terminal
+        (run_in_term) — an escape hatch for interactive tools nsh doesn't
+        auto-detect — skipping the builtins and the streaming pipe.
+        """
         if not cmd.strip():
             return
         if session.busy():
             session = self.shells.new_session()
+        force_term = cmd.lstrip().startswith("!")
+        if force_term:
+            cmd = cmd.lstrip()[1:].strip()
+            if not cmd:
+                return
         session.title = self._cmd_title(cmd)
         # a `source FILE` line: each command runs in its own subprocess, so note
         # the file and re-source it ahead of every later command (CommandRunner)
@@ -1331,7 +1341,9 @@ class NshApp:
         # into the scrolled-up line, so reset only clears the live prompt below.
         session.append_command(cmd)
         session.runner.reset_result()  # clear the previous command's status tint
-        if not self._handle_builtin(session, cmd):
+        if force_term:
+            asyncio.ensure_future(self._exec(session, cmd, force_term=True))
+        elif not self._handle_builtin(session, cmd):
             asyncio.ensure_future(self._exec(session, cmd))
 
     def _record_source(self, raw):
@@ -1382,10 +1394,12 @@ class NshApp:
             return True
         return False
 
-    async def _exec(self, session, cmd):
+    async def _exec(self, session, cmd, force_term=False):
         runner = session.runner
         try:
-            if runner.is_git_network(cmd):
+            if force_term:
+                await runner.run_in_term(cmd)  # a leading '!' forced this
+            elif runner.is_git_network(cmd):
                 await self._exec_git_network(session, runner, cmd)
             elif runner.is_interactive(cmd):
                 await runner.run_in_term(cmd)

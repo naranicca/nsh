@@ -152,6 +152,43 @@ def detect_shell():
     return shell, ["-c"], True
 
 
+def _wait_for_key():
+    """Print a prompt and block until the user presses one key, then return.
+
+    Used after a run_in_term command so its output stays on screen until the
+    user is ready (nsh redraws over it the moment run_in_terminal returns).
+    Reads a single keypress without waiting for Enter — ``msvcrt`` on Windows, a
+    momentary raw ``termios`` mode elsewhere — and degrades to a no-op if stdin
+    isn't a usable terminal (e.g. redirected), so it never blocks a script.
+    """
+    try:
+        sys.stdout.write("press any key to continue . . . ")
+        sys.stdout.flush()
+    except Exception:  # noqa: BLE001
+        return
+    try:
+        if os.name == "nt":
+            import msvcrt
+            msvcrt.getwch()
+        else:
+            import termios
+            import tty
+            fd = sys.stdin.fileno()
+            old = termios.tcgetattr(fd)
+            try:
+                tty.setraw(fd)
+                sys.stdin.read(1)
+            finally:
+                termios.tcsetattr(fd, termios.TCSADRAIN, old)
+    except Exception:  # noqa: BLE001 - no usable tty; don't block
+        pass
+    try:
+        sys.stdout.write("\n\n")  # end the message line, then a blank line
+        sys.stdout.flush()
+    except Exception:  # noqa: BLE001
+        pass
+
+
 class CommandRunner:
     def __init__(self, app, session=None):
         self.app = app
@@ -530,6 +567,9 @@ class CommandRunner:
                 result["rc"] = subprocess.run(argv, cwd=cwd, env=env, **kwargs).returncode
             except Exception as exc:  # noqa: BLE001 - surfaced to the user
                 print(f"nsh: {exc}")
+            # hold the command's output on screen until the user presses a key —
+            # otherwise nsh redraws over it the instant run_in_terminal returns
+            _wait_for_key()
 
         await run_in_terminal(_run)
         return result["rc"]

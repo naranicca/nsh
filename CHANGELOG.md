@@ -131,6 +131,12 @@ Notable user-facing changes to the Python rewrite. Newest first.
   nsh now prints the prompt and the command above its output — in the same
   format as the shell prompt (cwd + git branch + `$`), minus the previous
   command's run-time/exit badge — so the bare output isn't left without context.
+  When it finishes, nsh shows `press any key to continue . . .` and waits for a
+  keypress before redrawing, so the output stays on screen until you're ready.
+- **`!` runs a command on the real terminal.** A leading `!` (e.g. `!htop`,
+  `!my-tui`) forces the rest of the line to run on the terminal — the same path
+  editors and bare REPLs take — as an escape hatch for interactive tools nsh
+  doesn't recognise on its own. It skips the builtins and the streaming pipe.
 - **Quoting fix.** Streamed commands keep their own quotes intact
   (e.g. `python -c "..."`).
 
