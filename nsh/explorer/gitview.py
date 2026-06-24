@@ -327,15 +327,18 @@ class GitView:
         def _(event):
             self.open()
 
-        # There is no directory hierarchy here, so the parent/child navigation
-        # keys are explicitly inert.
+        # There is no directory hierarchy here, so the "go up" keys are inert.
         @kb.add("left")
-        @kb.add("right")
         @kb.add("h")
-        @kb.add("l")
         @kb.add("backspace")
         def _(event):
             pass
+
+        # Right (l) steps into the diff preview to scroll it; Esc returns.
+        @kb.add("right")
+        @kb.add("l")
+        def _(event):
+            self.app.focus_preview()
 
         # Configurable action keys (remappable via the [keys] section of nshrc);
         # an invalid key spec is skipped rather than fatal, as in the explorer.

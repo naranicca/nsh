@@ -153,10 +153,12 @@ Notable user-facing changes to the Python rewrite. Newest first.
   view, with the cursor on a file inside an expanded subdirectory, paste drops
   the items into that subdirectory. (On `..` or an empty listing it still uses
   the current directory.)
-- **Right arrow on a file focuses the preview.** A directory still folds/unfolds
-  under the cursor with Right (l), but a plain file has nothing to expand — so
-  Right now hands focus to the preview pane (when it's on screen) to scroll it,
-  reading as "step into the preview". Esc returns to the list.
+- **Right arrow focuses the preview.** In the explorer, a directory still
+  folds/unfolds under the cursor with Right (l), but a plain file has nothing to
+  expand — so Right hands focus to the preview pane (when it's on screen) to
+  scroll it, reading as "step into the preview". In git mode, where there's no
+  hierarchy, Right (l) likewise steps into the diff preview. Esc returns to the
+  list.
 - **Preview shows permissions, size and modified date.** Under the filename the
   preview pane has one meta line: the permissions in `ls -l` style (e.g.
   `-rw-r--r--`, `drwxr-xr-x`) · the size / line count / item count · the modified

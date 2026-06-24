@@ -1280,11 +1280,15 @@ class NshApp:
             self.preview.focus()
 
     def focus_preview(self):
-        """Move focus to the preview pane, but only when it's actually on screen
-        (single-pane explorer with the preview shown, wide enough). Used by Right
-        on a non-expandable file. A no-op otherwise, so the key stays inert when
-        there's no preview to step into."""
-        if self.two_pane or not self.show_preview or not self._wide_enough():
+        """Move focus to the preview pane when it's actually on screen. Used by
+        Right on a non-expandable file (explorer) and on a changed file (the
+        git / log diff). A no-op otherwise, so the key stays inert when there's
+        no preview to step into."""
+        if not (self.show_preview and self._wide_enough()):
+            return
+        # two-pane explorer replaces the preview with the second pane; git / log
+        # always show the preview regardless of the explorer's two-pane flag
+        if self.mode == EXPLORER and self.two_pane:
             return
         self.preview.focus()
 
