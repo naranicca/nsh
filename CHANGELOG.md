@@ -156,9 +156,9 @@ Notable user-facing changes to the Python rewrite. Newest first.
 - **Right arrow focuses the preview.** In the explorer, a directory still
   folds/unfolds under the cursor with Right (l), but a plain file has nothing to
   expand — so Right hands focus to the preview pane (when it's on screen) to
-  scroll it, reading as "step into the preview". In git mode, where there's no
-  hierarchy, Right (l) likewise steps into the diff preview. Esc returns to the
-  list.
+  scroll it, reading as "step into the preview". In git mode Right (l) steps into
+  the diff preview, and in the git log it steps into the commit-detail/diff
+  preview. Esc returns to the list.
 - **Preview shows permissions, size and modified date.** Under the filename the
   preview pane has one meta line: the permissions in `ls -l` style (e.g.
   `-rw-r--r--`, `drwxr-xr-x`) · the size / line count / item count · the modified

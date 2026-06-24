@@ -335,6 +335,13 @@ class LogView:
         def _(event):
             self.open_action_menu()
 
+        # Right (l) steps into the commit-detail/diff preview to scroll it; Esc
+        # returns to the log list.
+        @kb.add("right")
+        @kb.add("l")
+        def _(event):
+            self.app.focus_preview()
+
         @kb.add("/")
         def _(event):
             self.search()
