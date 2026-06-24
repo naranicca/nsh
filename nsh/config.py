@@ -9,6 +9,12 @@ from pathlib import Path
 
 from prompt_toolkit.styles import Style
 
+from .search.fuzzy import SKIP_DIRS as _SEARCH_SKIP_DIRS
+
+# the default value for the `search_exclude` setting, single-sourced from the
+# fuzzy indexer so the seeded nshrc shows exactly what's skipped by default
+_DEFAULT_SEARCH_EXCLUDE = " ".join(sorted(_SEARCH_SKIP_DIRS))
+
 STYLE_DEFAULTS = {
         # chrome
         "titlebar": "bg:#303030 #d0d0d0",
@@ -226,6 +232,9 @@ DEFAULT_SETTINGS = {
     "sort_reverse": "false",
     # start in two-pane view (two explorers side by side; F7/F8 switch panes)
     "two_pane": "false",
+    # directory names skipped in fuzzy file search (comma/space separated). This
+    # is the full list (not additive), so it can be edited to add or remove names
+    "search_exclude": _DEFAULT_SEARCH_EXCLUDE,
 }
 
 DEFAULT_NSHRC = """\
@@ -254,6 +263,12 @@ DEFAULT_NSHRC = """\
 # with its own directory. F7/F8 move the cursor between them. Toggle any time
 # from the F10 menu.
 # two_pane = false
+
+# Directories skipped by fuzzy file search (/ key), comma or space separated.
+# This is the full list — edit it to add names (e.g. a noisy build/) or remove
+# names (to search them); clear it to search everything. build/ and dist/ are
+# searched by default. The default is:
+# search_exclude = {search_defaults}
 
 [colors]
 # explorer.dir = #5fafff bold
@@ -323,7 +338,8 @@ def ensure_default_config() -> None:
     try:
         if not path.exists():
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(DEFAULT_NSHRC, encoding="utf-8")
+            text = DEFAULT_NSHRC.format(search_defaults=_DEFAULT_SEARCH_EXCLUDE)
+            path.write_text(text, encoding="utf-8")
     except OSError:
         pass
 

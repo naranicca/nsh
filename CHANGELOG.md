@@ -141,6 +141,13 @@ Notable user-facing changes to the Python rewrite. Newest first.
   (e.g. `python -c "..."`).
 
 ### Explorer & Git
+- **Fuzzy search finds build artifacts, and the skip list is configurable.** The
+  file finder (`/`) used to skip `build/` and `dist/` entirely, so a built
+  executable (e.g. `build/.../Release/mario.exe`) never showed up. Those output
+  dirs are now searched by default. Which directories are skipped is now an nshrc
+  setting, `search_exclude` (comma/space separated) — seeded with the defaults
+  (`.git`, `node_modules`, `__pycache__`, …) so you can edit the list: add a
+  noisy `build/`, remove a name to search it, or clear it to search everything.
 - **Paste follows the cursor.** Paste now lands in the directory that holds the
   entry under the cursor, rather than always the top-level cwd — so in the tree
   view, with the cursor on a file inside an expanded subdirectory, paste drops

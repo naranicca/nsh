@@ -10,10 +10,14 @@ import os
 
 WORD_BOUNDARY = set("/\\._- ")
 
-# Directories never worth indexing for a file picker.
+# The default set of directories skipped when indexing: VCS metadata, dependency
+# trees and tool caches — pure noise. Build-output dirs (build/, dist/) are
+# deliberately NOT here: they hold real artifacts you may want to find (an
+# executable, a bundle). This is the default for the nshrc `search_exclude`
+# setting, which the user can edit to add or remove names.
 SKIP_DIRS = {
     ".git", ".hg", ".svn", "node_modules", "__pycache__", ".venv", "venv",
-    ".mypy_cache", ".pytest_cache", ".tox", ".idea", ".vscode", "dist", "build",
+    ".mypy_cache", ".pytest_cache", ".tox", ".idea", ".vscode",
 }
 
 
@@ -66,7 +70,7 @@ def search(query, items, limit=500):
     return out[:limit]
 
 
-def gather(root, show_hidden=False, limit=50000):
+def gather(root, show_hidden=False, limit=50000, skip=None):
     """Relative paths of files and directories under ``root`` (directories get a
     trailing separator), gathered **breadth-first** and capped at ``limit``.
 
@@ -74,7 +78,13 @@ def gather(root, show_hidden=False, limit=50000):
     so one huge directory (e.g. Windows' ``AppData``) exhausts ``limit`` before
     any sibling like ``source/`` is reached. Breadth-first indexes every branch
     at a shallow depth first, so nearby paths show up even in a giant home dir.
+
+    ``skip`` is the set of directory names to prune; ``None`` falls back to the
+    built-in :data:`SKIP_DIRS`. The search view passes the user's nshrc
+    ``search_exclude`` list, which *replaces* the default — so a name can be
+    removed (to search it) as well as added.
     """
+    skip = SKIP_DIRS if skip is None else set(skip)
     items = []
     root = os.fspath(root)
     queue = [root]
@@ -95,7 +105,7 @@ def gather(root, show_hidden=False, limit=50000):
                 is_dir = False
             rel = os.path.relpath(e.path, root)
             if is_dir:
-                if name in SKIP_DIRS:
+                if name in skip:
                     continue
                 items.append(rel + os.sep)
                 queue.append(e.path)

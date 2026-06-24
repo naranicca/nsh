@@ -72,9 +72,18 @@ class SearchView:
         self.query_buffer.cursor_position = len(query)
         asyncio.ensure_future(self._index())
 
+    def _exclude_dirs(self):
+        """The directory names to skip during search, from the nshrc
+        ``search_exclude`` setting (comma/space separated). This replaces the
+        built-in default list, so the user can remove a name to search it; an
+        empty value skips nothing."""
+        raw = self.app.settings.get("search_exclude", "") or ""
+        return set(raw.replace(",", " ").split())
+
     async def _index(self):
         items = await run_in_thread(
-            fuzzy.gather, self.app.cwd, self.app.explorer.show_hidden
+            fuzzy.gather, self.app.cwd, self.app.explorer.show_hidden,
+            skip=self._exclude_dirs(),
         )
         self.candidates = items
         self.loading = False
