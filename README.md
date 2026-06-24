@@ -17,6 +17,10 @@ It has three modes:
 3. **Fuzzy search** — an fzf-style file picker (`/` from the explorer, or
    `nsh search` from the command line).
 
+Everything runs in **tabs**: each tab is its own explorer + shell pair, so you
+can keep several working directories — each with its own command-line session —
+open at once and switch between them with `F7`/`F8`.
+
 Recent changes are listed in [CHANGELOG.md](CHANGELOG.md).
 
 ## Install / run
@@ -55,6 +59,20 @@ As a fallback that needs no PATH change, run it as a module: `python -m nsh`.
 
 ## Keys
 
+### Tabs
+Every explorer is paired with a shell in a **tab** — its own directory,
+selection, preview and command-line scrollback — so several places stay open at
+once and the process working directory follows the active tab.
+
+| Key | Action |
+| --- | --- |
+| `Ctrl+T` | new tab (a fresh explorer at the current directory) |
+| `Ctrl+W` | close the current tab |
+| `F7` / `F8`, `Alt+←` / `Alt+→` | previous / next tab |
+
+These work from both the explorer and the command line. The two-pane view (`2`)
+is per-tab, so one tab can be split while another shows a single pane.
+
 ### Explorer mode
 The action keys (everything below the navigation block) are remappable in
 `nshrc` — see [Configuration](#configuration).
@@ -62,13 +80,14 @@ The action keys (everything below the navigation block) are remappable in
 | Key | Action |
 | --- | --- |
 | `↑`/`↓`, `k`/`j` | move cursor |
-| `↵`, `l`, `→` | open file / enter directory |
-| `⌫`, `h`, `←` | go to parent directory |
+| `↵` | open the file / enter the directory |
+| `l`, `→` | expand/collapse a directory inline; **on a file, focus the preview** |
+| `⌫`, `h`, `←` | collapse the directory, else go to the parent |
 | `Space` | select / deselect the entry (multi-select) |
 | `Tab` | open the **action menu** (copy, rename, delete, git…) |
-| `y` / `x` / `p` | copy / cut / paste (the selection, or the entry under the cursor) |
-| `R` | rename |
-| `m` / `N` | new folder / new file |
+| `y` / `x` / `p` | copy / cut / paste — **paste lands in the directory at the cursor** |
+| `F2` / `i` | rename (inline) |
+| `m` / `N` | new folder / new file — **created in the directory at the cursor** |
 | `D` | delete (asks to confirm) |
 | `b` | bookmarks — add/remove this directory, or jump to a saved one |
 | `/` | fuzzy-find a file |
@@ -81,9 +100,16 @@ The action keys (everything below the navigation block) are remappable in
 | `ESC` | clear the selection |
 | `q` | quit |
 
+Paste, new file and new folder follow the cursor: a directory under the cursor
+is the target (the item lands *inside* it and it expands to show the result),
+while a file targets its containing directory — so in the tree view you act
+exactly where you're pointing.
+
 Git actions (stage / unstage, commit, diff, and a **Branches** submenu that
 lists branches to check out plus a `+ New Branch` entry) live in the `Tab`
-action menu when the directory is a repository.
+action menu when the directory is a repository. An untracked file can be staged
+— including the files inside a brand-new directory, which carry the untracked
+marker and so can be added too.
 
 ### Git mode
 
@@ -92,9 +118,11 @@ untracked files — a change in a subdirectory shows as its full path (not a
 tree). `↑`/`↓` move, `Space` multi-selects, and the preview pane shows the file's
 diff (untracked files show their new content). `Tab` opens an action menu
 (stage / unstage — applied to the whole selection — commit, edit, branches).
-There is no directory hierarchy, so the left/right keys are inert; `Ctrl+G` or
-`ESC` returns to the explorer, and jumping elsewhere (e.g. via a bookmark)
-leaves git mode automatically.
+There is no directory hierarchy, so `→`/`l` steps into the diff preview to
+scroll it (`Esc` returns to the list) while the other left/right keys are inert;
+`Ctrl+G` or `ESC` returns to the explorer, and jumping elsewhere (e.g. via a
+bookmark) leaves git mode automatically. The git log (from the `Tab` action
+menu) works the same way — `→`/`l` focuses the commit-detail/diff preview.
 
 ### Command-line mode
 | Key | Action |
@@ -104,26 +132,32 @@ leaves git mode automatically.
 | `↑`/`↓` | command history (when no popup is open) |
 | `↵` | run the command |
 | `PgUp`/`PgDn`, `Alt+↑`/`Alt+↓`, wheel, `Ctrl+End` | scroll the output (the prompt hides while scrolled up) |
-| `Ctrl+T` / `Ctrl+W` | open / close a shell tab |
-| `Alt+←` / `Alt+→` (or `F7` / `F8`) | previous / next shell tab |
+| `Ctrl+T` / `Ctrl+W` | open / close a tab |
+| `Alt+←` / `Alt+→` (or `F7` / `F8`) | previous / next tab |
 | `ESC` | switch back to explorer mode |
 
-Each shell **tab** is an independent session with its own scrollback and process.
-Entering a command while the current one is still running opens it in a new tab
-(rather than mixing the output); a tab bar appears once there is more than one,
-marking which sessions are still running.
+Each **tab** pairs this shell session with its own explorer (see [Tabs](#tabs)),
+so switching tabs swaps the whole working context. Entering a command while the
+current one is still running opens it in a new tab (rather than mixing the
+output); a tab bar marks which sessions are still running.
 
 Built-ins handled internally: `cd`, `clear`/`cls`, `exit`/`quit`. The output pane
 grows with its content and goes full-screen once it fills up. Long lines wrap,
 the prompt shows each command's run time tinted by its exit status, and
 interactive commands that need a real terminal — editors/pagers, plus network
 git (`push`/`pull`/`fetch`/`clone`) and `sudo` that may prompt for credentials
-— run with the UI briefly suspended.
+— run with the UI briefly suspended. nsh echoes the prompt + command above their
+output and, when they finish, waits for a keypress (`press any key to
+continue …`) so it stays visible. Prefix any command with **`!`** to force it
+onto the real terminal this way — an escape hatch for a TUI nsh doesn't
+recognise on its own (e.g. `!htop`).
 
 ### Fuzzy search mode
 Type to filter, `↑`/`↓` to move, `↵` to select, `ESC` to cancel. Launched with
 `nsh search [WORD]` (prints the selection to stdout, e.g. `cd "$(nsh search)"`)
-or with `/` from the explorer.
+or with `/` from the explorer. Build outputs (`build/`, `dist/`) are indexed too,
+so a built executable is findable; the skipped directories are configurable via
+`search_exclude` (see [Configuration](#configuration)).
 
 ## Configuration
 
@@ -134,6 +168,8 @@ On first run nsh seeds a commented template at `~/.config/nsh/nshrc`
 [general]
 # editor for the "Edit" action; unset -> $EDITOR/$VISUAL, then notepad/vi
 editor = code -w
+two_pane = false                     # start with two explorer panes side by side
+search_exclude = .git node_modules   # directories fuzzy search skips
 
 [colors]
 # <style-class> = <prompt_toolkit style>
@@ -149,9 +185,11 @@ menu   = tab
 quit   = q
 ```
 
-`[general]` sets the **Edit** editor (Tab menu, text files only); `[colors]`
-overrides any UI style class; `[keys]` remaps the explorer action keys.
-Invalid entries are ignored, never fatal.
+`[general]` sets the **Edit** editor (Tab menu, text files only), whether to
+start in `two_pane` view, and `search_exclude` — the directories fuzzy search
+skips (seeded with the defaults, so edit it to add a noisy `build/` or remove a
+name to search it). `[colors]` overrides any UI style class; `[keys]` remaps the
+explorer action keys. Invalid entries are ignored, never fatal.
 
 Bookmarks (the `b` key) are saved one path per line in `~/.config/nsh/bookmarks`.
 
@@ -179,7 +217,7 @@ nsh/
     view.py           the fuzzy picker
   shell/
     runner.py         host-shell wrap via asyncio subprocesses (per session)
-    tabs.py           multiple shell sessions managed as tabs
+    tabs.py           tabs — each bundles an explorer pair + a shell session
     completer.py      interactive path + command Tab-completion
     lexer.py          command-line syntax highlighting
     view.py           one session: scrollback (ANSI / CR / BS-aware, wrapped) + prompt
