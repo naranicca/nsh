@@ -35,7 +35,6 @@ from .explorer import git
 from .explorer.gitview import GitView
 from .explorer.logview import LogView
 from .explorer.preview import PreviewView
-from .explorer.view import ExplorerView
 from .notes.view import NotesView
 from .search.view import SearchView
 from .system.view import SystemView
@@ -149,22 +148,27 @@ class NshApp:
         # sourced script's functions/aliases/vars would vanish — instead we re-
         # source these (silently) ahead of every later command (see CommandRunner).
         self.sourced_files = []
-        # two side-by-side explorer panes (Norton/MC-style). In single-pane mode
-        # only the active pane is shown; in two-pane mode both are, and F7/F8
-        # switch which one is active (and holds the cursor). Each pane keeps its
-        # own directory, selection and cursor.
-        self.explorers = [ExplorerView(self, initial_cwd),
-                          ExplorerView(self, initial_cwd)]
-        self.active_pane = 0
-        self.two_pane = (self.settings.get("two_pane", "false").strip().lower()
-                         in ("true", "1", "yes", "on"))
+        # Tabs: each tab owns its own explorer pane(s) AND its own shell session
+        # (see ShellTabs). Opening a tab opens a fresh explorer; switching tabs
+        # swaps the whole working context. The explorers / active_pane / two_pane
+        # properties below always point at the current tab's state.
+        #
+        # Within a tab there are two side-by-side explorer panes (Norton/MC-
+        # style): single-pane mode shows only the active one; two-pane mode shows
+        # both. Each pane keeps its own directory, selection and cursor, and each
+        # tab keeps its own two-pane flag (so one tab can be split while another
+        # isn't); new tabs start from the nshrc default below.
+        self._two_pane_default = (
+            self.settings.get("two_pane", "false").strip().lower()
+            in ("true", "1", "yes", "on"))
+        self.shells = ShellTabs(self, initial_cwd)
         # zoom: when on, the split gives the focused pane a 9:1 share instead of
         # an even 5:5 (the big pane follows the focus). See toggle_zoom / _pane_dim.
+        # (zoom stays app-wide, applied to whichever tab is current.)
         self.zoom = False
         # last (tag, index, time) left-click, for detecting a double-click that
         # opens the row a single click only moved the cursor to (see double_click)
         self._last_click = None
-        self.shells = ShellTabs(self)  # the shell sessions, managed as tabs
         self.preview = PreviewView(self)
         self.show_preview = True
         self.search = SearchView(self)
@@ -193,6 +197,33 @@ class NshApp:
         self.application = self._build_application()
 
     @property
+    def explorers(self):
+        """The current tab's pair of explorer panes (each tab has its own)."""
+        return self.shells.current().explorers
+
+    @property
+    def active_pane(self):
+        """Index (0/1) of the current tab's active explorer pane."""
+        return self.shells.current().active_pane
+
+    @active_pane.setter
+    def active_pane(self, value):
+        self.shells.current().active_pane = value
+
+    @property
+    def two_pane(self):
+        """Whether the current tab shows both explorer panes (per-tab state)."""
+        return self.shells.current().two_pane
+
+    @two_pane.setter
+    def two_pane(self, value):
+        self.shells.current().two_pane = value
+
+    def _all_explorers(self):
+        """Every explorer pane across all tabs (for config-reload key rebuilds)."""
+        return [ex for s in self.shells.sessions for ex in s.explorers]
+
+    @property
     def explorer(self):
         """The active explorer pane — the one holding the cursor. Most code only
         ever touches this one; the cwd, git status and shell follow it."""
@@ -216,12 +247,23 @@ class NshApp:
     def focus_shell(self):
         self.application.layout.focus(self.shells.current().command_buffer)
 
-    def open_shell_tab(self, idx):
-        """Make tab ``idx`` active and enter shell mode showing it (used when a
-        shell tab is clicked from the out-of-shell-mode tab bar)."""
-        if 0 <= idx < len(self.shells.sessions):
-            self.shells.active = idx
-            self.switch_mode(SHELL)
+    def _after_tab_switch(self):
+        """Apply the consequences of a different tab becoming current: the
+        process cwd, preview, git status and focus all follow the now-active
+        tab's explorer. Used by every tab switch (keys / clicks) and tab close,
+        staying in the current mode rather than forcing shell mode."""
+        ex = self.explorer
+        try:
+            os.chdir(ex.cwd)  # the process cwd follows the active tab's pane
+        except OSError:
+            pass
+        self._remember_drive(ex.cwd)
+        ex.check_external_change()  # the dir may have changed while we were away
+        self.preview.clear()
+        self.message = ""
+        self.schedule_git()
+        self._restore_focus()
+        self.invalidate()
 
     def _prefill_selection(self):
         """Entering the shell from the explorer with files selected drops their
@@ -265,18 +307,13 @@ class NshApp:
 
     def _build_pane_keys(self):
         """The remappable pane_prev / pane_next pair (F7/F8 by default), in their
-        own KeyBindings so reload_config() can swap them live. One pair drives
-        every "move between siblings" action — previous/next shell tab, switching
-        the active pane in two-pane mode, and list <-> preview focus — with the
-        active mode's filter deciding which fires. Ctrl combos are allowed; a bad
+        own KeyBindings so reload_config() can swap them live. They move between
+        tabs only — in the explorer and the shell alike. They deliberately do
+        *not* toggle list <-> preview focus (use Esc or a mouse click) or switch
+        the two-pane active pane (click a pane). Ctrl combos are allowed; a bad
         key spec in nshrc is skipped, as elsewhere."""
         kb = KeyBindings()
-        shell_mode = Condition(lambda: self.mode == SHELL)
-        two_pane_active = Condition(
-            lambda: self.mode == EXPLORER and self.two_pane)
-        preview_focus_mode = Condition(
-            lambda: self.mode in (GIT, LOG)
-            or (self.mode == EXPLORER and not self.two_pane))
+        tab_mode = Condition(lambda: self.mode in (EXPLORER, SHELL))
 
         def add(key, filt, handler):
             if not key:
@@ -288,12 +325,8 @@ class NshApp:
 
         prev_key = self.keys.get("pane_prev")
         next_key = self.keys.get("pane_next")
-        add(prev_key, shell_mode, self.shells.prev)
-        add(next_key, shell_mode, self.shells.next)
-        add(prev_key, two_pane_active, self.switch_pane)
-        add(next_key, two_pane_active, self.switch_pane)
-        add(prev_key, preview_focus_mode, self.toggle_preview_focus)
-        add(next_key, preview_focus_mode, self.toggle_preview_focus)
+        add(prev_key, tab_mode, self.shells.prev)
+        add(next_key, tab_mode, self.shells.next)
 
         # zoom (z by default): enlarge the focused pane wherever a split is on
         # screen — the explorer (single + two-pane), git and log views. Guarded
@@ -335,7 +368,7 @@ class NshApp:
         self.style = config.build_style(color_overrides)
         self.application.style = self.style
         self._pane_kb = self._build_pane_keys()
-        for ex in self.explorers:
+        for ex in self._all_explorers():
             ex.rebuild_keys()
         self.gitview.rebuild_keys()
         self.logview.rebuild_keys()
@@ -343,6 +376,40 @@ class NshApp:
         self.invalidate()
 
     # -- layout ---------------------------------------------------------------
+    def _ensure_tab_layout(self, session):
+        """Build (once, then cache) the explorer VSplits for ``session``'s own
+        panes. Each tab has its own pair of explorer windows, so the split that
+        places them beside the preview (or each other, in two-pane view) is built
+        per tab; only the current tab's split is ever on screen. The width
+        lambdas only fire for the visible tab, so indexing the active tab's panes
+        (``_explorer_focused(0/1)``) stays correct."""
+        if getattr(session, "_ex_split", None) is not None:
+            return
+        e0, e1 = session.explorers
+        e0.window.width = lambda: self._pane_dim(self._explorer_focused(0))
+        e1.window.width = lambda: self._pane_dim(self._explorer_focused(1))
+        session._ex_split = VSplit([
+            e0.window,
+            Window(width=1, char="│", style="class:preview.border"),
+            self.preview.window,
+        ])
+        session._two_split = VSplit([
+            e0.window,
+            Window(width=1, char="│", style="class:preview.border"),
+            e1.window,
+        ])
+
+    def _explorer_area_container(self):
+        """The current tab's explorer area: both panes in two-pane view, the
+        single pane beside the preview when wide enough, else the bare listing."""
+        session = self.shells.current()
+        self._ensure_tab_layout(session)
+        if self.two_pane:
+            return session._two_split
+        if self.show_preview and self._wide_enough():
+            return session._ex_split
+        return session.explorers[0].window
+
     def _build_application(self):
         confirm_open = Condition(lambda: self.confirm_dialog.active)
         menu_open = Condition(lambda: self.menu.active)
@@ -464,21 +531,36 @@ class NshApp:
         def _(event):
             self.shells.next()
 
+        # The same Alt+Left/Right switch tabs from the explorer too (each tab now
+        # carries its own explorer), so a tab can be navigated to without a mouse.
+        explorer_mode = Condition(lambda: self.mode == EXPLORER)
+
+        @kb.add("escape", "left", filter=explorer_mode)
+        def _(event):
+            self.shells.prev()
+
+        @kb.add("escape", "right", filter=explorer_mode)
+        def _(event):
+            self.shells.next()
+
         # pane_prev / pane_next (F7/F8 by default) live in their own KeyBindings
         # (see _build_pane_keys), wrapped in DynamicKeyBindings below so a config
         # reload can rebuild just them and have the new keys take effect live.
         self._pane_kb = self._build_pane_keys()
 
-        @kb.add("c-t", filter=shell_mode)
+        # Ctrl+T opens a new tab — a fresh explorer + shell — from the explorer
+        # as well as the shell, staying in whichever mode you're in.
+        @kb.add("c-t", filter=~overlay_open & (shell_mode | explorer_mode))
         def _(event):
             self.shells.new_session()
-            self.invalidate()
 
         @kb.add("f2", filter=shell_mode)
         def _(event):
             self.shells.rename()
 
-        @kb.add("c-w", filter=shell_mode)
+        # Ctrl+W closes the current tab from the explorer as well as the shell
+        # (closing the last tab just clears its shell and stays put).
+        @kb.add("c-w", filter=~overlay_open & (shell_mode | explorer_mode))
         def _(event):
             self.close_shell_tab()
 
@@ -566,38 +648,19 @@ class NshApp:
         # zoom: give every split pane a focus-aware width weight, read live each
         # frame (so toggling zoom or moving focus reshapes the split). Off, the
         # weights are all 1 -> an even split; on, the focused pane wins 9:1.
-        self.explorers[0].window.width = lambda: self._pane_dim(self._explorer_focused(0))
-        self.explorers[1].window.width = lambda: self._pane_dim(self._explorer_focused(1))
         self.preview.window.width = lambda: self._pane_dim(self.preview_focused())
         self.gitview.window.width = lambda: self._pane_dim(not self.preview_focused())
         self.logview.window.width = lambda: self._pane_dim(not self.preview_focused())
 
-        self._explorer_split = VSplit(
-            [
-                self.explorers[0].window,
-                Window(width=1, char="│", style="class:preview.border"),
-                self.preview.window,
-            ]
-        )
-
-        # two-pane view: the two explorer panes side by side, no preview
-        self._two_pane_split = VSplit(
-            [
-                self.explorers[0].window,
-                Window(width=1, char="│", style="class:preview.border"),
-                self.explorers[1].window,
-            ]
-        )
+        # Each tab owns its own explorer pane(s), so the split that lays them out
+        # (beside the preview, or each other in two-pane view) is built per tab
+        # and chosen live — switching tabs swaps the listing, not just the shell.
+        self._ensure_tab_layout(self.shells.current())
 
         # the explorer area, reused both in explorer mode and on top of the
         # shell so the listing stays visible. Two-pane shows both panes (no
         # preview); single-pane shows pane 0 with the optional preview beside it.
-        explorer_area = DynamicContainer(
-            lambda: self._two_pane_split if self.two_pane
-            else (self._explorer_split
-                  if (self.show_preview and self._wide_enough())
-                  else self.explorers[0].window)
-        )
+        explorer_area = DynamicContainer(self._explorer_area_container)
 
         # git mode: the changed-file list beside the diff preview
         self._git_split = VSplit(
@@ -938,10 +1001,10 @@ class NshApp:
         # PgUp/PgDn, "type", history) have no single action, so they stay inert.
         ex = self.explorer
         if self.preview_focused() and self.mode in (EXPLORER, GIT, LOG):
-            # the preview pane holds the focus (pane keys): it scrolls with arrows
+            # the preview pane holds the focus: it scrolls with the arrows; Esc
+            # (or a click) returns to the list — the pane keys now switch tabs
             hints = [
                 ("↑↓", "scroll"), ("PgUp/PgDn", "page"), ("g/G", "top/bottom"),
-                (pane_pair, "list", self.focus_active_list),
                 (zk, "zoom", self.toggle_zoom),
                 ("ESC", "list", self.focus_active_list),
             ]
@@ -955,13 +1018,11 @@ class NshApp:
                 ("^N", "note", self.open_notes),
                 (":", "cmd", lambda: self.switch_mode(SHELL)),
             ]
-            # the 2-pane toggle; once in it, surface the pane switch instead
-            if self.two_pane:
-                hints.append((nk, "pane", self.switch_pane))
-                hints.append(("2", "1-pane", self.toggle_two_pane))
-            else:
-                hints.append((nk, "preview", self.toggle_preview_focus))
-                hints.append(("2", "2-pane", self.toggle_two_pane))
+            # F7/F8 switch tabs; the 2-pane toggle sits beside it
+            if len(self.shells.sessions) > 1:
+                hints.append((pane_pair, "tab", self.shells.next))
+            hints.append(("2", "1-pane" if self.two_pane else "2-pane",
+                          self.toggle_two_pane))
             hints.append((zk, "zoom", self.toggle_zoom))
             hints.append(("q", "quit", self.exit))
         elif self.mode == SEARCH:
@@ -975,7 +1036,6 @@ class NshApp:
                 ("Space", "select", self.gitview.toggle_select),
                 ("Tab", "actions", self.gitview.open_action_menu),
                 ("b", "marks", self.open_bookmark_menu),
-                (nk, "preview", self.toggle_preview_focus),
                 (zk, "zoom", self.toggle_zoom),
                 (":", "cmd", lambda: self.switch_mode(SHELL)),
                 ("ESC", "exit", lambda: self.switch_mode(EXPLORER)),
@@ -987,7 +1047,6 @@ class NshApp:
                 ("↵", "actions", self.logview.open_action_menu),
                 ("/", "search", self.logview.search),
                 ("n", "next", lambda: self.logview._find(1)),
-                (pane_pair, "preview", self.toggle_preview_focus),
                 (zk, "zoom", self.toggle_zoom),
                 ("ESC/q", "back", self.close_log),
             ]
@@ -1499,6 +1558,8 @@ class NshApp:
             self.notesview.focus_input()
         elif self.mode == SYSTEM:
             self.application.layout.focus(self.systemview.list_control)
+        elif self.mode == SEARCH:
+            self.application.layout.focus(self.search.query_buffer)
         else:
             self.application.layout.focus(self.explorer.control)
 

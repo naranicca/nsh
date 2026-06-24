@@ -4,6 +4,24 @@ Notable user-facing changes to the Python rewrite. Newest first.
 
 ## Unreleased
 
+### Tabs
+- **Each tab is its own explorer + shell.** Tabs used to switch only the command
+  line; the file listing was shared. Now a tab bundles its own explorer pane(s)
+  with its own shell session, so switching tabs swaps the whole working context —
+  the directory, selection, cursor, git status and scrollback all follow the tab.
+  Opening a tab (Ctrl+T, from the explorer or the shell) starts a fresh explorer
+  at the current directory, and the shell you drop into runs in that explorer's
+  directory; Ctrl+W closes the current tab from either the explorer or the shell. Switch tabs with F7/F8 or Alt+Left/Right (in either the explorer or
+  the shell), or by clicking the tab bar; the process directory follows the
+  active tab. The two-pane view is per tab too — one tab can be split while
+  another shows a single pane; new tabs start from the nshrc default. (Zoom stays
+  app-wide, applied to whichever tab is current.)
+- **F7/F8 are tab keys only.** They used to do triple duty depending on mode —
+  switch shell tab, switch the two-pane active pane, or toggle list ↔ preview
+  focus. Now they only move between tabs, everywhere. Move focus to the preview
+  (to scroll it) with a mouse click and return with Esc; switch the two-pane
+  active pane by clicking it.
+
 ### Command-line (shell) mode
 - **Prompt shows the path, git branch and `$`.** The directory uses the
   explorer's directory colour, the current git branch follows as ` (branch)`

@@ -1,9 +1,11 @@
-"""Manage several :class:`ShellView` sessions as tabs.
+"""Manage several tabs, each its own explorer + shell session.
 
-Only one session is visible at a time (its output + input line); a thin tab bar
-below the prompt lists the others; a tab whose command is still running is
-tinted orange. A new session is spawned automatically when a command is entered while
-the active session is busy, or explicitly with Ctrl-T.
+A tab bundles a :class:`ShellView` (its scrollback, input line and running
+process) with its own explorer pane(s) — so switching tabs swaps the whole
+working context, not just the command line. Only one tab is visible at a time;
+a thin tab bar below the prompt lists the others; a tab whose command is still
+running is tinted orange. A new tab is spawned automatically when a command is
+entered while the active session is busy, or explicitly with Ctrl-T.
 """
 from prompt_toolkit.layout.containers import (
     DynamicContainer,
@@ -11,6 +13,7 @@ from prompt_toolkit.layout.containers import (
     Window,
 )
 
+from ..explorer.view import ExplorerView
 from ..util.widgets import WheelScrollControl
 from ..util.width import cut_to_width, text_width
 from .view import ShellView
@@ -19,9 +22,11 @@ MAX_TAB_LABEL = 14
 
 
 class ShellTabs:
-    def __init__(self, app):
+    def __init__(self, app, initial_cwd):
         self.app = app
-        self.sessions = [ShellView(app)]
+        # the first tab's explorer starts at the launch directory; later tabs
+        # open at whatever directory was current when they were created
+        self.sessions = [self._new_tab(initial_cwd)]
         self.active = 0
         self._tab_spans = []  # [(start_col, end_col, idx)] for click hit-testing
 
@@ -67,19 +72,33 @@ class ShellTabs:
             s.runner.interrupt()
 
     # -- tab operations -------------------------------------------------------
-    def new_session(self) -> ShellView:
-        """Create a tab, make it active, and return it."""
+    def _new_tab(self, cwd) -> ShellView:
+        """Build a tab: a shell session carrying its own pair of explorer panes
+        (single-pane shows pane 0; two-pane shows both). The explorers are
+        attached to the session so switching tabs swaps them with the shell."""
         session = ShellView(self.app)
+        session.explorers = [ExplorerView(self.app, cwd),
+                             ExplorerView(self.app, cwd)]
+        session.active_pane = 0
+        session.two_pane = self.app._two_pane_default  # per-tab; seeded from nshrc
+        return session
+
+    def new_session(self) -> ShellView:
+        """Create a tab at the current directory, make it active, and return it.
+        Its explorer panes are loaded and the app follows the new tab (cwd,
+        preview, git status and focus)."""
+        session = self._new_tab(self.app.cwd)
+        for ex in session.explorers:
+            ex.load()
         self.sessions.append(session)
         self.active = len(self.sessions) - 1
-        self.app.focus_shell()
+        self.app._after_tab_switch()
         return session
 
     def select(self, idx):
         if 0 <= idx < len(self.sessions):
             self.active = idx
-            self.app.focus_shell()
-            self.app.invalidate()
+            self.app._after_tab_switch()
 
     def next(self):
         self.select((self.active + 1) % len(self.sessions))
@@ -127,8 +146,7 @@ class ShellTabs:
         idx = self.sessions.index(session)
         self.sessions.pop(idx)
         self.active = min(self.active, len(self.sessions) - 1)
-        self.app.focus_shell()
-        self.app.invalidate()
+        self.app._after_tab_switch()  # the now-current tab's explorer takes over
 
     # -- rendering ------------------------------------------------------------
     def _on_mouse(self, mouse_event):
@@ -147,8 +165,8 @@ class ShellTabs:
                 return
 
     def _on_overview_mouse(self, mouse_event):
-        """Click on the out-of-shell-mode bar: jump into that shell tab (a
-        double-click closes it instead)."""
+        """Click on the out-of-shell-mode bar: switch to that tab (swapping its
+        explorer) while staying in the current mode; a double-click closes it."""
         if self.app.consume_menu_click():
             return
         x = mouse_event.position.x
@@ -157,7 +175,7 @@ class ShellTabs:
                 if self.app.double_click(("shelltab",), idx):
                     self.request_close(self.sessions[idx])
                 else:
-                    self.app.open_shell_tab(idx)
+                    self.select(idx)
                 return
 
     def _tabbar_text(self):
