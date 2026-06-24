@@ -520,11 +520,22 @@ class ExplorerView:
         self.app.set_message(f"cut {len(targets)} item(s)  (p to paste)")
         self.app.invalidate()
 
+    def _paste_dest(self):
+        """Where a paste lands: the directory holding the entry under the cursor.
+        In the tree view that may be an expanded subdirectory rather than the
+        top-level cwd, so paste follows the cursor. Falls back to this pane's
+        directory when the cursor is on ``..`` or there's no entry."""
+        entry = self.current()
+        if entry is None or entry.is_parent:
+            return self.cwd
+        return entry.path.parent
+
     def paste(self):
         if not self.clipboard:
             self.app.set_message("clipboard empty")
             return
         paths, op = self.clipboard
+        dest = self._paste_dest()
 
         async def do():
             done = 0
@@ -535,10 +546,10 @@ class ExplorerView:
                 try:
                     if op == "copy":
                         self.app.set_message(f"copying {i}/{len(paths)}: {src.name}…")
-                        last = await fileops.copy(src, self.app.cwd)
+                        last = await fileops.copy(src, dest)
                     else:
                         self.app.set_message(f"moving {i}/{len(paths)}: {src.name}…")
-                        last = await fileops.move(src, self.app.cwd)
+                        last = await fileops.move(src, dest)
                     done += 1
                 except Exception as exc:  # noqa: BLE001 - surfaced to the user
                     self.app.set_message(f"{src.name}: {exc}")

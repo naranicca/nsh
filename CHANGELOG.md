@@ -141,6 +141,11 @@ Notable user-facing changes to the Python rewrite. Newest first.
   (e.g. `python -c "..."`).
 
 ### Explorer & Git
+- **Paste follows the cursor.** Paste now lands in the directory that holds the
+  entry under the cursor, rather than always the top-level cwd — so in the tree
+  view, with the cursor on a file inside an expanded subdirectory, paste drops
+  the items into that subdirectory. (On `..` or an empty listing it still uses
+  the current directory.)
 - **Right arrow on a file focuses the preview.** A directory still folds/unfolds
   under the cursor with Right (l), but a plain file has nothing to expand — so
   Right now hands focus to the preview pane (when it's on screen) to scroll it,
