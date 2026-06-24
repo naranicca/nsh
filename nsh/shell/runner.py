@@ -13,13 +13,11 @@ import shlex
 import shutil
 import signal
 import subprocess
+import sys
 import time
 
-from prompt_toolkit import print_formatted_text
 from prompt_toolkit.application import run_in_terminal
-from prompt_toolkit.formatted_text import FormattedText
 
-from .lexer import lex_line
 from .prompt import prompt_fragments
 
 # Commands that always own the terminal and cannot be driven through a pipe.
@@ -513,13 +511,19 @@ class CommandRunner:
         def _run():
             # Echo the prompt + command first: a command run out here (git asking
             # for a username, an editor…) otherwise shows only its output, with no
-            # sign of what produced it. Use the shell prompt format but without the
-            # previous command's run-time/exit badge.
+            # sign of what produced it. Use the shell prompt format (cwd + git
+            # branch + `$`) without the previous command's run-time/exit badge.
+            #
+            # Write it straight to stdout (plain text) and flush, so it lands
+            # above the child's output. print_formatted_text can't be used here:
+            # while the full-screen app is suspended inside run_in_terminal its
+            # output is swallowed (verified), so the echo never showed and the
+            # prompt only reappeared — out of order — when nsh redrew afterwards.
+            # A raw stdout write is the only thing that reliably prints first.
             try:
-                print_formatted_text(
-                    FormattedText(prompt_fragments(self.app) + lex_line(command)),
-                    style=self.app.style,
-                )
+                prompt = "".join(text for _, text in prompt_fragments(self.app))
+                sys.stdout.write(prompt + command + "\n")
+                sys.stdout.flush()
             except Exception:  # noqa: BLE001 - never let the echo block the command
                 pass
             try:
