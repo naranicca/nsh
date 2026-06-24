@@ -363,8 +363,9 @@ Notable user-facing changes to the Python rewrite. Newest first.
   sensitive* / *whole word* checkboxes are clickable too. The status bar's
   shortcut hints are clickable — clicking a hint (its key or its label) runs that
   action, e.g. `Tab actions`, `/ find`, `2 2-pane`, `q quit` (the directional /
-  typing hints like the arrows stay inert). Clicking the yellow notes square (■)
-  at the far left opens notes, like Ctrl+N.
+  typing hints like the arrows stay inert). The yellow notes square (■) at the
+  far left shows the saved-note count beside it (e.g. `■ 3`) and opens notes when
+  clicked, like Ctrl+N.
 - **Process manager** (*System* in the F10 menu): a small task manager. A header
   shows overall CPU, memory and disk usage as bars; below it a scrolling,
   cursor-selectable list of the running processes with their CPU% / MEM% / RSS

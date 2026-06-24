@@ -1080,11 +1080,12 @@ class NshApp:
                 ("ESC", "explorer", lambda: self.switch_mode(self._shell_return)),
             ]
         segs = []
-        # a yellow square at the very front whenever there are saved notes —
-        # ahead of the message and the shortcut hints; clicking it opens notes
-        # (like Ctrl+N)
-        if len(self.notesview.notes) > 0:
-            segs.append(("class:statusbar.notes", " ■ ",
+        # a yellow square + the note count at the very front whenever there are
+        # saved notes — ahead of the message and the shortcut hints; clicking it
+        # opens notes (like Ctrl+N)
+        note_count = len(self.notesview.notes)
+        if note_count > 0:
+            segs.append(("class:statusbar.notes", f" ■ {note_count} ",
                          self._hint_click(self.open_notes)))
         # the message sits in front of the shortcuts and stays until it's
         # explicitly cleared (directory change, mode change, or ESC)
