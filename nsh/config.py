@@ -121,10 +121,13 @@ STYLE_DEFAULTS = {
         "dialog.button.focus": "bg:#5fafff #000000 bold",
         "frame.border": "#5f87af",
         "frame.label": "#87d7ff bold",
-        # popup action menu
+        # popup action menu. "menu" is the background; the unselected item rows
+        # only set a foreground, so they inherit that background (prompt_toolkit
+        # applies the parent "menu" class first) — meaning the "menu" colour
+        # controls the menu background, as nshrc advertises.
         "menu": "bg:#1c1c1c",
         "menu.title": "bg:#5f87af #ffffff bold",
-        "menu.item": "bg:#1c1c1c #d0d0d0",
+        "menu.item": "#d0d0d0",
         "menu.selected": "bg:#5fafff #000000 bold",
         # notes mode
         "notes.label": "bg:#5f87af #ffffff bold",
@@ -289,7 +292,7 @@ DEFAULT_NSHRC = """\
 # shell.string = #ffff87
 # menu = bg:#1c1c1c            (popup action-menu background)
 # menu.title = bg:#5f87af #ffffff bold
-# menu.item = bg:#1c1c1c #d0d0d0
+# menu.item = #d0d0d0          (unselected rows; bg inherited from menu)
 # menu.selected = bg:#5fafff #000000 bold
 
 [keys]

@@ -353,6 +353,12 @@ Notable user-facing changes to the Python rewrite. Newest first.
   and git mode.
 
 ### UI & dialogs
+- **The `menu` colour now actually sets the action-menu background.** The popup
+  menu's unselected rows used to hard-code their own background, so the `menu`
+  style class (advertised in nshrc as the menu background) had no visible effect.
+  Those rows now only set a foreground and inherit their background from `menu`,
+  so a single `[colors] menu = bg:#…` line recolours the menu as documented. The
+  default appearance is unchanged.
 - **Keys work with the Korean IME on.** A console app can't intercept keys
   before the IME composes them, so with the Korean IME switched on, pressing `j`
   to scroll used to deliver the jamo `ㅓ` and do nothing — you had to flip to
