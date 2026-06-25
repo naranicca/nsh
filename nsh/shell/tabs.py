@@ -14,6 +14,7 @@ from prompt_toolkit.layout.containers import (
 )
 
 from ..explorer.gitview import GitView
+from ..explorer.logview import LogView
 from ..explorer.view import ExplorerView
 from ..util.widgets import WheelScrollControl
 from ..util.width import cut_to_width, text_width
@@ -83,13 +84,19 @@ class ShellTabs:
                              ExplorerView(self.app, cwd)]
         session.active_pane = 0
         session.two_pane = self.app._two_pane_default  # per-tab; seeded from nshrc
-        # each tab also owns its own git mode view (its own changed-file list,
-        # cursor and selection), so F7/F8 swap the git view with the explorer
+        # each tab also owns its own git mode and git log views (their own list,
+        # cursor and selection), so F7/F8 swap them with the explorer
         session.gitview = GitView(self.app)
         session.gitview.window.width = (
             lambda: self.app._pane_dim(not self.app.preview_focused()))
-        # the mode (explorer / shell / git) is per-tab too, so leaving git mode
-        # in one tab doesn't pull the others out of it
+        session.logview = LogView(self.app)
+        session.logview.window.width = (
+            lambda: self.app._pane_dim(not self.app.preview_focused()))
+        # the mode to return to when leaving the log view (per-tab, since the log
+        # is now per-tab and tab-navigable)
+        session.log_return = EXPLORER
+        # the mode (explorer / shell / git / log) is per-tab too, so leaving git
+        # or log mode in one tab doesn't pull the others out of it
         session.mode = mode if mode is not None else EXPLORER
         return session
 
@@ -98,9 +105,9 @@ class ShellTabs:
         Its explorer panes are loaded and the app follows the new tab (cwd,
         preview, git status and focus). The new tab opens in the mode you're in
         now (explorer / shell / git) so Ctrl+T keeps your workflow."""
-        from ..app import EXPLORER, GIT, SHELL
+        from ..app import EXPLORER, GIT, LOG, SHELL
         cur = self.app.mode
-        mode = cur if cur in (EXPLORER, SHELL, GIT) else EXPLORER
+        mode = cur if cur in (EXPLORER, SHELL, GIT, LOG) else EXPLORER
         session = self._new_tab(self.app.cwd, mode)
         for ex in session.explorers:
             ex.load()

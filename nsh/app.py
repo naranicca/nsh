@@ -32,7 +32,6 @@ from prompt_toolkit.mouse_events import MouseEventType
 
 from . import __version__, config
 from .explorer import git
-from .explorer.logview import LogView
 from .explorer.preview import PreviewView
 from .notes.view import NotesView
 from .search.view import SearchView
@@ -173,10 +172,10 @@ class NshApp:
         self.preview = PreviewView(self)
         self.show_preview = True
         self.search = SearchView(self)
-        self.logview = LogView(self)
+        # logview is per-tab (see the logview property); each tab is created with
+        # its own in ShellTabs, so no app-wide instance is built here
         self.notesview = NotesView(self)
         self.systemview = SystemView(self)
-        self._log_return = EXPLORER  # the mode "Git: Log" was opened from
         self._notes_return = EXPLORER  # the mode Notes was opened from
 
         # popup action menu (Tab in the explorer)
@@ -261,6 +260,25 @@ class NshApp:
         return [s.gitview for s in self.shells.sessions]
 
     @property
+    def logview(self):
+        """The current tab's git-log view — each tab keeps its own history list,
+        cursor and search, so F7/F8 swap it along with the explorer."""
+        return self.shells.current().logview
+
+    def _all_logviews(self):
+        """Every tab's log view (for config-reload key rebuilds)."""
+        return [s.logview for s in self.shells.sessions]
+
+    @property
+    def _log_return(self):
+        """The mode the log was opened from, per tab (since the log is per-tab)."""
+        return self.shells.current().log_return
+
+    @_log_return.setter
+    def _log_return(self, value):
+        self.shells.current().log_return = value
+
+    @property
     def shell(self):
         """The active shell session (most code only ever touches this one)."""
         return self.shells.current()
@@ -283,10 +301,12 @@ class NshApp:
         self.preview.clear()
         self.message = ""
         self.schedule_git()
-        # in git mode, show the now-active tab's own changed-file list right away
-        # (its content then refreshes when the async git query lands)
+        # in git / log mode, refresh the now-active tab's own list (each keeps
+        # its own cursor, which the reload preserves)
         if self.mode == GIT:
             self.gitview.load()
+        elif self.mode == LOG:
+            self.logview.load()
         self._restore_focus()
         self.invalidate()
 
@@ -339,7 +359,7 @@ class NshApp:
         the two-pane active pane (click a pane). Ctrl combos are allowed; a bad
         key spec in nshrc is skipped, as elsewhere."""
         kb = KeyBindings()
-        tab_mode = Condition(lambda: self.mode in (EXPLORER, SHELL, GIT))
+        tab_mode = Condition(lambda: self.mode in (EXPLORER, SHELL, GIT, LOG))
 
         def add(key, filt, handler):
             if not key:
@@ -398,7 +418,8 @@ class NshApp:
             ex.rebuild_keys()
         for gv in self._all_gitviews():
             gv.rebuild_keys()
-        self.logview.rebuild_keys()
+        for lv in self._all_logviews():
+            lv.rebuild_keys()
         self.set_message(warning or "config reloaded")
         self.invalidate()
 
@@ -561,15 +582,16 @@ class NshApp:
         # The same Alt+Left/Right switch tabs from the explorer too (each tab now
         # carries its own explorer), so a tab can be navigated to without a mouse.
         explorer_mode = Condition(lambda: self.mode == EXPLORER)
-        # git mode is per-tab too, so Ctrl+T / Ctrl+W open / close tabs and
-        # Alt+Left/Right switch them from it, just like the explorer
+        # git and log modes are per-tab too, so Ctrl+T / Ctrl+W open / close tabs
+        # and Alt+Left/Right switch them from there, just like the explorer
         git_mode = Condition(lambda: self.mode == GIT)
+        log_mode = Condition(lambda: self.mode == LOG)
 
-        @kb.add("escape", "left", filter=explorer_mode | git_mode)
+        @kb.add("escape", "left", filter=explorer_mode | git_mode | log_mode)
         def _(event):
             self.shells.prev()
 
-        @kb.add("escape", "right", filter=explorer_mode | git_mode)
+        @kb.add("escape", "right", filter=explorer_mode | git_mode | log_mode)
         def _(event):
             self.shells.next()
 
@@ -579,8 +601,8 @@ class NshApp:
         self._pane_kb = self._build_pane_keys()
 
         # Ctrl+T opens a new tab — a fresh explorer + shell — from the explorer,
-        # the shell and git mode alike, staying in whichever mode you're in.
-        @kb.add("c-t", filter=~overlay_open & (shell_mode | explorer_mode | git_mode))
+        # the shell and git / log modes alike, staying in whichever mode you're in.
+        @kb.add("c-t", filter=~overlay_open & (shell_mode | explorer_mode | git_mode | log_mode))
         def _(event):
             self.shells.new_session()
 
@@ -588,9 +610,9 @@ class NshApp:
         def _(event):
             self.shells.rename()
 
-        # Ctrl+W closes the current tab from the explorer, the shell and git mode
-        # (closing the last tab just clears its shell and stays put).
-        @kb.add("c-w", filter=~overlay_open & (shell_mode | explorer_mode | git_mode))
+        # Ctrl+W closes the current tab from the explorer, the shell and git / log
+        # modes (closing the last tab just clears its shell and stays put).
+        @kb.add("c-w", filter=~overlay_open & (shell_mode | explorer_mode | git_mode | log_mode))
         def _(event):
             self.close_shell_tab()
 
@@ -679,9 +701,8 @@ class NshApp:
         # frame (so toggling zoom or moving focus reshapes the split). Off, the
         # weights are all 1 -> an even split; on, the focused pane wins 9:1.
         self.preview.window.width = lambda: self._pane_dim(self.preview_focused())
-        # the git view's width is set per tab (in ShellTabs._new_tab), since each
-        # tab owns its own git window; only the log view stays app-wide here
-        self.logview.window.width = lambda: self._pane_dim(not self.preview_focused())
+        # the git and log views' widths are set per tab (in ShellTabs._new_tab),
+        # since each tab owns its own git / log windows
 
         # Each tab owns its own explorer pane(s), so the split that lays them out
         # (beside the preview, or each other in two-pane view) is built per tab
@@ -709,10 +730,12 @@ class NshApp:
             else self.gitview.window
         )
 
-        # git log mode: the graph/oneline history beside the commit preview
+        # git log mode: the graph/oneline history beside the commit preview. Like
+        # the git list, the log window is per tab, so it's wrapped in a
+        # DynamicContainer that resolves to the current tab's log view each frame.
         self._log_split = VSplit(
             [
-                self.logview.window,
+                DynamicContainer(lambda: self.logview.window),
                 Window(width=1, char="│", style="class:preview.border"),
                 self.preview.window,
             ]

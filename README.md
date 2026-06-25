@@ -124,13 +124,13 @@ scroll it (`Esc` returns to the list) while the other left/right keys are inert;
 bookmark) leaves git mode automatically. The git log (from the `Tab` action
 menu) works the same way — `→`/`l` focuses the commit-detail/diff preview.
 
-Git mode is per-tab — each tab keeps its own changed-file list, cursor and
-selection — so `F7`/`F8` (or `Alt+←`/`Alt+→`) switch tabs from here too, swapping
-the git view along with the directory it belongs to, and `Ctrl+T`/`Ctrl+W` open
-and close tabs without leaving the mode. Whether a tab is in git mode is itself
-per-tab: leaving git mode in one tab doesn't pull the others out of it, and
-switching tabs shows each one in the mode you last left it in (a new tab opens in
-your current mode, so `Ctrl+T` keeps your workflow).
+Git mode and the git log are per-tab — each tab keeps its own changed-file list
+and history (cursor, selection and search) — so `F7`/`F8` (or `Alt+←`/`Alt+→`)
+switch tabs from here too, swapping the view along with the directory it belongs
+to, and `Ctrl+T`/`Ctrl+W` open and close tabs without leaving the mode. Which
+mode a tab is in is itself per-tab: leaving git/log mode in one tab doesn't pull
+the others out of it, and switching tabs shows each one in the mode you last left
+it in (a new tab opens in your current mode, so `Ctrl+T` keeps your workflow).
 
 ### Command-line mode
 | Key | Action |

@@ -72,6 +72,7 @@ class LogView:
         asyncio.ensure_future(self._load())
 
     async def _load(self):
+        prev = self.current_hash()  # keep the cursor on this commit across reloads
         raw = await git.log_graph(self.app.cwd)
         lines = []
         for ln in raw.splitlines():
@@ -81,7 +82,12 @@ class LogView:
             else:
                 lines.append(LogLine(ln, None))
         self.lines = lines
-        self.cursor = next((i for i, l in enumerate(lines) if l.hash), 0)
+        idx = None
+        if prev is not None:
+            idx = next((i for i, l in enumerate(lines) if l.hash == prev), None)
+        if idx is None:  # commit gone (or first load): fall to the newest commit
+            idx = next((i for i, l in enumerate(lines) if l.hash), 0)
+        self.cursor = idx
         self.app.invalidate()
 
     def current(self):
