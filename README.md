@@ -153,7 +153,8 @@ command runs).
 
 Built-ins handled internally: `cd`, `clear`/`cls`, `exit`/`quit`. The output pane
 grows with its content and goes full-screen once it fills up. Long lines wrap,
-the prompt shows each command's run time tinted by its exit status, and
+the prompt shows each command's run time tinted by its exit status (and dims
+itself while a command is still running, since typing then opens a new tab), and
 interactive commands that need a real terminal — editors/pagers, plus network
 git (`push`/`pull`/`fetch`/`clone`) and `sudo` that may prompt for credentials
 — run with the UI briefly suspended. nsh echoes the prompt + command above their

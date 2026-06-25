@@ -39,6 +39,10 @@ Notable user-facing changes to the Python rewrite. Newest first.
   and a new tab (Ctrl+T) opens in your current mode so the workflow carries over.
 
 ### Command-line (shell) mode
+- **The prompt dims while a command is still running.** When the previous command
+  hasn't finished, the prompt is greyed out — a cue that typing now opens a new
+  tab rather than running inline. It returns to its normal colour once the
+  command finishes.
 - **Prompt shows the path, git branch and `$`.** The directory uses the
   explorer's directory colour, the current git branch follows as ` (branch)`
   tinted by repo state like the title bar (green in sync, yellow behind/ahead,

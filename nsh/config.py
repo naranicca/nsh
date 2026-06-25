@@ -74,6 +74,9 @@ STYLE_DEFAULTS = {
         # shell
         "shell.output": "#d0d0d0",
         "shell.prompt": "#5fff5f bold",
+        # the prompt dimmed while the previous command is still running (typing
+        # here opens a new tab rather than running inline)
+        "shell.prompt.dim": "#808080",
         # git branch in the prompt, coloured by repo state (like the title bar):
         # green in sync, yellow behind/ahead, red with uncommitted changes
         "shell.branch": "#87ff87",

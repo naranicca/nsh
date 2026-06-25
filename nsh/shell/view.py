@@ -253,12 +253,14 @@ class ShellView:
         el = self.runner.elapsed()
         if el is not None:
             # running: prefix the live elapsed time, ticking each second (the app
-            # repaints every second). The busy state is also signalled by the
-            # tab going orange, so the prompt's $ is left its normal colour.
+            # repaints every second), and dim the prompt itself — the previous
+            # command hasn't finished, so typing here opens a *new* tab rather
+            # than running inline. The orange badge keeps its own colour.
             # keep the trailing gap outside the badge so its background
             # (none here, but a tint when finished) doesn't bleed past the ]
+            dim = [("class:shell.prompt.dim", text) for _, text in prompt]
             return [("class:shell.elapsed", f"[{_fmt_elapsed(el)}]"),
-                    ("", " "), *prompt]
+                    ("", " "), *dim]
         # finished: keep the run time on the prompt until the next command, tinted
         # green on success / red on failure (shown even for sub-second commands).
         result = self.runner.last_result()
