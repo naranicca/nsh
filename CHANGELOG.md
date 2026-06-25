@@ -360,6 +360,10 @@ Notable user-facing changes to the Python rewrite. Newest first.
   and git mode.
 
 ### UI & dialogs
+- **The nsh (F10) menu gained a Bookmarks entry and separators.** Bookmarks is now
+  reachable from F10 (top of the list), and Preferences is set off with a divider
+  line above and below it. Popup menus support separator rows (`(SEPARATOR, None)`)
+  that render as a line and that the cursor skips over.
 - **The action menu opens at the cursor row, beside its content.** The Tab popup
   used to always appear under the title bar at the top; the item action menus now
   drop from the highlighted row and shift right past its text so the content

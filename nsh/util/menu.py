@@ -13,6 +13,14 @@ from . import hangul
 from .widgets import WheelScrollControl
 from .width import text_width
 
+# A divider row: pass ``(SEPARATOR, None)`` as an item to draw a horizontal line
+# the cursor skips over. Use it to group related entries in a menu.
+SEPARATOR = object()
+
+
+def _is_sep(item):
+    return item[0] is SEPARATOR
+
 
 def _pad(s, width):
     return s + " " * max(0, width - text_width(s))
@@ -46,7 +54,9 @@ class Menu:
     def open(self, title, items, on_close=None):
         self.title = title
         self.items = list(items)
-        self.cursor = 0
+        # start on the first selectable row (skip a leading separator)
+        self.cursor = next((i for i, it in enumerate(self.items)
+                            if not _is_sep(it)), 0)
         self.scroll = 0
         self._extra_close = on_close
         self.active = True
@@ -60,13 +70,27 @@ class Menu:
 
     def _invoke(self):
         item = self.items[self.cursor] if self.items else None
+        if item is None or _is_sep(item):
+            return  # the cursor never rests on a separator, but guard anyway
         self.close()
         if item and item[1]:
             item[1]()
 
     def _move(self, delta):
-        if self.items:
-            self.cursor = max(0, min(len(self.items) - 1, self.cursor + delta))
+        """Move the selection by ``delta`` rows, stepping over separators (which
+        are never selectable) and stopping at the ends."""
+        if not self.items:
+            return
+        step = 1 if delta >= 0 else -1
+        i = self.cursor
+        for _ in range(abs(delta) or 1):
+            j = i + step
+            while 0 <= j < len(self.items) and _is_sep(self.items[j]):
+                j += step
+            if not (0 <= j < len(self.items)):
+                break  # no selectable row left in this direction
+            i = j
+        self.cursor = i
 
     def _on_mouse(self, mouse_event):
         """Click a menu row to invoke it directly. Row 0 is the title; items
@@ -75,7 +99,7 @@ class Menu:
         if y < 1:
             return
         i = self.scroll + (y - 1)
-        if 0 <= i < len(self.items):
+        if 0 <= i < len(self.items) and not _is_sep(self.items[i]):
             self.cursor = i
             self._invoke()
 
@@ -90,8 +114,7 @@ class Menu:
         return max(1, rows - 5)
 
     def _text(self):
-        labels = [lbl for lbl, _ in self.items]
-        total = len(labels)
+        total = len(self.items)
         vis = self._visible_rows()
 
         # keep the cursor within the visible window
@@ -101,13 +124,21 @@ class Menu:
             self.scroll = self.cursor - vis + 1
         self.scroll = max(0, min(self.scroll, max(0, total - vis)))
 
+        # the menu width ignores separators (their label is the sentinel, not text)
+        labels = [lbl for lbl, _ in self.items if lbl is not SEPARATOR]
         width = max([text_width(self.title) + 8] + [text_width(l) + 2 for l in labels] + [12])
         title = self.title + (f"  ({self.cursor + 1}/{total})" if total > vis else "")
         out = [("class:menu.title", " " + _pad(title, width) + " \n")]
 
-        shown = labels[self.scroll:self.scroll + vis]
-        for j, label in enumerate(shown):
+        shown = self.items[self.scroll:self.scroll + vis]
+        for j, item in enumerate(shown):
             i = self.scroll + j
+            if _is_sep(item):
+                out.append(("class:menu.separator", " " + "─" * width + " "))
+                if j != len(shown) - 1:
+                    out.append(("", "\n"))
+                continue
+            label = item[0]
             on = i == self.cursor
             style = "class:menu.selected" if on else "class:menu.item"
             if on:

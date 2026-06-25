@@ -42,7 +42,7 @@ from .shell.tabs import ShellTabs
 from .util.bookmarks import Bookmarks
 from .util.dialog import (
     ChmodDialog, ConfirmDialog, FindTextDialog, InfoDialog, InputDialog)
-from .util.menu import Menu
+from .util.menu import SEPARATOR, Menu
 from .util.paths import shorten_home
 from .util.widgets import WheelScrollControl
 from .util.width import char_width, cut_to_width, text_width
@@ -1699,7 +1699,7 @@ class NshApp:
     def _menu_width(self, title, items):
         """The menu's rendered width in cells (mirrors util/menu.py): the widest
         of the title, the labels, and a 12-cell floor, plus the row's own padding."""
-        labels = [lbl for lbl, _ in items]
+        labels = [lbl for lbl, _ in items if lbl is not SEPARATOR]
         inner = max([text_width(title) + 8]
                     + [text_width(lbl) + 2 for lbl in labels] + [12])
         return inner + 2  # one-space pad on each side of every row
@@ -1915,10 +1915,13 @@ class NshApp:
     # -- nsh menu (F10) -------------------------------------------------------
     def open_nsh_menu(self):
         self.open_menu("nsh", [
+            ("Bookmarks", self.open_bookmark_menu),
             ("Find", self.open_find),
             ("Notes", self.open_notes),
             ("System", self.open_system),
+            (SEPARATOR, None),
             ("Preferences", self.open_preferences),
+            (SEPARATOR, None),
             ("About", self.show_about),
         ])
 

@@ -131,6 +131,7 @@ STYLE_DEFAULTS = {
         "menu.title": "bg:#5f87af #ffffff bold",
         "menu.item": "#d0d0d0",
         "menu.selected": "bg:#5fafff #000000 bold",
+        "menu.separator": "#585858",  # divider row (bg inherited from menu)
         # notes mode
         "notes.label": "bg:#5f87af #ffffff bold",
         "notes.label.inactive": "bg:#303030 #d0d0d0 bold",
