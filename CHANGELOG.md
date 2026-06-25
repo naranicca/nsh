@@ -169,6 +169,9 @@ Notable user-facing changes to the Python rewrite. Newest first.
   (e.g. `python -c "..."`).
 
 ### Explorer & Git
+- **Copy / cut briefly flashes the picked rows.** `y`/`x` clear the selection, so
+  there was no on-screen sign the action took — the affected rows now blink
+  (style class `explorer.flash`) for a fraction of a second as confirmation.
 - **Files in an untracked directory show the untracked marker.** git collapses a
   brand-new directory into a single `dir/` entry, so files inside it had no
   status of their own — they showed no `?` marker and the action menu offered no

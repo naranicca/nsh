@@ -68,6 +68,10 @@ class ExplorerView:
         self._select_task = None
         self.expanded = set()  # set[Path] of directories expanded inline (tree)
         self.clipboard = None  # ([Path, ...], "copy" | "cut")
+        # set[Path] of rows currently flashing, plus the blink task — a brief
+        # highlight on copy/cut so the action is visible (see _flash_paths)
+        self._flash = set()
+        self._flash_task = None
         self._signature = ()   # snapshot used to auto-refresh on external change
         # inline rename state: edits the cursor row's name in place (no dialog)
         self._renaming = False
@@ -229,6 +233,13 @@ class ExplorerView:
             marker = config.GIT_SYMBOL.get(code, " ")
             mstyle = config.GIT_STYLE.get(code, "")
             estyle = "class:explorer.selected" if sel else config.entry_style(e)
+            # a copy/cut briefly flashes its rows: the whole row takes the flash
+            # style and the cursor "reverse" is dropped so the highlight is a
+            # single solid bar (the marker falls back to the row style too)
+            if e.path in self._flash:
+                estyle = "class:explorer.flash"
+                mstyle = ""
+                on = False
             name = ".." if e.is_parent else e.name + ("/" if e.is_dir else "")
             size = "" if e.is_dir else human_size(e.size)
             # on the cursor row the size uses the row (name) style so the "reverse"
@@ -502,12 +513,35 @@ class ExplorerView:
         return [entry.path] if entry and not entry.is_parent else []
 
     # -- file operations ------------------------------------------------------
+    def _flash_paths(self, paths):
+        """Briefly blink ``paths`` in the listing so a copy / cut is visible.
+
+        Selection is cleared by copy/cut, so the rows would otherwise change with
+        no on-screen feedback; this highlights them once for a fraction of a
+        second. A new flash cancels any in-flight one."""
+        paths = set(paths)
+        if self._flash_task and not self._flash_task.done():
+            self._flash_task.cancel()
+
+        async def blink():
+            try:
+                self._flash = paths  # on
+                self.app.invalidate()
+                await asyncio.sleep(0.18)
+            except asyncio.CancelledError:
+                pass
+            finally:
+                self._flash = set()  # off
+                self.app.invalidate()
+        self._flash_task = asyncio.ensure_future(blink())
+
     def copy_entry(self):
         targets = self._targets()
         if not targets:
             return
         self.clipboard = (targets, "copy")
         self.selected.clear()
+        self._flash_paths(targets)
         self.app.set_message(f"copied {len(targets)} item(s)  (p to paste)")
         self.app.invalidate()
 
@@ -517,6 +551,7 @@ class ExplorerView:
             return
         self.clipboard = (targets, "cut")
         self.selected.clear()
+        self._flash_paths(targets)
         self.app.set_message(f"cut {len(targets)} item(s)  (p to paste)")
         self.app.invalidate()
 

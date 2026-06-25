@@ -39,6 +39,8 @@ STYLE_DEFAULTS = {
         "explorer.image": "#ff5fff",
         "explorer.selected": "#ffff5f bold",
         "explorer.size": "#808080",
+        # brief blink on a copy / cut, so the action is visible
+        "explorer.flash": "bg:#ffd700 #000000 bold",
         # inline rename field (the edited name cell + its block cursor)
         "explorer.rename": "bg:#005f87 #ffffff",
         "explorer.rename.cursor": "bg:#d0d0d0 #000000",
