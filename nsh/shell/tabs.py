@@ -206,12 +206,24 @@ class ShellTabs:
         for i, s in enumerate(self.sessions):
             active = i == self.active
             busy = s.busy()
-            # a still-running tab goes orange (the active variant fills the tab so
-            # the blue highlight doesn't fight the orange)
+            # a still-running tab goes orange; a finished one whose last command
+            # failed goes red (busy wins, so a fresh command clears the red). The
+            # active variant fills the tab so the highlight stays legible.
+            err = not busy and s.errored()
             if active:
-                base = "class:shell.tab.active.busy" if busy else "class:shell.tab.active"
+                if busy:
+                    base = "class:shell.tab.active.busy"
+                elif err:
+                    base = "class:shell.tab.active.err"
+                else:
+                    base = "class:shell.tab.active"
             else:
-                base = "class:shell.tab.busy" if busy else "class:shell.tab"
+                if busy:
+                    base = "class:shell.tab.busy"
+                elif err:
+                    base = "class:shell.tab.err"
+                else:
+                    base = "class:shell.tab"
             label = cut_to_width(s.custom_title or s.title or "shell", MAX_TAB_LABEL)
             main = f" {i + 1}:{label} "
             start = col

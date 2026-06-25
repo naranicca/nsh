@@ -97,6 +97,10 @@ STYLE_DEFAULTS = {
         # is the active tab so it stays legible.
         "shell.tab.busy": "bg:#1c1c1c #ffaf00 bold",
         "shell.tab.active.busy": "bg:#ffaf00 #000000 bold",
+        # a tab whose last command failed goes red (matching the failed prompt
+        # badge #ff5f5f): red text while inactive, a red fill when it is active.
+        "shell.tab.err": "bg:#1c1c1c #ff5f5f bold",
+        "shell.tab.active.err": "bg:#ff5f5f #000000 bold",
         # completion popup
         "completion-menu.completion": "bg:#303030 #d0d0d0",
         "completion-menu.completion.current": "bg:#5fafff #000000 bold",

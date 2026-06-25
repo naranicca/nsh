@@ -5,6 +5,11 @@ Notable user-facing changes to the Python rewrite. Newest first.
 ## Unreleased
 
 ### Tabs
+- **A failed command turns its tab red.** The tab bar already went orange while a
+  command was running; now a tab whose last command exited non-zero goes red
+  (matching the prompt's failed run-time badge) until the next command runs, so a
+  failure in a background tab is visible at a glance. Busy (orange) takes
+  precedence, so re-running clears the red.
 - **Each tab is its own explorer + shell.** Tabs used to switch only the command
   line; the file listing was shared. Now a tab bundles its own explorer pane(s)
   with its own shell session, so switching tabs swaps the whole working context —

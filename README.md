@@ -147,7 +147,9 @@ it in (a new tab opens in your current mode, so `Ctrl+T` keeps your workflow).
 Each **tab** pairs this shell session with its own explorer (see [Tabs](#tabs)),
 so switching tabs swaps the whole working context. Entering a command while the
 current one is still running opens it in a new tab (rather than mixing the
-output); a tab bar marks which sessions are still running.
+output); a tab bar marks each session's state — orange while a command is still
+running, red once one finishes with a non-zero exit (cleared when the next
+command runs).
 
 Built-ins handled internally: `cd`, `clear`/`cls`, `exit`/`quit`. The output pane
 grows with its content and goes full-screen once it fills up. Long lines wrap,

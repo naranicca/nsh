@@ -150,6 +150,13 @@ class ShellView:
     def busy(self) -> bool:
         return self.runner.is_running()
 
+    def errored(self) -> bool:
+        """True when this tab's last finished command exited non-zero — the cue
+        to tint the tab red (matching the prompt's failed run-time badge). A
+        currently-running command isn't counted; busy takes precedence."""
+        result = self.runner.last_result()
+        return result is not None and result[1] not in (0, None)
+
     # -- auto-grow height -----------------------------------------------------
     def _input_height(self):
         # hidden while scrolled up, visible at the bottom (following)
