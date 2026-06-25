@@ -18,6 +18,7 @@ from prompt_toolkit.mouse_events import MouseModifier
 from .. import config
 from ..util import hangul
 from ..util.widgets import WheelScrollControl, visible_slice
+from ..util.width import text_width
 from . import git, model
 
 
@@ -97,6 +98,15 @@ class GitView:
         if 0 <= self.cursor < len(self.entries):
             return self.entries[self.cursor]
         return None
+
+    def cursor_name_end_col(self):
+        """The column just past the cursor row's path, so a popup can be offset
+        right of it and keep the filename visible. Mirrors the row layout in
+        _formatted_text: sel(2) + git symbol(1) + space(1), then the path width."""
+        e = self.current()
+        if e is None:
+            return 0
+        return 4 + text_width(e.rel)
 
     # -- rendering ------------------------------------------------------------
     @staticmethod
@@ -230,7 +240,7 @@ class GitView:
         if gs and gs.has_commits:
             items.append(("Git: Log", self.app.open_log))
         items.append(("Git: Branches", self.app.explorer.git_branches))
-        self.app.open_menu(f"Actions · {target}", items)
+        self.app.open_menu(f"Actions · {target}", items, at_cursor=True)
 
     def git_stage(self):
         targets = self._targets()

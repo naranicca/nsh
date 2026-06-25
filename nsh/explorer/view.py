@@ -185,6 +185,17 @@ class ExplorerView:
             return self.entries[self.cursor]
         return None
 
+    def cursor_name_end_col(self):
+        """The column (0-based) just past the cursor row's name, so a popup can be
+        offset right of it and leave the filename visible. Mirrors the row layout
+        in _formatted_text: sel(2) + git marker(1) + space(1) + tree indent
+        (2/level) + icon(1) + space(1), then the name's display width."""
+        e = self.current()
+        if e is None:
+            return 0
+        name = ".." if e.is_parent else e.name + ("/" if e.is_dir else "")
+        return 6 + 2 * e.depth + text_width(name)
+
     def refresh_listing(self, select_name=None):
         """Reload the current directory, optionally moving the cursor to a name."""
         self.app.preview.clear()
@@ -947,7 +958,8 @@ class ExplorerView:
         # clear the force-selected cursor file once the menu closes (whether an
         # action ran or it was cancelled); a real, user-made selection is kept
         on_close = (lambda: self._deselect_forced(forced)) if forced else None
-        self.app.open_menu(f"Actions · {target}", items, on_close=on_close)
+        self.app.open_menu(f"Actions · {target}", items, on_close=on_close,
+                           at_cursor=True)
 
     def _deselect_forced(self, path):
         """Drop a cursor file the menu force-selected. Deferred a tick so the

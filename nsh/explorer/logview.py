@@ -18,6 +18,7 @@ from prompt_toolkit.layout.dimension import Dimension
 
 from ..util import hangul
 from ..util.widgets import WheelScrollControl, visible_slice
+from ..util.width import text_width
 from . import git
 
 # highlight bar painted behind the selected commit line (kept subtle so the
@@ -94,6 +95,16 @@ class LogView:
         if 0 <= self.cursor < len(self.lines):
             return self.lines[self.cursor]
         return None
+
+    def cursor_name_end_col(self):
+        """The column just past the cursor commit line's text, so a popup can be
+        offset right of it and keep the log message visible. Uses the full line's
+        display width (the menu position is then clamped to keep the menu on
+        screen, so as much of a long message as fits stays visible)."""
+        line = self.current()
+        if line is None:
+            return 0
+        return text_width(line.plain)
 
     def current_hash(self):
         cur = self.current()
@@ -201,7 +212,7 @@ class LogView:
             ("Amend message (reword)", self.reword),
             ("Squash to here", self.squash),
             ("Interactive edit", self.interactive_rebase),
-        ])
+        ], at_cursor=True)
 
     def _run(self, coro, ok_msg, fail_label):
         """Await a git operation, report the outcome, then reload."""

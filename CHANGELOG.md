@@ -360,6 +360,15 @@ Notable user-facing changes to the Python rewrite. Newest first.
   and git mode.
 
 ### UI & dialogs
+- **The action menu opens at the cursor row, beside its content.** The Tab popup
+  used to always appear under the title bar at the top; the item action menus now
+  drop from the highlighted row and shift right past its text so the content
+  stays visible — the filename in the explorer and git mode, and as much of the
+  commit line as fits in the git log. The shift is capped at the current pane's
+  width (so a long or truncated name can't push the menu past the pane), it stays
+  above the status bar, and the whole menu still fits on screen. Other menus (the
+  nsh/F10 menu, bookmarks, recent dirs, the find chooser, sort, branches…) keep
+  their classic spot at the top.
 - **The `menu` colour now actually sets the action-menu background.** The popup
   menu's unselected rows used to hard-code their own background, so the `menu`
   style class (advertised in nshrc as the menu background) had no visible effect.

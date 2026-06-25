@@ -86,7 +86,7 @@ The action keys (everything below the navigation block) are remappable in
 | `l`, `→` | expand/collapse a directory inline; **on a file, focus the preview** |
 | `⌫`, `h`, `←` | collapse the directory, else go to the parent |
 | `Space` | select / deselect the entry (multi-select) |
-| `Tab` | open the **action menu** (copy, rename, delete, git…) |
+| `Tab` | open the **action menu** (copy, rename, delete, git…) — drops from the cursor row, beside the filename |
 | `y` / `x` / `p` | copy / cut / paste — the picked rows briefly flash; **paste lands in the directory at the cursor** |
 | `F2` / `i` | rename (inline) |
 | `m` / `N` | new folder / new file — **created in the directory at the cursor** |

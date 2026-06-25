@@ -180,6 +180,9 @@ class NshApp:
 
         # popup action menu (Tab in the explorer)
         self.menu = Menu(self._menu_closed)
+        # whether the open menu is anchored at the cursor row (vs. the top under
+        # the "nsh" label); only the latter tints the "nsh" label (see _title_text)
+        self._menu_at_cursor = False
         self.bookmarks = Bookmarks()
         self.visited = []  # most-recent-first history of directories we've left
         # last directory visited on each Windows drive letter (for "D:" changes)
@@ -773,6 +776,10 @@ class NshApp:
 
         body = DynamicContainer(_body)
 
+        # the action-menu float; its top is re-pointed at the cursor row each
+        # time the menu opens (see _position_menu_float), defaulting to row 1.
+        self._menu_float = Float(top=1, left=0, content=self.menu.container)
+
         root = FloatContainer(
             content=HSplit(
                 [
@@ -799,10 +806,11 @@ class NshApp:
                     ycursor=True,
                     content=CompletionsMenu(max_height=16, scroll_offset=1),
                 ),
-                # row 1 = directly under the title bar (row 0). left=0: the menu
-                # rows carry a one-space left pad of their own, so this lands the
-                # text in column 1 — flush under the "n" of the "nsh" label.
-                Float(top=1, left=0, content=self.menu.container),
+                # the action menu. Its top is set per-open to the cursor row
+                # (see _position_menu_float); left=0 keeps it flush to the left
+                # (the menu rows carry a one-space pad, landing text in column 1).
+                # The default top=1 (just under the title bar) is the fallback.
+                self._menu_float,
                 # unpositioned Floats are centered on screen
                 Float(content=self.dialog.container),
                 Float(content=self.confirm_dialog.container),
@@ -955,9 +963,11 @@ class NshApp:
     def _title_text(self):
         # piggy-back on the per-second title repaint to pick up nshrc edits
         self._maybe_reload_config()
-        # the "nsh" label adopts the menu's header colour while a menu is open,
-        # so it's obvious a popup is active; otherwise it blends into the bar.
-        name_style = "class:menu.title" if self.menu.active else "class:titlebar.name"
+        # the "nsh" label adopts the menu's header colour while a *top* menu is
+        # open (it sits right under the label, so the tint links the two);
+        # cursor-anchored action menus appear elsewhere, so they leave it alone.
+        tint = self.menu.active and not self._menu_at_cursor
+        name_style = "class:menu.title" if tint else "class:titlebar.name"
         clock = [("class:titlebar.clock", f" {datetime.now().strftime('%H:%M:%S')} ")]
         if self.two_pane:
             return self._two_pane_title(name_style, clock)
@@ -1662,7 +1672,82 @@ class NshApp:
         self.invalidate()
 
     # -- action menu ----------------------------------------------------------
-    def open_menu(self, title, items, on_close=None):
+    def _active_list_window(self):
+        """The list Window whose cursor row the menu should drop from, or None
+        in modes without one (shell, search, …) — there the menu uses its
+        default top-of-screen position."""
+        if self.mode == GIT:
+            return self.gitview.window
+        if self.mode == LOG:
+            return self.logview.window
+        if self.mode == EXPLORER:
+            return self.explorer.window
+        return None
+
+    def _menu_name_end_col(self):
+        """The column just past the cursor item's text in the active list — the
+        filename (explorer / git) or the commit line (log) — so the menu can be
+        offset right of it and keep that content visible."""
+        if self.mode == GIT:
+            return self.gitview.cursor_name_end_col()
+        if self.mode == LOG:
+            return self.logview.cursor_name_end_col()
+        if self.mode == EXPLORER:
+            return self.explorer.cursor_name_end_col()
+        return 0
+
+    def _menu_width(self, title, items):
+        """The menu's rendered width in cells (mirrors util/menu.py): the widest
+        of the title, the labels, and a 12-cell floor, plus the row's own padding."""
+        labels = [lbl for lbl, _ in items]
+        inner = max([text_width(title) + 8]
+                    + [text_width(lbl) + 2 for lbl in labels] + [12])
+        return inner + 2  # one-space pad on each side of every row
+
+    def _position_menu_float(self, title, items):
+        """Drop the action menu from the cursor row instead of the top, and shift
+        it right past the cursor item's text (filename / commit line) so that
+        content stays visible. Reads the active list window's last render for the
+        cursor's absolute screen row; the top is clamped to stay above the status
+        bar and the left so the whole menu still fits on the right (a long log
+        line therefore keeps as much visible as the menu width allows). Any
+        failure (no render yet, or a prompt_toolkit internal change) falls back to
+        the top-left."""
+        top, left = 1, 0
+        win = self._active_list_window()
+        info = getattr(win, "render_info", None) if win is not None else None
+        if info is not None:
+            try:
+                size = self.application.output.get_size()
+                rows, cols = size.rows, size.columns
+                # cursor_position is relative to the window; _y_offset / _x_offset
+                # are the window's absolute top / left, so adding them gives the
+                # absolute screen position.
+                cursor_row = info.cursor_position.y + info._y_offset
+                height = min(len(items) + 1, max(1, rows - 2))  # title + items
+                top = max(1, min(cursor_row, rows - height - 1))
+                # shift right past the item's text (+1 gap). The offset is capped
+                # at the pane width — a long (or truncated) name can't extend past
+                # the pane, so the menu's x must not either — then made absolute
+                # and clamped so the whole menu still fits on screen.
+                rel = min(self._menu_name_end_col() + 1, info.window_width)
+                end = rel + info._x_offset
+                left = max(0, min(end, max(0, cols - self._menu_width(title, items))))
+            except Exception:  # noqa: BLE001 - any internal change: use defaults
+                top, left = 1, 0
+        self._menu_float.top = top
+        self._menu_float.left = left
+
+    def open_menu(self, title, items, on_close=None, at_cursor=False):
+        """Open the popup menu. By default it sits at the top, under the "nsh"
+        label (where every menu used to be). The file/item action menus pass
+        ``at_cursor=True`` to drop from the cursor row instead."""
+        items = list(items)  # materialize once (may be a generator) before counting
+        self._menu_at_cursor = at_cursor
+        if at_cursor:
+            self._position_menu_float(title, items)
+        else:
+            self._menu_float.top, self._menu_float.left = 1, 0
         self.menu.open(title, items, on_close)
         self.application.layout.focus(self.menu.control)
         self.invalidate()
