@@ -21,6 +21,15 @@ Notable user-facing changes to the Python rewrite. Newest first.
   focus. Now they only move between tabs, everywhere. Move focus to the preview
   (to scroll it) with a mouse click and return with Esc; switch the two-pane
   active pane by clicking it.
+- **Git mode is per-tab too.** Each tab now keeps its own git-mode view — its
+  own changed-file list, cursor and selection — alongside its explorer and shell.
+  F7/F8 (or Alt+Left/Right) switch tabs from git mode as well, and Ctrl+T/Ctrl+W
+  open and close tabs without leaving the mode — swapping the git view (and the
+  directory it belongs to) along with the tab.
+- **The mode itself is per-tab.** Each tab remembers whether it's in explorer,
+  shell or git mode, so leaving git mode in one tab no longer pulls the others
+  out of it. Switching tabs shows each one in the mode you last left it in, and a
+  new tab (Ctrl+T) opens in your current mode so the workflow carries over.
 
 ### Command-line (shell) mode
 - **Prompt shows the path, git branch and `$`.** The directory uses the

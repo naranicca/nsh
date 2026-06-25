@@ -13,6 +13,7 @@ from prompt_toolkit.layout.containers import (
     Window,
 )
 
+from ..explorer.gitview import GitView
 from ..explorer.view import ExplorerView
 from ..util.widgets import WheelScrollControl
 from ..util.width import cut_to_width, text_width
@@ -72,22 +73,35 @@ class ShellTabs:
             s.runner.interrupt()
 
     # -- tab operations -------------------------------------------------------
-    def _new_tab(self, cwd) -> ShellView:
+    def _new_tab(self, cwd, mode=None) -> ShellView:
         """Build a tab: a shell session carrying its own pair of explorer panes
         (single-pane shows pane 0; two-pane shows both). The explorers are
         attached to the session so switching tabs swaps them with the shell."""
+        from ..app import EXPLORER  # local import avoids an app<->tabs cycle
         session = ShellView(self.app)
         session.explorers = [ExplorerView(self.app, cwd),
                              ExplorerView(self.app, cwd)]
         session.active_pane = 0
         session.two_pane = self.app._two_pane_default  # per-tab; seeded from nshrc
+        # each tab also owns its own git mode view (its own changed-file list,
+        # cursor and selection), so F7/F8 swap the git view with the explorer
+        session.gitview = GitView(self.app)
+        session.gitview.window.width = (
+            lambda: self.app._pane_dim(not self.app.preview_focused()))
+        # the mode (explorer / shell / git) is per-tab too, so leaving git mode
+        # in one tab doesn't pull the others out of it
+        session.mode = mode if mode is not None else EXPLORER
         return session
 
     def new_session(self) -> ShellView:
         """Create a tab at the current directory, make it active, and return it.
         Its explorer panes are loaded and the app follows the new tab (cwd,
-        preview, git status and focus)."""
-        session = self._new_tab(self.app.cwd)
+        preview, git status and focus). The new tab opens in the mode you're in
+        now (explorer / shell / git) so Ctrl+T keeps your workflow."""
+        from ..app import EXPLORER, GIT, SHELL
+        cur = self.app.mode
+        mode = cur if cur in (EXPLORER, SHELL, GIT) else EXPLORER
+        session = self._new_tab(self.app.cwd, mode)
         for ex in session.explorers:
             ex.load()
         self.sessions.append(session)

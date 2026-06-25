@@ -32,7 +32,6 @@ from prompt_toolkit.mouse_events import MouseEventType
 
 from . import __version__, config
 from .explorer import git
-from .explorer.gitview import GitView
 from .explorer.logview import LogView
 from .explorer.preview import PreviewView
 from .notes.view import NotesView
@@ -113,7 +112,9 @@ def _initial_logical_cwd():
 class NshApp:
     def __init__(self, start_mode=None, query="", picker=False):
         initial_cwd = _initial_logical_cwd()
-        self.mode = EXPLORER
+        # self.mode is a per-tab property (see below) backed by the active tab's
+        # session; the first tab is created as EXPLORER inside ShellTabs, so no
+        # eager assignment is needed (and the property can't be set before then)
         # the mode to return to when leaving the shell (so a shell opened from
         # git mode goes back to git mode on ESC, not the explorer)
         self._shell_return = EXPLORER
@@ -172,7 +173,6 @@ class NshApp:
         self.preview = PreviewView(self)
         self.show_preview = True
         self.search = SearchView(self)
-        self.gitview = GitView(self)
         self.logview = LogView(self)
         self.notesview = NotesView(self)
         self.systemview = SystemView(self)
@@ -240,6 +240,27 @@ class NshApp:
         return self.explorers[self.active_pane].git_status
 
     @property
+    def gitview(self):
+        """The current tab's git-mode view — each tab keeps its own changed-file
+        list, cursor and selection, so F7/F8 swap it along with the explorer."""
+        return self.shells.current().gitview
+
+    @property
+    def mode(self):
+        """The current tab's mode (explorer / shell / git / …). It's per-tab, so
+        leaving git mode in one tab doesn't pull the others out of it; switching
+        tabs adopts the now-active tab's mode."""
+        return self.shells.current().mode
+
+    @mode.setter
+    def mode(self, value):
+        self.shells.current().mode = value
+
+    def _all_gitviews(self):
+        """Every tab's git view (for config-reload key rebuilds)."""
+        return [s.gitview for s in self.shells.sessions]
+
+    @property
     def shell(self):
         """The active shell session (most code only ever touches this one)."""
         return self.shells.current()
@@ -262,6 +283,10 @@ class NshApp:
         self.preview.clear()
         self.message = ""
         self.schedule_git()
+        # in git mode, show the now-active tab's own changed-file list right away
+        # (its content then refreshes when the async git query lands)
+        if self.mode == GIT:
+            self.gitview.load()
         self._restore_focus()
         self.invalidate()
 
@@ -308,12 +333,13 @@ class NshApp:
     def _build_pane_keys(self):
         """The remappable pane_prev / pane_next pair (F7/F8 by default), in their
         own KeyBindings so reload_config() can swap them live. They move between
-        tabs only — in the explorer and the shell alike. They deliberately do
+        tabs only — in the explorer, the shell and git mode alike (each tab owns
+        its own explorer, shell and git view). They deliberately do
         *not* toggle list <-> preview focus (use Esc or a mouse click) or switch
         the two-pane active pane (click a pane). Ctrl combos are allowed; a bad
         key spec in nshrc is skipped, as elsewhere."""
         kb = KeyBindings()
-        tab_mode = Condition(lambda: self.mode in (EXPLORER, SHELL))
+        tab_mode = Condition(lambda: self.mode in (EXPLORER, SHELL, GIT))
 
         def add(key, filt, handler):
             if not key:
@@ -370,7 +396,8 @@ class NshApp:
         self._pane_kb = self._build_pane_keys()
         for ex in self._all_explorers():
             ex.rebuild_keys()
-        self.gitview.rebuild_keys()
+        for gv in self._all_gitviews():
+            gv.rebuild_keys()
         self.logview.rebuild_keys()
         self.set_message(warning or "config reloaded")
         self.invalidate()
@@ -534,12 +561,15 @@ class NshApp:
         # The same Alt+Left/Right switch tabs from the explorer too (each tab now
         # carries its own explorer), so a tab can be navigated to without a mouse.
         explorer_mode = Condition(lambda: self.mode == EXPLORER)
+        # git mode is per-tab too, so Ctrl+T / Ctrl+W open / close tabs and
+        # Alt+Left/Right switch them from it, just like the explorer
+        git_mode = Condition(lambda: self.mode == GIT)
 
-        @kb.add("escape", "left", filter=explorer_mode)
+        @kb.add("escape", "left", filter=explorer_mode | git_mode)
         def _(event):
             self.shells.prev()
 
-        @kb.add("escape", "right", filter=explorer_mode)
+        @kb.add("escape", "right", filter=explorer_mode | git_mode)
         def _(event):
             self.shells.next()
 
@@ -548,9 +578,9 @@ class NshApp:
         # reload can rebuild just them and have the new keys take effect live.
         self._pane_kb = self._build_pane_keys()
 
-        # Ctrl+T opens a new tab — a fresh explorer + shell — from the explorer
-        # as well as the shell, staying in whichever mode you're in.
-        @kb.add("c-t", filter=~overlay_open & (shell_mode | explorer_mode))
+        # Ctrl+T opens a new tab — a fresh explorer + shell — from the explorer,
+        # the shell and git mode alike, staying in whichever mode you're in.
+        @kb.add("c-t", filter=~overlay_open & (shell_mode | explorer_mode | git_mode))
         def _(event):
             self.shells.new_session()
 
@@ -558,9 +588,9 @@ class NshApp:
         def _(event):
             self.shells.rename()
 
-        # Ctrl+W closes the current tab from the explorer as well as the shell
+        # Ctrl+W closes the current tab from the explorer, the shell and git mode
         # (closing the last tab just clears its shell and stays put).
-        @kb.add("c-w", filter=~overlay_open & (shell_mode | explorer_mode))
+        @kb.add("c-w", filter=~overlay_open & (shell_mode | explorer_mode | git_mode))
         def _(event):
             self.close_shell_tab()
 
@@ -649,7 +679,8 @@ class NshApp:
         # frame (so toggling zoom or moving focus reshapes the split). Off, the
         # weights are all 1 -> an even split; on, the focused pane wins 9:1.
         self.preview.window.width = lambda: self._pane_dim(self.preview_focused())
-        self.gitview.window.width = lambda: self._pane_dim(not self.preview_focused())
+        # the git view's width is set per tab (in ShellTabs._new_tab), since each
+        # tab owns its own git window; only the log view stays app-wide here
         self.logview.window.width = lambda: self._pane_dim(not self.preview_focused())
 
         # Each tab owns its own explorer pane(s), so the split that lays them out
@@ -662,10 +693,12 @@ class NshApp:
         # preview); single-pane shows pane 0 with the optional preview beside it.
         explorer_area = DynamicContainer(self._explorer_area_container)
 
-        # git mode: the changed-file list beside the diff preview
+        # git mode: the changed-file list beside the diff preview. The list
+        # window is per tab, so it's wrapped in a DynamicContainer that resolves
+        # to the current tab's git view each frame.
         self._git_split = VSplit(
             [
-                self.gitview.window,
+                DynamicContainer(lambda: self.gitview.window),
                 Window(width=1, char="│", style="class:preview.border"),
                 self.preview.window,
             ]
