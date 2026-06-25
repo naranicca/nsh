@@ -104,6 +104,8 @@ STYLE_DEFAULTS = {
         # badge #ff5f5f): red text while inactive, a red fill when it is active.
         "shell.tab.err": "bg:#1c1c1c #ff5f5f bold",
         "shell.tab.active.err": "bg:#ff5f5f #000000 bold",
+        # the "+" button at the right end of the tab bar (click to open a tab)
+        "shell.tab.new": "bg:#303030 #87d7ff bold",
         # completion popup
         "completion-menu.completion": "bg:#303030 #d0d0d0",
         "completion-menu.completion.current": "bg:#5fafff #000000 bold",

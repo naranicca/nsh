@@ -21,6 +21,7 @@ from ..util.width import cut_to_width, text_width
 from .view import ShellView
 
 MAX_TAB_LABEL = 14
+NEW_TAB = "+"  # sentinel span id for the "+ new tab" button (vs integer tab ids)
 
 
 class ShellTabs:
@@ -179,7 +180,9 @@ class ShellTabs:
         x = mouse_event.position.x
         for start, end, idx in self._tab_spans:
             if start <= x < end:
-                if self.app.double_click(("shelltab",), idx):
+                if idx == NEW_TAB:
+                    self.new_session()
+                elif self.app.double_click(("shelltab",), idx):
                     self.request_close(self.sessions[idx])
                 else:
                     self.select(idx)
@@ -187,13 +190,16 @@ class ShellTabs:
 
     def _on_overview_mouse(self, mouse_event):
         """Click on the out-of-shell-mode bar: switch to that tab (swapping its
-        explorer) while staying in the current mode; a double-click closes it."""
+        explorer) while staying in the current mode; a double-click closes it.
+        The "+" button opens a new tab."""
         if self.app.consume_menu_click():
             return
         x = mouse_event.position.x
         for start, end, idx in self._tab_spans:
             if start <= x < end:
-                if self.app.double_click(("shelltab",), idx):
+                if idx == NEW_TAB:
+                    self.new_session()
+                elif self.app.double_click(("shelltab",), idx):
                     self.request_close(self.sessions[idx])
                 else:
                     self.select(idx)
@@ -236,5 +242,11 @@ class ShellTabs:
             frags.append(("class:shell.tabbar", " "))
             col += text_width(main) + 3  # dot + gap + tabbar separator
             spans.append((start, col, i))
+        # a "+" button at the right end opens a new tab with the mouse
+        plus = " + "
+        start = col
+        frags.append(("class:shell.tab.new", plus))
+        col += text_width(plus)
+        spans.append((start, col, NEW_TAB))
         self._tab_spans = spans
         return frags

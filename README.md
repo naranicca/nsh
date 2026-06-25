@@ -70,8 +70,10 @@ once and the process working directory follows the active tab.
 | `Ctrl+W` | close the current tab |
 | `F7` / `F8`, `Alt+←` / `Alt+→` | previous / next tab |
 
-These work from both the explorer and the command line. The two-pane view (`2`)
-is per-tab, so one tab can be split while another shows a single pane.
+These work from both the explorer and the command line. The tab bar is also
+clickable: click a tab to switch to it, double-click it to close it, and click
+the **`+`** button at its right end to open a new tab. The two-pane view (`2`) is
+per-tab, so one tab can be split while another shows a single pane.
 
 ### Explorer mode
 The action keys (everything below the navigation block) are remappable in

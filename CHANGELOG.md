@@ -5,6 +5,10 @@ Notable user-facing changes to the Python rewrite. Newest first.
 ## Unreleased
 
 ### Tabs
+- **A "+" button opens a new tab with the mouse.** The tab bar now ends with a
+  clickable `+` button (in both the in-shell bar and the out-of-shell overview
+  bar), so a new tab can be opened without Ctrl+T — alongside the existing
+  click-to-switch and double-click-to-close.
 - **A failed command turns its tab red.** The tab bar already went orange while a
   command was running; now a tab whose last command exited non-zero goes red
   (matching the prompt's failed run-time badge) until the next command runs, so a
