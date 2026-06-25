@@ -43,6 +43,10 @@ Notable user-facing changes to the Python rewrite. Newest first.
   and a new tab (Ctrl+T) opens in your current mode so the workflow carries over.
 
 ### Command-line (shell) mode
+- **Python `print` output streams live.** A script's stdout is captured through a
+  pipe, not a TTY, so CPython block-buffers it and a `print` loop appeared all at
+  once only when the script exited. nsh now sets `PYTHONUNBUFFERED=1` in the child
+  environment (overridable), so prints land as they happen.
 - **The prompt dims while a command is still running.** When the previous command
   hasn't finished, the prompt is greyed out — a cue that typing now opens a new
   tab rather than running inline. It returns to its normal colour once the

@@ -249,7 +249,9 @@ nsh/
   (`$SHELL -c …` on Unix; `cmd /c …` or `powershell -Command …` on Windows),
   streamed in chunks so a `\r`-only progress bar updates in place. ANSI colour
   codes are interpreted (and colour is forced on via the child environment, since
-  stdout isn't a TTY). Interactive programs (editors, pagers, `top`…) — and
+  stdout isn't a TTY); for the same reason `PYTHONUNBUFFERED=1` is set so a
+  Python script's `print`s stream live instead of block-buffering until it exits.
+  Interactive programs (editors, pagers, `top`…) — and
   commands that may prompt for credentials, like network git and `sudo` — are
   detected and run with the full-screen UI temporarily suspended so they get a
   real terminal.

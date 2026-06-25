@@ -439,6 +439,13 @@ class CommandRunner:
         env.setdefault("CLICOLOR_FORCE", "1")
         env.setdefault("CLICOLOR", "1")
         env.setdefault("FORCE_COLOR", "1")
+        # Stream output live. We capture the child's stdout through a pipe, not a
+        # TTY, so CPython (and most stdio programs) switch to block buffering and
+        # hold ~KBs of output until the buffer fills or the process exits — a
+        # `print` loop would then appear all at once at the end. Asking Python to
+        # stay unbuffered makes its prints land as they happen; setdefault lets
+        # the user override it.
+        env.setdefault("PYTHONUNBUFFERED", "1")
         # git only colours when told to; force color.ui for every git command
         param = "'color.ui=always'"
         existing = env.get("GIT_CONFIG_PARAMETERS")
