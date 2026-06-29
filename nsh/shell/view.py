@@ -113,7 +113,15 @@ class ShellView:
             ],
             height=self._input_height,
         )
-        self.container = HSplit([self.output_window, self.input_window])
+        # commands waiting to run in this tab, listed in grey just above the
+        # prompt (one row each; collapses to nothing when the queue is empty)
+        self.queue_window = Window(
+            FormattedTextControl(self._queue_text),
+            height=self._queue_height,
+            style="class:shell.queued",
+        )
+        self.container = HSplit(
+            [self.output_window, self.queue_window, self.input_window])
 
     def _menu_position(self):
         """Where the completion menu attaches on the single-line, non-wrapping
@@ -159,6 +167,33 @@ class ShellView:
         currently-running command isn't counted; busy takes precedence."""
         result = self.runner.last_result()
         return result is not None and result[1] not in (0, None)
+
+    # -- pending queue --------------------------------------------------------
+    def _queue_height(self):
+        # one row per queued command; collapses away (and stays hidden while the
+        # user is scrolled up, like the prompt) when there's nothing waiting
+        if self.scroll_top is not None:
+            return Dimension.exact(0)
+        return Dimension.exact(len(self.pending))
+
+    def _queue_text(self):
+        # the running command's elapsed time prefixes the first queued command
+        # (the one that runs the moment it finishes); later rows are indented to
+        # keep their `$` aligned under the first one
+        el = self.runner.elapsed()
+        badge = f"[{_fmt_elapsed(el)}] " if el is not None else ""
+        pad = " " * text_width(badge)
+        out = []
+        for i, cmd in enumerate(self.pending):
+            if i:
+                out.append(("", "\n"))
+            if i == 0 and badge:
+                out.append(("class:shell.elapsed", badge.rstrip()))
+                out.append(("class:shell.queued", " "))
+            elif badge:
+                out.append(("class:shell.queued", pad))
+            out.append(("class:shell.queued", f"$ {cmd}"))
+        return out
 
     # -- auto-grow height -----------------------------------------------------
     def _input_height(self):
@@ -255,13 +290,17 @@ class ShellView:
         prompt = self._prompt_fragments()
         el = self.runner.elapsed()
         if el is not None:
-            # running: prefix the live elapsed time, ticking each second (the app
-            # repaints every second), and dim the prompt itself — the previous
-            # command hasn't finished, so entering a command here asks whether to
-            # queue it or open a new tab. The orange badge keeps its own colour.
+            # running: dim the prompt itself — the previous command hasn't
+            # finished, so entering a command here asks whether to queue it or
+            # open a new tab.
+            dim = [("class:shell.prompt.dim", text) for _, text in prompt]
+            # the live elapsed time (ticking each second, as the app repaints)
+            # prefixes the prompt — unless commands are queued, in which case it
+            # moves up to sit before the first queued command instead.
+            if self.pending:
+                return dim
             # keep the trailing gap outside the badge so its background
             # (none here, but a tint when finished) doesn't bleed past the ]
-            dim = [("class:shell.prompt.dim", text) for _, text in prompt]
             return [("class:shell.elapsed", f"[{_fmt_elapsed(el)}]"),
                     ("", " "), *dim]
         # finished: keep the run time on the prompt until the next command, tinted

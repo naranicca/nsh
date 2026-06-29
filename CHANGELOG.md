@@ -47,7 +47,11 @@ Notable user-facing changes to the Python rewrite. Newest first.
   one is still running now pops a centered dialog box asking whether to queue it —
   it runs in the same tab as soon as the current command (and anything already
   queued ahead of it) finishes — or to run it now in a fresh tab. Several commands
-  can wait in line, and they run in the order you entered them.
+  can wait in line, and they run in the order you entered them. Queued commands
+  are listed in grey just above the prompt (each as `$ cmd`), and the status bar
+  shows a `⋯ N queued` count. The running command's live elapsed time prefixes
+  the first queued command (it moves up there from the prompt), so the queue
+  reads as a timeline of what runs next.
 - **Python `print` output streams live.** A script's stdout is captured through a
   pipe, not a TTY, so CPython block-buffers it and a `print` loop appeared all at
   once only when the script exited. nsh now sets `PYTHONUNBUFFERED=1` in the child

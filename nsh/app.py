@@ -1153,6 +1153,12 @@ class NshApp:
         if note_count > 0:
             segs.append(("class:statusbar.notes", f" ■ {note_count} ",
                          self._hint_click(self.open_notes)))
+        # how many commands are waiting in this tab's queue (shell mode only); the
+        # commands themselves are listed in grey above the prompt, not here
+        if self.mode == SHELL:
+            queued = len(self.shell.pending)
+            if queued > 0:
+                segs.append(("class:statusbar.queue", f" ⋯ {queued} queued "))
         # the message sits in front of the shortcuts and stays until it's
         # explicitly cleared (directory change, mode change, or ESC)
         if self.message:
@@ -1424,8 +1430,8 @@ class NshApp:
 
         def choose(queue):
             if queue:
-                session.pending.append(cmd)
-                self.set_message(f"queued ({len(session.pending)} waiting): {cmd}")
+                session.pending.append(cmd)  # the status bar shows the live count
+                self.invalidate()
             else:
                 self._dispatch_command(self.shells.new_session(), cmd)
 
@@ -1467,6 +1473,7 @@ class NshApp:
         free. Called when a command finishes (async) or a builtin returns."""
         if session.pending and not session.busy():
             self._dispatch_command(session, session.pending.pop(0))
+            self.invalidate()  # the queue shrank: refresh the list / count
 
     def _record_source(self, raw):
         """Remember a `source`d file (resolved to an absolute path) so it's

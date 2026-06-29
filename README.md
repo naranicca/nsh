@@ -151,9 +151,10 @@ so switching tabs swaps the whole working context. Entering a command while the
 current one is still running pops a centered dialog box — queue it (it runs in
 this tab once the running command, and anything queued ahead of it, finishes) or
 run it now in a new tab (rather than mixing the output); several commands can wait in line and
-run in order. A tab bar marks each session's state — orange while a command is
-still running, red once one finishes with a non-zero exit (cleared when the next
-command runs).
+run in order. Queued commands are listed in grey above the prompt, with a `⋯ N
+queued` count in the status bar. A tab bar marks each session's state — orange
+while a command is still running, red once one finishes with a non-zero exit
+(cleared when the next command runs).
 
 Built-ins handled internally: `cd`, `clear`/`cls`, `exit`/`quit`. The output pane
 grows with its content and goes full-screen once it fills up. Long lines wrap,

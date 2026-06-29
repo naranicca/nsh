@@ -31,6 +31,7 @@ STYLE_DEFAULTS = {
         "statusbar.key": "bg:#1c1c1c #5fafff bold",
         "statusbar.msg": "bg:#1c1c1c #ffff87",
         "statusbar.notes": "bg:#1c1c1c #ffd700 bold",
+        "statusbar.queue": "bg:#1c1c1c #999999",
         # explorer entries
         "explorer.dir": "#5fafff bold",
         "explorer.file": "#d0d0d0",
@@ -79,6 +80,8 @@ STYLE_DEFAULTS = {
         # the prompt dimmed while the previous command is still running (typing
         # here opens a new tab rather than running inline)
         "shell.prompt.dim": "#808080 nobold",
+        # commands queued behind a running one, listed in grey above the prompt
+        "shell.queued": "#808080",
         # git branch in the prompt, coloured by repo state (like the title bar):
         # green in sync, yellow behind/ahead, red with uncommitted changes
         "shell.branch": "#87ff87",
