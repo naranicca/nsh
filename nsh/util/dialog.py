@@ -150,6 +150,8 @@ class ConfirmDialog:
         self.active = False
         self.title = ""
         self.message = ""
+        self.ok_label = "OK"        # button labels (overridable per open)
+        self.cancel_label = "Cancel"
         self.button = "cancel"      # default to the safe choice for Enter
         self._on_result = None
 
@@ -171,10 +173,17 @@ class ConfirmDialog:
             filter=Condition(lambda: self.active),
         )
 
-    def open(self, title, message, on_result):
+    def open(self, title, message, on_result, ok_label="OK", cancel_label="Cancel",
+             default="cancel"):
+        """Show the dialog. ``on_result(True)`` fires for the OK button,
+        ``on_result(False)`` for Cancel. ``ok_label``/``cancel_label`` relabel the
+        buttons (e.g. two distinct actions) and ``default`` picks which one Enter
+        triggers."""
         self.title = title
         self.message = message
-        self.button = "cancel"
+        self.ok_label = ok_label
+        self.cancel_label = cancel_label
+        self.button = default
         self.active = True
         self._on_result = on_result
 
@@ -193,9 +202,10 @@ class ConfirmDialog:
         return [("class:dialog", " " + self.message)]
 
     def _buttons(self):
-        return [_button("OK", self.button == "ok", lambda: self._resolve(True)),
+        return [_button(self.ok_label, self.button == "ok", lambda: self._resolve(True)),
                 ("", "      "),
-                _button("Cancel", self.button == "cancel", lambda: self._resolve(False))]
+                _button(self.cancel_label, self.button == "cancel",
+                        lambda: self._resolve(False))]
 
     def _kb(self):
         kb = KeyBindings()

@@ -1395,8 +1395,11 @@ class NshApp:
 
     # -- command line ---------------------------------------------------------
     def run_in_shell(self, session, cmd):
-        """Run ``cmd`` typed in ``session``. If that session is still running a
-        command, the new one opens in a fresh tab instead of interleaving.
+        """Run ``cmd`` typed in ``session``.
+
+        If that session is still running a command, ask whether to queue the new
+        command (it runs in this tab once the current one — and any already
+        queued ahead of it — finishes) or to run it now in a fresh tab.
 
         A leading ``!`` forces the rest of the line onto the real terminal
         (run_in_term) — an escape hatch for interactive tools nsh doesn't
@@ -1405,11 +1408,42 @@ class NshApp:
         if not cmd.strip():
             return
         if session.busy():
-            session = self.shells.new_session()
+            self._ask_busy(session, cmd)
+            return
+        self._dispatch_command(session, cmd)
+
+    def _ask_busy(self, session, cmd):
+        """A command was entered while ``session`` is still busy: pop a centered
+        dialog to either queue it behind the running one or run it now in a new
+        tab."""
+        queued = len(session.pending)
+        ahead = (f" ({queued} already queued)" if queued else "")
+        message = (f"A command is still running{ahead}.\n\n"
+                   f"  {cmd}\n\nQueue it behind the running command, or run it "
+                   "now in a new tab?")
+
+        def choose(queue):
+            if queue:
+                session.pending.append(cmd)
+                self.set_message(f"queued ({len(session.pending)} waiting): {cmd}")
+            else:
+                self._dispatch_command(self.shells.new_session(), cmd)
+
+        self.confirm_dialog.open(
+            "Command still running", message, choose,
+            ok_label="Queue", cancel_label="New tab", default="ok")
+        self.application.layout.focus(self.confirm_dialog.control)
+        self.invalidate()
+
+    def _dispatch_command(self, session, cmd):
+        """Actually run ``cmd`` in ``session`` (no busy check). When a builtin
+        finishes synchronously, drain the next queued command right away; an
+        async command drains its queue from :meth:`_exec` on completion."""
         force_term = cmd.lstrip().startswith("!")
         if force_term:
             cmd = cmd.lstrip()[1:].strip()
             if not cmd:
+                self._drain_pending(session)
                 return
         session.title = self._cmd_title(cmd)
         # a `source FILE` line: each command runs in its own subprocess, so note
@@ -1425,6 +1459,14 @@ class NshApp:
             asyncio.ensure_future(self._exec(session, cmd, force_term=True))
         elif not self._handle_builtin(session, cmd):
             asyncio.ensure_future(self._exec(session, cmd))
+        else:
+            self._drain_pending(session)  # builtin done; run the next queued one
+
+    def _drain_pending(self, session):
+        """Start the next queued command for ``session``, if the tab is now
+        free. Called when a command finishes (async) or a builtin returns."""
+        if session.pending and not session.busy():
+            self._dispatch_command(session, session.pending.pop(0))
 
     def _record_source(self, raw):
         """Remember a `source`d file (resolved to an absolute path) so it's
@@ -1488,6 +1530,7 @@ class NshApp:
         except Exception as exc:  # noqa: BLE001 - surfaced to the user
             session.append(f"nsh: {exc}", "class:shell.error")
         self.invalidate()
+        self._drain_pending(session)  # this tab is free: run the next queued one
 
     async def _exec_git_network(self, session, runner, cmd):
         """Run a remote git command (push/pull/fetch/clone) optimistically.

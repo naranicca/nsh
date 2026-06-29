@@ -58,6 +58,9 @@ class ShellView:
         self.scroll_top = None
         # this session's process runner, and the tab label (last command's name)
         self.runner = CommandRunner(app, self)
+        # commands the user chose to queue while an earlier one was still
+        # running; they run one after another in this same tab (see app.run_in_shell)
+        self.pending = []
         self.title = "shell"
         # a name set by the user (tab rename); when present it overrides the
         # auto title so a later command doesn't clobber it.
@@ -254,8 +257,8 @@ class ShellView:
         if el is not None:
             # running: prefix the live elapsed time, ticking each second (the app
             # repaints every second), and dim the prompt itself — the previous
-            # command hasn't finished, so typing here opens a *new* tab rather
-            # than running inline. The orange badge keeps its own colour.
+            # command hasn't finished, so entering a command here asks whether to
+            # queue it or open a new tab. The orange badge keeps its own colour.
             # keep the trailing gap outside the badge so its background
             # (none here, but a tint when finished) doesn't bleed past the ]
             dim = [("class:shell.prompt.dim", text) for _, text in prompt]

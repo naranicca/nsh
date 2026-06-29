@@ -43,14 +43,19 @@ Notable user-facing changes to the Python rewrite. Newest first.
   and a new tab (Ctrl+T) opens in your current mode so the workflow carries over.
 
 ### Command-line (shell) mode
+- **Queue commands behind a running one.** Entering a command while the previous
+  one is still running now pops a centered dialog box asking whether to queue it —
+  it runs in the same tab as soon as the current command (and anything already
+  queued ahead of it) finishes — or to run it now in a fresh tab. Several commands
+  can wait in line, and they run in the order you entered them.
 - **Python `print` output streams live.** A script's stdout is captured through a
   pipe, not a TTY, so CPython block-buffers it and a `print` loop appeared all at
   once only when the script exited. nsh now sets `PYTHONUNBUFFERED=1` in the child
   environment (overridable), so prints land as they happen.
 - **The prompt dims while a command is still running.** When the previous command
-  hasn't finished, the prompt is greyed out — a cue that typing now opens a new
-  tab rather than running inline. It returns to its normal colour once the
-  command finishes.
+  hasn't finished, the prompt is greyed out — a cue that entering a command now
+  prompts to queue it or open a new tab rather than running inline. It returns to
+  its normal colour once the command finishes.
 - **Prompt shows the path, git branch and `$`.** The directory uses the
   explorer's directory colour, the current git branch follows as ` (branch)`
   tinted by repo state like the title bar (green in sync, yellow behind/ahead,
