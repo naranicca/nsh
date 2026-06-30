@@ -5,6 +5,9 @@ Notable user-facing changes to the Python rewrite. Newest first.
 ## Unreleased
 
 ### Tabs
+- **The copy / cut buffer is shared across tabs.** Copying (`y`) or cutting (`x`)
+  files in one tab now lets you paste (`p`) them in another — the clipboard lives
+  on the app instead of per-explorer, so it follows you between working contexts.
 - **A "+" button opens a new tab with the mouse.** The tab bar now ends with a
   clickable `+` button (in both the in-shell bar and the out-of-shell overview
   bar), so a new tab can be opened without Ctrl+T — alongside the existing

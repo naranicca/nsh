@@ -67,7 +67,6 @@ class ExplorerView:
         self._select_base = set()
         self._select_task = None
         self.expanded = set()  # set[Path] of directories expanded inline (tree)
-        self.clipboard = None  # ([Path, ...], "copy" | "cut")
         # set[Path] of rows currently flashing, plus the blink task — a brief
         # highlight on copy/cut so the action is visible (see _flash_paths)
         self._flash = set()
@@ -101,6 +100,16 @@ class ExplorerView:
             # balloon when the preview content is narrow.
             width=Dimension(min=0, preferred=0, weight=1),
         )
+
+    # the copy / cut buffer lives on the app, not the view, so a copy in one
+    # tab can be pasted in another (see NshApp.clipboard).
+    @property
+    def clipboard(self):
+        return self.app.clipboard
+
+    @clipboard.setter
+    def clipboard(self, value):
+        self.app.clipboard = value
 
     # -- data -----------------------------------------------------------------
     @staticmethod

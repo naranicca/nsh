@@ -144,6 +144,9 @@ class NshApp:
         # shell variables set with a bare `a=10` line; shared by every tab and
         # passed to each child command's environment (see CommandRunner).
         self.shell_vars = {}
+        # copy / cut buffer for the explorer, ([Path, ...], "copy" | "cut").
+        # Shared by every tab so you can copy in one tab and paste in another.
+        self.clipboard = None
         # files the user `source`d: each command runs in its own subprocess, so a
         # sourced script's functions/aliases/vars would vanish — instead we re-
         # source these (silently) ahead of every later command (see CommandRunner).
