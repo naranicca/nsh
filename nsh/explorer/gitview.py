@@ -224,7 +224,10 @@ class GitView:
             target = "repo"  # no changed files: still offer the repo-wide actions
         # repo-level actions, available even when there are no changed files
         if gs and gs.dirty:
-            items.append(("Git: Commit", self.app.explorer.git_commit))
+            # with a selection this commits just those files; with none it
+            # commits the whole directory, so spell that out as "Commit all"
+            label = "Git: Commit" if self.selected else "Git: Commit all"
+            items.append((label, self.app.explorer.git_commit))
         # pull when there's an upstream; push when there are commits to push
         if gs and gs.can_pull:
             items.append(("Git: Pull", self.app.explorer.git_pull))
