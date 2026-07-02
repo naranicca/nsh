@@ -142,8 +142,9 @@ Notable user-facing changes to the Python rewrite. Newest first.
   space) into the empty prompt, ready to use as command arguments.
 - **Send a file to the command line.** `Ctrl+J` (or `Ctrl+Down`) in the explorer
   opens the shell and splices the cursor file — or the whole selection — into the
-  command line at the cursor (quoted, relative to the cwd), so you can build a
-  command like `cat <name>` without retyping the name.
+  command line (quoted, relative to the cwd), then parks the cursor at the front,
+  so you can build a command like `cat <name>` by just typing the command ahead
+  of the name.
 - **Word-wrap output.** Long lines now wrap instead of being cut off at the
   right edge, so you can read them in full.
 - **Backspace-aware output.** A `\b` (0x08) in command output is resolved the

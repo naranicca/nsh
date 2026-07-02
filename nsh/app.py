@@ -355,6 +355,9 @@ class NshApp:
         if before and not before.endswith(" "):
             buff.insert_text(" ")  # keep names separate from what's already typed
         buff.insert_text(text + " ")
+        # park the cursor at the very front so the command name can be typed
+        # ahead of the file(s) that were just spliced in
+        buff.cursor_position = 0
 
     def _build_pane_keys(self):
         """The remappable pane_prev / pane_next pair (F7/F8 by default), in their
@@ -1434,6 +1437,10 @@ class NshApp:
         def choose(queue):
             if queue:
                 session.pending.append(cmd)  # the status bar shows the live count
+                # the running command may have finished while this dialog was
+                # open, draining an empty queue; if the tab is now free, start
+                # the just-queued command right away instead of stranding it
+                self._drain_pending(session)
                 self.invalidate()
             else:
                 self._dispatch_command(self.shells.new_session(), cmd)
