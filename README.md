@@ -109,7 +109,9 @@ The action keys (everything below the navigation block) are remappable in
 Paste, new file and new folder follow the cursor: a directory under the cursor
 is the target (the item lands *inside* it and it expands to show the result),
 while a file targets its containing directory — so in the tree view you act
-exactly where you're pointing.
+exactly where you're pointing. Paste is stricter: it only drops *inside* a
+directory you've already **expanded**; on a collapsed one it pastes into the
+container beside it, not into a folder you can't see into.
 
 Git actions (stage / unstage, commit, diff, and a **Branches** submenu that
 lists branches to check out plus a `+ New Branch` entry) live in the `Tab`

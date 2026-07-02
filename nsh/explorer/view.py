@@ -575,26 +575,38 @@ class ExplorerView:
         self.app.set_message(f"cut {len(targets)} item(s)  (p to paste)")
         self.app.invalidate()
 
-    def _target_dir(self):
+    def _target_dir(self, require_expanded=False):
         """The directory to act on, based on the cursor: a directory under the
         cursor is targeted *inside* (paste/create lands within it); a file
         targets its containing directory. In the tree view that may be an
         expanded subdirectory rather than the top-level cwd, so paste / new file
         / new folder follow the cursor. Falls back to this pane's directory when
-        the cursor is on ``..`` or there's no entry."""
+        the cursor is on ``..`` or there's no entry.
+
+        With ``require_expanded`` (paste), a *collapsed* directory under the
+        cursor is not descended into — the item lands in its container instead,
+        so you only paste inside a directory you've actually opened."""
         entry = self.current()
         if entry is None or entry.is_parent:
             return self.cwd
         if entry.is_dir:
+            if require_expanded and entry.path not in self.expanded:
+                return entry.path.parent  # collapsed: target its container
             return entry.path
         return entry.path.parent
 
-    def _reveal_target(self):
+    def _reveal_target(self, require_expanded=False):
         """Make a target directory under the cursor visible after the listing
         refreshes — expand it inline so a paste / new item created inside it
-        shows up (and can be selected) rather than hiding in a collapsed row."""
+        shows up (and can be selected) rather than hiding in a collapsed row.
+
+        Mirrors :meth:`_target_dir`: with ``require_expanded`` a collapsed
+        cursor directory is left alone (the item went to its container, which is
+        already visible), so it isn't force-expanded on paste."""
         entry = self.current()
         if entry is not None and entry.is_dir and not entry.is_parent:
+            if require_expanded and entry.path not in self.expanded:
+                return
             self.expanded.add(entry.path)
 
     def paste(self):
@@ -602,7 +614,7 @@ class ExplorerView:
             self.app.set_message("clipboard empty")
             return
         paths, op = self.clipboard
-        dest = self._target_dir()
+        dest = self._target_dir(require_expanded=True)
 
         async def do():
             done = 0
@@ -622,7 +634,7 @@ class ExplorerView:
                     self.app.set_message(f"{src.name}: {exc}")
             if op == "cut":
                 self.clipboard = None
-            self._reveal_target()  # expand the target dir so the result shows
+            self._reveal_target(require_expanded=True)  # expand only if pasted inside
             self.refresh_listing(select_name=last.name if last else None)
             verb = "copied" if op == "copy" else "moved"
             self.app.set_message(f"{verb} {done}/{len(paths)} item(s)")

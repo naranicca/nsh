@@ -5,6 +5,11 @@ Notable user-facing changes to the Python rewrite. Newest first.
 ## Unreleased
 
 ### Explorer
+- **Paste only enters an expanded directory.** Pasting with the cursor on a
+  directory used to always drop the files inside it; now it does so only when
+  that directory is expanded. On a collapsed directory the paste lands in its
+  container beside it instead, so files no longer disappear into a folder you
+  can't see into. (New file / new folder still target the cursor directory.)
 - **Shift+H / Shift+L move focus across columns.** Vim-style, `Shift+H` moves
   left and `Shift+L` right across the on-screen columns — the two explorer
   panes in two-pane view, or the file list and its preview in single-pane view
