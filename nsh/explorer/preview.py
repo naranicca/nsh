@@ -385,6 +385,11 @@ class PreviewView:
                 return
             self.app.focus_active_list()
 
+        # Shift+H steps back to the list (the mirror of Shift+L stepping in).
+        @kb.add("H")
+        def _(event):
+            self.app.focus_active_list()
+
         return kb
 
     # -- cache ----------------------------------------------------------------

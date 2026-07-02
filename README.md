@@ -74,6 +74,9 @@ These work from both the explorer and the command line. The tab bar is also
 clickable: click a tab to switch to it, double-click it to close it, and click
 the **`+`** button at its right end to open a new tab. The two-pane view (`2`) is
 per-tab, so one tab can be split while another shows a single pane.
+**`Shift+H`** / **`Shift+L`** move focus left / right across the on-screen
+columns — the two panes, or (in single-pane view) the list and its preview — or
+click a pane to focus it.
 
 ### Explorer mode
 The action keys (everything below the navigation block) are remappable in
@@ -85,6 +88,7 @@ The action keys (everything below the navigation block) are remappable in
 | `↵` | open the file / enter the directory |
 | `l`, `→` | expand/collapse a directory inline; **on a file, focus the preview** |
 | `⌫`, `h`, `←` | collapse the directory, else go to the parent |
+| `Shift+H` / `Shift+L` | move focus left / right across columns — the two panes (two-pane view), or the list and its preview |
 | `Space` | select / deselect the entry (multi-select) |
 | `Tab` | open the **action menu** (copy, rename, delete, git…) — drops from the cursor row, beside the filename |
 | `y` / `x` / `p` | copy / cut / paste — the picked rows briefly flash; **paste lands in the directory at the cursor**. The clipboard is shared across tabs, so you can copy in one tab and paste in another |

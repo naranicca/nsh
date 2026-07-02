@@ -1438,6 +1438,17 @@ class ExplorerView:
         def _(event):
             self.collapse_or_up()
 
+        # Shift+H / Shift+L move focus left / right across the on-screen
+        # columns (vim-style): the two panes in two-pane view, or the list and
+        # its preview in single-pane view — alongside click-to-focus.
+        @kb.add("H")
+        def _(event):
+            self.app.move_pane_focus(-1)
+
+        @kb.add("L")
+        def _(event):
+            self.app.move_pane_focus(1)
+
         # `i` always starts an inline rename (vim-ish "insert"), alongside the
         # remappable rename key. While editing, the eager Keys.Any binding above
         # swallows `i` as text, so this only fires in normal navigation.

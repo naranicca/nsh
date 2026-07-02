@@ -4,6 +4,13 @@ Notable user-facing changes to the Python rewrite. Newest first.
 
 ## Unreleased
 
+### Explorer
+- **Shift+H / Shift+L move focus across columns.** Vim-style, `Shift+H` moves
+  left and `Shift+L` right across the on-screen columns — the two explorer
+  panes in two-pane view, or the file list and its preview in single-pane view
+  (so `Shift+L` steps into the preview and `Shift+H` steps back). Works
+  alongside the existing click-to-focus, so focus can move without the mouse.
+
 ### Tabs
 - **The copy / cut buffer is shared across tabs.** Copying (`y`) or cutting (`x`)
   files in one tab now lets you paste (`p`) them in another — the clipboard lives

@@ -1876,7 +1876,32 @@ class NshApp:
         git status, title bar and shell all follow the newly active pane."""
         if not self.two_pane:
             return
-        self.active_pane ^= 1  # two panes: toggle
+        self.switch_to_pane(self.active_pane ^ 1)  # two panes: toggle
+
+    def move_pane_focus(self, direction):
+        """Shift+H / Shift+L: move focus left (``direction`` < 0) or right
+        (> 0) across the on-screen columns. In two-pane view those are the two
+        explorer panes; in single-pane view they are the list and its preview
+        (so Shift+L steps into the preview and Shift+H steps back)."""
+        if self.two_pane:  # [left pane, right pane]; no preview in this layout
+            self.switch_to_pane(1 if direction > 0 else 0)
+            return
+        # single pane: step between the list and the preview when it's on screen
+        if not (self.show_preview and self._wide_enough()):
+            return
+        if direction > 0 and not self.preview_focused():
+            self.preview.focus()
+            self.invalidate()
+        elif direction < 0 and self.preview_focused():
+            self.focus_active_list()
+
+    def switch_to_pane(self, idx):
+        """Make pane ``idx`` (0 = left, 1 = right) the active one in two-pane
+        mode via the keyboard. The cwd, git status, title bar and shell all
+        follow it; a no-op outside two-pane mode or when it's already active."""
+        if not self.two_pane or idx == self.active_pane:
+            return
+        self.active_pane = idx
         try:
             os.chdir(self.explorer.cwd)  # the process cwd follows the active pane
         except OSError:
