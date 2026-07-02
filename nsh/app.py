@@ -32,6 +32,7 @@ from prompt_toolkit.mouse_events import MouseEventType
 
 from . import __version__, config
 from .explorer import git
+from .explorer.browse import BranchBrowser
 from .explorer.preview import PreviewView
 from .notes.view import NotesView
 from .search.view import SearchView
@@ -198,6 +199,8 @@ class NshApp:
         self.about_dialog = InfoDialog(self._dialog_closed)
         self.find_dialog = FindTextDialog(self._dialog_closed)
         self.chmod_dialog = ChmodDialog(self._dialog_closed)
+        # browse a git branch's file tree (from the branch action menu)
+        self.branch_browser = BranchBrowser(self)
 
         self.application = self._build_application()
 
@@ -823,6 +826,7 @@ class NshApp:
                 Float(content=self.about_dialog.container),
                 Float(content=self.find_dialog.container),
                 Float(content=self.chmod_dialog.container),
+                Float(content=self.branch_browser.container),
             ],
         )
 
@@ -1729,6 +1733,12 @@ class NshApp:
         gets the chosen 0-0o777 value."""
         self.chmod_dialog.open(title, mode, on_accept)
         self.application.layout.focus(self.chmod_dialog.control)
+        self.invalidate()
+
+    def open_branch_browser(self, rev):
+        """Open the read-only file-tree browser for branch (or ref) ``rev``."""
+        self.branch_browser.open(rev)
+        self.application.layout.focus(self.branch_browser.control)
         self.invalidate()
 
     # -- action menu ----------------------------------------------------------

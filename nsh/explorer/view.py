@@ -1286,9 +1286,10 @@ class ExplorerView:
         asyncio.ensure_future(do())
 
     def _branch_menu(self, name):
-        """Per-branch actions: checkout, or delete (locally / on the remote)."""
+        """Per-branch actions: checkout, browse its tree, or delete."""
         self.app.open_menu(f"Branch · {name}", [
             ("Checkout", lambda: self._do_checkout(name)),
+            ("Browse", lambda: self.app.open_branch_browser(name)),
             ("Delete locally", lambda: self._confirm_delete_branch(name, remote=False)),
             ("Delete remotely", lambda: self._confirm_delete_branch(name, remote=True)),
         ])

@@ -119,6 +119,13 @@ action menu when the directory is a repository. An untracked file can be staged
 — including the files inside a brand-new directory, which carry the untracked
 marker and so can be added too.
 
+Picking a branch opens a per-branch menu (Checkout, **Browse**, Delete). **Browse**
+pops a small centered dialog listing that branch's files without checking it out:
+`↑`/`↓` (or `j`/`k`) move, `↵` / `l` / `→` step into a directory and `⌫` / `h` /
+`←` back out, and **`y`** copies the highlighted file — or a whole directory —
+out of the branch into the current explorer directory (never clobbering an
+existing name). `Esc` / `q` closes it.
+
 ### Git mode
 
 `Ctrl+G` opens a flat, `git status`-style list of the repository's changed and

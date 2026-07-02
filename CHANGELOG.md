@@ -5,6 +5,13 @@ Notable user-facing changes to the Python rewrite. Newest first.
 ## Unreleased
 
 ### Explorer
+- **Browse a branch's files without checking it out.** The per-branch menu
+  (under Git Branches) gains a **Browse** entry that opens a small centered
+  dialog listing that branch's file tree. Arrow/`hjkl` keys navigate — `Enter`
+  steps into a directory, Backspace steps back out — and `y` copies the
+  highlighted file or directory out of the branch into the current explorer
+  directory (via `git show` / a recursive `ls-tree`, so the working tree and
+  checked-out branch are untouched, and an existing name is never clobbered).
 - **Paste only enters an expanded directory.** Pasting with the cursor on a
   directory used to always drop the files inside it; now it does so only when
   that directory is expanded. On a collapsed directory the paste lands in its

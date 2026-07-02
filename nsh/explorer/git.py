@@ -233,6 +233,67 @@ async def checkout_branch(name, cwd):
     return await run_git(["checkout", name], cwd)
 
 
+# -- read-only tree browsing (the branch "Browse" dialog) --------------------
+async def ls_tree(rev, path, cwd):
+    """The immediate children of directory ``path`` in ``rev`` (a branch, tag or
+    commit); ``path`` is '' for the tree root. Returns ``[(name, fullpath,
+    is_dir)]`` sorted directories-first then by name, or ``None`` if the tree /
+    path can't be read. ``fullpath`` is repo-root-relative (what ``git show``
+    and a recursive ls-tree expect)."""
+    # --full-tree: list from the repo root regardless of cwd, and report paths
+    # repo-root-relative (what show_bytes / a recursive ls-tree then expect)
+    args = ["-c", "core.quotepath=false", "ls-tree", "--full-tree", "-z", rev]
+    if path:
+        args.append(path.rstrip("/") + "/")
+    rc, out = await run_git(args, cwd)
+    if rc != 0:
+        return None
+    entries = []
+    for rec in out.split("\0"):
+        if not rec:
+            continue
+        meta, _, name = rec.partition("\t")
+        if not name:
+            continue
+        parts = meta.split()
+        is_dir = len(parts) >= 2 and parts[1] == "tree"
+        full = name.rstrip("/")
+        base = full.rsplit("/", 1)[-1]
+        entries.append((base, full, is_dir))
+    entries.sort(key=lambda e: (not e[2], e[0].lower()))
+    return entries
+
+
+async def ls_tree_files(rev, path, cwd):
+    """Every blob path (recursive) under directory ``path`` in ``rev`` — the
+    files to extract when copying a whole directory out of a branch."""
+    args = ["-c", "core.quotepath=false", "ls-tree", "--full-tree", "-r", "-z",
+            "--name-only", rev]
+    if path:
+        args.append(path.rstrip("/") + "/")
+    rc, out = await run_git(args, cwd)
+    if rc != 0:
+        return []
+    return [p for p in out.split("\0") if p]
+
+
+async def show_bytes(rev, path, cwd):
+    """Raw bytes of the blob ``path`` at ``rev`` (``git show <rev>:<path>``),
+    read binary-safe so images and other non-text files copy out intact.
+    Returns ``(returncode, data)``."""
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "git", "show", f"{rev}:{path}",
+            cwd=str(cwd),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+    except (FileNotFoundError, NotADirectoryError, OSError):
+        return 127, b""
+    out, _ = await proc.communicate()
+    return proc.returncode, out
+
+
 async def delete_local_branch(name, cwd):
     """Delete a local branch (safe: ``git branch -d`` refuses unmerged work)."""
     return await run_git(["branch", "-d", name], cwd)
