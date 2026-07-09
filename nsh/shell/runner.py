@@ -578,5 +578,12 @@ class CommandRunner:
             # otherwise nsh redraws over it the instant run_in_terminal returns
             _wait_for_key()
 
-        await run_in_terminal(_run)
+        # Run the child in a thread (in_executor=True), like prompt_toolkit's own
+        # editor launcher (Buffer.open_in_editor). With the default in_executor=
+        # False the blocking subprocess.run would execute on the event-loop
+        # thread and freeze the loop; a full-screen editor (vi) started that way
+        # never really takes the terminal — it sits there until Ctrl-C. Off the
+        # loop thread it gets the tty cleanly (input is detached and the terminal
+        # is in cooked mode around it either way).
+        await run_in_terminal(_run, in_executor=True)
         return result["rc"]

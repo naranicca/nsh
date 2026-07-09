@@ -83,6 +83,8 @@ class ShellTabs:
         session = ShellView(self.app)
         session.explorers = [ExplorerView(self.app, cwd),
                              ExplorerView(self.app, cwd)]
+        for ex in session.explorers:
+            ex.session = session  # so its git output logs to this tab (not the active one)
         session.active_pane = 0
         session.two_pane = self.app._two_pane_default  # per-tab; seeded from nshrc
         # each tab also owns its own git mode and git log views (their own list,

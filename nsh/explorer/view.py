@@ -47,6 +47,11 @@ def _git_error_summary(output):
 class ExplorerView:
     def __init__(self, app, cwd):
         self.app = app
+        # the shell tab that owns this pane, set by ShellTabs._new_tab. Git
+        # output (commit / diff) goes to *this* tab's scrollback rather than the
+        # globally-active one, so a commit run from a background tab still logs
+        # in its own tab. None for a stray explorer not attached to a tab.
+        self.session = None
         self.cwd = Path(cwd)  # this pane's own directory (panes can differ)
         # this pane's own git status (each pane can be in a different repo); the
         # app's git_status property points at the active pane's
@@ -110,6 +115,13 @@ class ExplorerView:
     @clipboard.setter
     def clipboard(self, value):
         self.app.clipboard = value
+
+    @property
+    def _shell(self):
+        """The shell scrollback git output from this pane belongs in: this pane's
+        own tab, so a commit/diff run from a background tab logs in that tab
+        rather than whichever tab happens to be active when it finishes."""
+        return self.session or self.app.shell
 
     # -- data -----------------------------------------------------------------
     @staticmethod
@@ -1086,7 +1098,7 @@ class ExplorerView:
                 await git.add_paths(paths, self.app.cwd)
             rc, out = await git.commit(message, self.app.cwd, paths)
             if rc == 0:
-                self.app.shell.append(out.strip() or "committed", "class:shell.output")
+                self._shell.append(out.strip() or "committed", "class:shell.output")
                 self.app.set_message("committed")
                 sel = self.app.active_selection()  # consumed: clear the marks
                 if sel:
@@ -1094,8 +1106,8 @@ class ExplorerView:
             else:
                 # surface the real reason (identity unset, nothing to commit,
                 # hook…) in the status bar; full output goes to the scrollback
-                self.app.shell.append(out.strip() or "git commit failed",
-                                      "class:shell.error")
+                self._shell.append(out.strip() or "git commit failed",
+                                   "class:shell.error")
                 reason = _git_error_summary(out)
                 self.app.set_message(f"commit failed: {reason}" if reason
                                      else "commit failed")
