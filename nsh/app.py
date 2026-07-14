@@ -1082,6 +1082,7 @@ class NshApp:
             hints = [
                 ("↑↓", "scroll"), ("PgUp/PgDn", "page"), ("g/G", "top/bottom"),
                 (zk, "zoom", self.toggle_zoom),
+                (":", "cmd", lambda: self.switch_mode(SHELL)),
                 ("ESC", "list", self.focus_active_list),
             ]
         elif self.mode == EXPLORER:

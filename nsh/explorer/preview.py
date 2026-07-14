@@ -300,8 +300,13 @@ class PreviewView:
         self.app.invalidate()
 
     def _visible_text(self):
-        """Window the full preview to the visible slice while the pane is focused
-        (so the arrows scroll it); rendered from the top as before otherwise."""
+        """Window the full preview to the visible slice, scrolled by ``_scroll``.
+
+        The body is windowed the same way whether or not the pane is focused, so
+        opening the shell (which unfocuses the pane) keeps the current scroll
+        position rather than snapping to the top; a content change resets it via
+        ``_scroll_id`` above, so list navigation still shows each file from top.
+        Only the pinned header's focus tint depends on the focus state."""
         ident = self._current_identity()
         if ident != self._scroll_id:
             self._scroll_id = ident
@@ -313,12 +318,7 @@ class PreviewView:
         self._sb_total = len(lines)
         self._sb_view = height
         self._btn_chars = 0  # set by _line_with_button when the button is drawn
-        if not self.app.preview_focused():
-            self._scroll = 0
-            width = self._content_width()
-            if lines:  # add the [+] zoom button to the (first) header line
-                lines = self._line_with_button(lines[0], width, False) + lines[1:]
-            return self._flatten_lines(lines)
+        focused = self.app.preview_focused()
         # keep the leading title lines (filename / meta) pinned — every builder
         # emits them before the first blank line — and scroll only the body.
         hdr = 0
@@ -328,17 +328,20 @@ class PreviewView:
         body_h = max(1, height - hdr)
         max_scroll = max(0, len(body) - body_h)
         self._scroll = max(0, min(self._scroll, max_scroll))
-        # tint the pinned header so the focused pane is obvious; the first header
-        # line also carries the right-aligned [-]/[+] zoom button
+        # tint the pinned header only while focused so the focus state reads at a
+        # glance; the first header line always carries the [-]/[+] zoom button.
         width = self._content_width()
         header_lines = []
         for i, ln in enumerate(header):
             if i == 0:
-                styled = [((s + " class:preview.header.focus").strip(), t)
+                if focused:
+                    ln = [((s + " class:preview.header.focus").strip(), t)
                           for s, t in ln]
-                header_lines.extend(self._line_with_button(styled, width, True))
-            else:
+                header_lines.extend(self._line_with_button(ln, width, focused))
+            elif focused:
                 header_lines.append(self._focus_header(ln, width))
+            else:
+                header_lines.append(ln)
         shown = header_lines + body[self._scroll:self._scroll + body_h]
         return self._flatten_lines(shown)
 
@@ -389,6 +392,19 @@ class PreviewView:
         @kb.add("H")
         def _(event):
             self.app.focus_active_list()
+
+        # ':' opens the shell here too — the key is caught by whichever control
+        # holds focus, so without this a ':' typed while the preview is focused
+        # would fall through unhandled (the explorer list binds it, the preview
+        # didn't). Use the configured command key so a remap in nshrc still works.
+        cmd_key = self.app.keys.get("command")
+        if cmd_key:
+            try:
+                @kb.add(cmd_key)
+                def _(event):
+                    self.app.switch_mode("shell")
+            except Exception:  # noqa: BLE001 - bad key spec in nshrc; skip it
+                pass
 
         return kb
 
