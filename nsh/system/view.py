@@ -238,17 +238,17 @@ class SystemView:
         return 20
 
     # -- kill -----------------------------------------------------------------
-    def kill_selected(self, force=False):
+    def kill_selected(self):
+        # killing always force-kills (SIGKILL / taskkill /F) — no soft terminate
         proc = self.current()
         if proc is None:
             return
-        what = "Force-kill" if force else "Terminate"
         self.app.confirm(
-            f"{what} '{proc.name}' (PID {proc.pid})?",
-            lambda ok: self._do_kill(proc, force) if ok else None)
+            f"Force-kill '{proc.name}' (PID {proc.pid})?",
+            lambda ok: self._do_kill(proc) if ok else None)
 
-    def _do_kill(self, proc, force):
-        ok, err = sysinfo.kill(proc.pid, force)
+    def _do_kill(self, proc):
+        ok, err = sysinfo.kill(proc.pid, force=True)
         if ok:
             self.app.set_message(f"killed {proc.name} (PID {proc.pid})")
         else:
@@ -452,12 +452,9 @@ class SystemView:
 
         @kb.add("x")
         @kb.add("delete")
-        def _(event):
-            self.kill_selected(force=False)
-
         @kb.add("K")
         def _(event):
-            self.kill_selected(force=True)
+            self.kill_selected()
 
         @kb.add("r")
         def _(event):
