@@ -319,28 +319,6 @@ class NshApp:
         self._restore_focus()
         self.invalidate()
 
-    def _prefill_selection(self):
-        """Entering the shell from the explorer with files selected drops their
-        names into the (empty) prompt, ready to use as command arguments."""
-        sel = self.explorer.selected
-        if not sel:
-            return
-        buff = self.shells.current().command_buffer
-        if buff.text:
-            return  # don't clobber a half-typed command
-        # listing order, then any selected paths not currently listed; each is
-        # relative to the cwd and quoted when it holds a shell metacharacter
-        is_posix = self.shells.current().runner._is_posix
-        ordered = [e.path for e in self.explorer.entries if e.path in sel]
-        listed = set(ordered)
-        parts = []
-        for p in ordered + [q for q in sel if q not in listed]:
-            rel = os.path.relpath(str(p), str(self.cwd)).replace(os.sep, "/")
-            parts.append(quote_arg(rel, is_posix))
-        if parts:
-            buff.text = " ".join(parts) + " "
-            buff.cursor_position = len(buff.text)
-
     def shell_insert_paths(self, paths):
         """Open the shell and insert ``paths`` (quoted, relative to the cwd) at
         the command-line cursor — used by the explorer's "send to shell" key."""
@@ -350,9 +328,8 @@ class NshApp:
         parts = [quote_arg(os.path.relpath(str(p), str(self.cwd)).replace(os.sep, "/"),
                            is_posix) for p in paths]
         text = " ".join(parts)
-        # switch without the empty-prompt prefill so we don't double-insert; then
         # splice the names in at the cursor, space-separated from any existing text
-        self.switch_mode(SHELL, prefill=False)
+        self.switch_mode(SHELL)
         buff = self.shells.current().command_buffer
         before = buff.document.text_before_cursor
         if before and not before.endswith(" "):
@@ -1204,7 +1181,7 @@ class NshApp:
     def toggle_mode(self):
         self.switch_mode(EXPLORER if self.mode == SHELL else SHELL)
 
-    def switch_mode(self, mode, prefill=True):
+    def switch_mode(self, mode):
         # remember where the shell was opened from, to return there on ESC
         from_mode = self.mode
         if mode == SHELL and self.mode in (EXPLORER, GIT):
@@ -1213,8 +1190,6 @@ class NshApp:
             self.message = ""  # a mode change dismisses the status message
         self.mode = mode
         if mode == SHELL:
-            if from_mode == EXPLORER and prefill:
-                self._prefill_selection()
             self.focus_shell()
         elif mode == SEARCH:
             self.search.start(self._pending_query)
