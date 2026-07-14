@@ -881,8 +881,10 @@ class ExplorerView:
             self.app.set_message("cancelled")
             return
         try:
-            target = fileops.make_dir(self._target_dir(), name)
-            self._reveal_target()  # expand the target dir so the new folder shows
+            # follow the cursor like paste: land inside an expanded directory,
+            # else in its container (a collapsed dir is not descended into)
+            target = fileops.make_dir(self._target_dir(require_expanded=True), name)
+            self._reveal_target(require_expanded=True)
             self.refresh_listing(select_name=target.name)
             self.app.set_message(f"created folder: {target.name}")
         except Exception as exc:  # noqa: BLE001
@@ -897,8 +899,10 @@ class ExplorerView:
             self.app.set_message("cancelled")
             return
         try:
-            target = fileops.make_file(self._target_dir(), name)
-            self._reveal_target()  # expand the target dir so the new file shows
+            # follow the cursor like paste: land inside an expanded directory,
+            # else in its container (a collapsed dir is not descended into)
+            target = fileops.make_file(self._target_dir(require_expanded=True), name)
+            self._reveal_target(require_expanded=True)
             self.refresh_listing(select_name=target.name)
             self.app.set_message(f"created file: {target.name}")
             asyncio.ensure_future(self.app.refresh_git())
@@ -931,7 +935,7 @@ class ExplorerView:
         elif cur is not None:
             target = cur.name
         else:
-            target = "(empty)"  # empty directory: still offer create / paste
+            target = "(empty)"  # empty directory: only paste / git may apply
         items = []
         # entry actions need something under the cursor / a selection
         if has_target:
@@ -950,7 +954,6 @@ class ExplorerView:
             # so only offer it where it means something
             if os.name != "nt":
                 items.append(("chmod…", self.chmod_entry))
-        items += [("New folder", self.new_dir), ("New file", self.new_file)]
         if self.app.git_status and self.app.git_status.is_repo:
             gs = self.app.git_status
             code = gs.code_for(cur.path) if cur else None
@@ -988,6 +991,13 @@ class ExplorerView:
             if gs.has_commits:
                 items.append(("Git: Log", self.app.open_log))
             items.append(("Git: Branches", self.git_branches))
+        if not items:
+            # nothing applies here (e.g. an empty, clean directory) — creating
+            # files now lives in the F10 menu, so there's simply nothing to show
+            if forced:
+                self._deselect_forced(forced)
+            self.app.set_message("no actions available here")
+            return
         # clear the force-selected cursor file once the menu closes (whether an
         # action ran or it was cancelled); a real, user-made selection is kept
         on_close = (lambda: self._deselect_forced(forced)) if forced else None

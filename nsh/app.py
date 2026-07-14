@@ -1986,6 +1986,9 @@ class NshApp:
     # -- nsh menu (F10) -------------------------------------------------------
     def open_nsh_menu(self):
         self.open_menu("nsh", [
+            ("New folder", self.explorer.new_dir),
+            ("New file", self.explorer.new_file),
+            (SEPARATOR, None),
             ("Bookmarks", self.open_bookmark_menu),
             ("Find", self.open_find),
             ("Notes", self.open_notes),
