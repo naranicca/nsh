@@ -1878,12 +1878,18 @@ class NshApp:
         if self.two_pane:  # [left pane, right pane]; no preview in this layout
             self.switch_to_pane(1 if direction > 0 else 0)
             return
-        # single pane: step between the list and the preview when it's on screen
-        if not (self.show_preview and self._wide_enough()):
-            return
+        # single pane: Shift+L on a directory opens it beside the current one
+        # (enters two-pane view with the right pane in that directory) instead
+        # of merely focusing its preview; otherwise Shift+H/L step between the
+        # list and the preview when it's on screen.
         if direction > 0 and not self.preview_focused():
-            self.preview.focus()
-            self.invalidate()
+            entry = self.explorer.current()
+            if entry is not None and entry.is_dir and not entry.is_parent:
+                self.open_dir_in_two_pane(entry.path)
+                return
+            if self.show_preview and self._wide_enough():
+                self.preview.focus()
+                self.invalidate()
         elif direction < 0 and self.preview_focused():
             self.focus_active_list()
 
@@ -1955,6 +1961,29 @@ class NshApp:
         """Toggle the 9:1 zoom. The enlarged pane follows the focus, so moving
         focus (the pane keys) hands the space to the newly focused pane."""
         self.zoom = not self.zoom
+        self.invalidate()
+
+    def open_dir_in_two_pane(self, path):
+        """Shift+L on a directory in single-pane view: enter two-pane mode with
+        the other pane opened at ``path`` and focused, so it reads as stepping
+        into the directory beside the current one rather than just previewing
+        it. Mirrors :meth:`toggle_two_pane`'s second-pane setup."""
+        self.two_pane = True
+        other = self.explorers[1 - self.active_pane]
+        other.cwd = Path(path)
+        other.selected.clear()
+        other.expanded.clear()
+        other.cursor = 0
+        other.load()
+        self.active_pane = 1 - self.active_pane  # focus the stepped-into pane
+        try:
+            os.chdir(self.explorer.cwd)  # the process cwd follows the active pane
+        except OSError:
+            pass
+        self.message = ""
+        self.schedule_git()  # query git for both now-visible panes
+        self.preview.clear()
+        self.application.layout.focus(self.explorer.control)
         self.invalidate()
 
     def toggle_two_pane(self):
