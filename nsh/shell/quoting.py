@@ -17,14 +17,19 @@ import re
 # over-quoting a name that didn't strictly need it still runs fine, whereas
 # under-quoting one that did breaks the command.
 _SPECIAL = set(" \t\n\r\"'\\()[]{}<>|&;*?$`!#~^%=")
+# On the native Windows shells the backslash is the *path separator*, not an
+# escape character, so it must not force quoting — otherwise every directory
+# completion (``myfolder\``) would come back wrapped in a double quote.
+_SPECIAL_WIN = _SPECIAL - {"\\"}
 
 _POSIX_ESCAPE = re.compile(r'([\\$`"])')
 _POSIX_UNESCAPE = re.compile(r'\\([\\$`"])')
 
 
-def needs_quoting(word):
+def needs_quoting(word, is_posix=True):
     """True when ``word`` contains a character the shell would treat specially."""
-    return any(ch in _SPECIAL for ch in word)
+    special = _SPECIAL if is_posix else _SPECIAL_WIN
+    return any(ch in special for ch in word)
 
 
 def quote_body(word, is_posix):
@@ -43,6 +48,6 @@ def unquote_body(word):
 
 def quote_arg(word, is_posix=True):
     """Return ``word`` quoted so the shell sees it as one literal argument."""
-    if not needs_quoting(word):
+    if not needs_quoting(word, is_posix):
         return word
     return '"' + quote_body(word, is_posix) + '"'

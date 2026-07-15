@@ -64,6 +64,12 @@ class ShellCompleter(Completer):
         except Exception:
             return os.name != "nt"
 
+    def _sep(self):
+        """The path separator shown in completions: a backslash for the native
+        Windows shells (cmd.exe / PowerShell), a forward slash for POSIX shells
+        (incl. Git Bash on Windows). The input side accepts either separator."""
+        return "\\" if not self._is_posix() else "/"
+
     def _quote(self, full, is_dir):
         """Wrap ``full`` in double quotes when it contains a shell metacharacter
         (a space, parentheses, ``&``, …). A directory is left with its quote
@@ -82,7 +88,7 @@ class ShellCompleter(Completer):
                 prefix, rest = full[:sep + 1], full[sep + 1:]
             else:  # ~name with no separator: ~ still goes outside
                 prefix, rest = full[:1], full[1:]
-        if not quoting.needs_quoting(rest):
+        if not quoting.needs_quoting(rest, self._is_posix()):
             return prefix + rest
         body = quoting.quote_body(rest, self._is_posix())
         if is_dir and rest.endswith(("/", "\\")):
@@ -155,7 +161,11 @@ class ShellCompleter(Completer):
     # -- paths ----------------------------------------------------------------
     def _path_completions(self, raw, value):
         base, prefix, _ = self._split(value)
-        head = value[:len(value) - len(prefix)]  # the typed dir portion, verbatim
+        sep = self._sep()
+        head = value[:len(value) - len(prefix)]  # the typed dir portion
+        # show the whole path with the shell's separator (so a Windows shell
+        # gets backslashes even where the user typed a forward slash)
+        head = head.replace("/", sep)
         count = 0
         for de in sorted(os.scandir(base), key=lambda e: e.name.lower()):
             name = de.name
@@ -168,7 +178,7 @@ class ShellCompleter(Completer):
                 is_dir = de.is_dir()
             except OSError:
                 is_dir = False
-            disp = name + ("/" if is_dir else "")
+            disp = name + (sep if is_dir else "")
             full = head + disp
             style = "fg:ansiblue bold" if is_dir else ""
             yield full, self._completion(raw, full, disp, is_dir, style)
@@ -181,20 +191,23 @@ class ShellCompleter(Completer):
         walks ``*s*o*u*`` then ``*r*e*`` then ``*n*`` to reach e.g.
         ``source/repos/nsh``. A leading ``~/`` or ``/`` is the (non-fuzzy)
         anchor and is preserved verbatim in the completion."""
-        if value.startswith("~/"):
-            anchor, base, rest = "~/", Path(os.path.expanduser("~")), value[2:]
-        elif value.startswith("/"):
-            anchor, base, rest = "/", Path(os.path.expanduser("/")), value[1:]
-        elif value == "~":
+        sep = self._sep()
+        v = value.replace("\\", "/")  # normalize input separators for the walk
+        if v.startswith("~/"):
+            anchor, base, rest = "~/", Path(os.path.expanduser("~")), v[2:]
+        elif v.startswith("/"):
+            anchor, base, rest = "/", Path(os.path.expanduser("/")), v[1:]
+        elif v == "~":
             return
         else:
-            anchor, base, rest = "", self.app.cwd, value
+            anchor, base, rest = "", self.app.cwd, v
         if not rest:
             return
         components = rest.split("/")
+        anchor = anchor.replace("/", sep)  # display with the shell's separator
         for rel, is_dir in self._fuzzy_walk(base, components):
-            full = anchor + rel + ("/" if is_dir else "")
-            disp = rel.split("/")[-1] + ("/" if is_dir else "")
+            full = anchor + rel.replace("/", sep) + (sep if is_dir else "")
+            disp = rel.split("/")[-1] + (sep if is_dir else "")
             style = "fg:ansiblue bold" if is_dir else ""
             yield full, self._completion(raw, full, disp, is_dir, style)
 
