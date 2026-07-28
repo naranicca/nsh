@@ -1,8 +1,9 @@
 """Fuzzy file-picker mode.
 
 A query line over a ranked, scrolling result list. Typing edits the query (and
-re-filters); Up/Down move the selection; Enter accepts. The directory index is
-gathered once in a worker thread so opening the picker never blocks.
+re-filters); Up/Down move the selection; Enter accepts. Entries already loaded
+by the explorer are shown immediately while the full directory index is gathered
+in a worker thread.
 """
 import asyncio
 import os
@@ -26,6 +27,7 @@ class SearchView:
         self.cursor = 0
         self.scroll = 0
         self.loading = False
+        self._index_generation = 0
 
         self.query_buffer = Buffer(multiline=False, on_text_changed=self._on_query)
 
@@ -63,14 +65,29 @@ class SearchView:
 
     # -- lifecycle ------------------------------------------------------------
     def start(self, query=""):
-        self.candidates = []
+        root = self.app.cwd
+        # The explorer has already scanned the current directory.  Reuse that
+        # listing as an instant first-stage index while the recursive walk runs
+        # in the background. Expanded descendants and the synthetic ".." row
+        # are excluded: this stage deliberately represents only cwd.
+        self.candidates = [
+            e.name + (os.sep if e.is_dir else "")
+            for e in self.app.explorer.entries
+            if not e.is_parent and e.path.parent == root
+        ]
         self.results = []
         self.cursor = 0
         self.scroll = 0
         self.loading = True
-        self.query_buffer.text = query  # fires _on_query (harmless: no candidates yet)
+        self._index_generation += 1
+        generation = self._index_generation
+        show_hidden = self.app.explorer.show_hidden
+        skip = self._exclude_dirs()
+        self.query_buffer.text = query
         self.query_buffer.cursor_position = len(query)
-        asyncio.ensure_future(self._index())
+        # Assigning the same query does not necessarily fire on_text_changed.
+        self._refilter()
+        asyncio.ensure_future(self._index(generation, root, show_hidden, skip))
 
     def _exclude_dirs(self):
         """The directory names to skip during search, from the nshrc
@@ -80,11 +97,14 @@ class SearchView:
         raw = self.app.settings.get("search_exclude", "") or ""
         return set(raw.replace(",", " ").split())
 
-    async def _index(self):
+    async def _index(self, generation, root, show_hidden, skip):
         items = await run_in_thread(
-            fuzzy.gather, self.app.cwd, self.app.explorer.show_hidden,
-            skip=self._exclude_dirs(),
+            fuzzy.gather, root, show_hidden, skip=skip,
         )
+        # A previous search may finish after the picker was reopened elsewhere;
+        # never let that stale index replace the newer search's candidates.
+        if generation != self._index_generation:
+            return
         self.candidates = items
         self.loading = False
         self._refilter()

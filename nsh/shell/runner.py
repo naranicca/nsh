@@ -95,6 +95,60 @@ def _utf8_safe_cut(buf: bytes) -> int:
     return n
 
 
+def _windows_parent_process():
+    """Return the executable name of nsh's parent process on Windows."""
+    if os.name != "nt":
+        return ""
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class PROCESSENTRY32W(ctypes.Structure):
+            _fields_ = [
+                ("dwSize", wintypes.DWORD),
+                ("cntUsage", wintypes.DWORD),
+                ("th32ProcessID", wintypes.DWORD),
+                ("th32DefaultHeapID", ctypes.c_size_t),
+                ("th32ModuleID", wintypes.DWORD),
+                ("cntThreads", wintypes.DWORD),
+                ("th32ParentProcessID", wintypes.DWORD),
+                ("pcPriClassBase", wintypes.LONG),
+                ("dwFlags", wintypes.DWORD),
+                ("szExeFile", wintypes.WCHAR * 260),
+            ]
+
+        kernel32 = ctypes.windll.kernel32
+        kernel32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        snapshot = kernel32.CreateToolhelp32Snapshot(0x00000002, 0)
+        if snapshot == ctypes.c_void_p(-1).value:
+            return ""
+        try:
+            entry = PROCESSENTRY32W()
+            entry.dwSize = ctypes.sizeof(entry)
+            if not kernel32.Process32FirstW(snapshot, ctypes.byref(entry)):
+                return ""
+            pid = os.getpid()
+            while True:
+                if entry.th32ProcessID == pid:
+                    parent_pid = entry.th32ParentProcessID
+                    break
+                if not kernel32.Process32NextW(snapshot, ctypes.byref(entry)):
+                    return ""
+            entry.dwSize = ctypes.sizeof(entry)
+            if not kernel32.Process32FirstW(snapshot, ctypes.byref(entry)):
+                return ""
+            while True:
+                if entry.th32ProcessID == parent_pid:
+                    return entry.szExeFile
+                if not kernel32.Process32NextW(snapshot, ctypes.byref(entry)):
+                    return ""
+        finally:
+            kernel32.CloseHandle(snapshot)
+    except Exception:  # noqa: BLE001 - shell detection must degrade gracefully
+        return ""
+
+
 class _StreamDecoder:
     """Decode subprocess byte chunks, preferring UTF-8 with an OEM fallback.
 
@@ -143,10 +197,16 @@ def detect_shell():
             bash = shutil.which("bash")
             if bash:
                 return bash, ["-c"], True
+        parent = _windows_parent_process()
+        parent_base = os.path.basename(parent).lower()
+        if parent and ("powershell" in parent_base or "pwsh" in parent_base):
+            return parent, ["-Command"], False
         comspec = os.environ.get("COMSPEC", "cmd.exe")
         base = os.path.basename(comspec).lower()
         if "powershell" in base or "pwsh" in base:
-            return comspec, ["-NoProfile", "-Command"], False
+            # nsh command mode represents the user's shell, so load $PROFILE;
+            # functions and aliases defined there must be available.
+            return comspec, ["-Command"], False
         return comspec, ["/c"], False
     shell = os.environ.get("SHELL", "/bin/sh")
     return shell, ["-c"], True
@@ -197,6 +257,11 @@ class CommandRunner:
         # the app-level runner that only ever drives run_in_term (editors, etc.).
         self.session = session
         self.shell, self.shell_args, self._is_posix = detect_shell()
+        self._is_powershell = (
+            os.name == "nt"
+            and any(name in os.path.basename(self.shell).lower()
+                    for name in ("powershell", "pwsh"))
+        )
         self._fallback_encoding = _oem_fallback()  # OEM code page, for non-UTF-8 output
         self._proc = None  # the currently streaming subprocess, if any
         self._interrupted = False  # set when the user kills the command (Ctrl-C)
@@ -483,7 +548,7 @@ class CommandRunner:
             stderr=asyncio.subprocess.STDOUT,
         )
         try:
-            if self._is_posix:
+            if self._is_posix or self._is_powershell:
                 # Exec the shell directly (sh/bash -c CMD). On real POSIX, start a
                 # new session so Ctrl-C can signal the whole process group; Git
                 # Bash on Windows is killed via taskkill instead, so skip it there.
@@ -492,9 +557,7 @@ class CommandRunner:
                     self.shell, *self.shell_args, command, **kwargs, **extra,
                 )
             else:
-                # cmd.exe / PowerShell: pass the raw line so the shell parses its
-                # own quotes (e.g. python -c "..."). create_subprocess_exec would
-                # route them through list2cmdline, corrupting the inner quotes.
+                # cmd.exe: pass the raw line through the platform shell.
                 proc = await asyncio.create_subprocess_shell(command, **kwargs)
         except (FileNotFoundError, NotADirectoryError, OSError) as exc:
             self._sink.append(f"nsh: cannot run shell: {exc}", "class:shell.error")
@@ -540,11 +603,10 @@ class CommandRunner:
         """
         cwd = str(self.app.cwd)
         env = self._child_env()  # carry the user's shell variables in too
-        # POSIX shell (incl. Git Bash): pass argv straight to the shell. cmd.exe /
-        # PowerShell instead get the raw string via shell=True so they parse their
-        # own quotes — a [cmd, "/c", command] list would let list2cmdline escape
-        # the inner quotes (e.g. a quoted path) into \" and mis-parse.
-        if self._is_posix:
+        # Invoke POSIX shells and PowerShell explicitly.  Going through
+        # shell=True may route the command via cmd.exe instead of the detected
+        # PowerShell, which would also lose the user's profile functions.
+        if self._is_posix or self._is_powershell:
             sourced = self.sourced_prefix() + command  # sourced funcs in scope
             argv, kwargs = [self.shell, *self.shell_args, sourced], {}
         else:
