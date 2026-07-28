@@ -1299,26 +1299,45 @@ class ExplorerView:
             return
 
         async def do():
-            branches, cur = await git.list_branches(self.app.cwd)
+            branches, remotes, cur = await git.list_branches(self.app.cwd)
             items = [("+ New Branch", self.git_new_branch)]
             for b in branches:
                 mark = "● " if b == cur else "  "
                 items.append((f"{mark}{b}", lambda b=b: self._branch_menu(b)))
+            for ref in remotes:
+                items.append((f"⇣ {ref}",
+                              lambda ref=ref: self._branch_menu(ref, remote=True)))
             self.app.open_menu("Branches", items)
         asyncio.ensure_future(do())
 
-    def _branch_menu(self, name):
+    def _branch_menu(self, name, remote=False):
         """Per-branch actions: checkout, browse its tree, or delete."""
-        self.app.open_menu(f"Branch · {name}", [
-            ("Checkout", lambda: self._do_checkout(name)),
-            ("Browse", lambda: self.app.open_branch_browser(name)),
-            ("Delete locally", lambda: self._confirm_delete_branch(name, remote=False)),
-            ("Delete remotely", lambda: self._confirm_delete_branch(name, remote=True)),
-        ])
+        if remote:
+            items = [
+                ("Checkout (track)", lambda: self._do_checkout(name, remote=True)),
+                ("Browse", lambda: self.app.open_branch_browser(name)),
+                ("Delete remotely", lambda: self._confirm_delete_branch(
+                    name, remote=True, remote_ref=name)),
+            ]
+            title = f"Remote branch · {name}"
+        else:
+            items = [
+                ("Checkout", lambda: self._do_checkout(name)),
+                ("Browse", lambda: self.app.open_branch_browser(name)),
+                ("Delete locally", lambda: self._confirm_delete_branch(
+                    name, remote=False)),
+                ("Delete remotely", lambda: self._confirm_delete_branch(
+                    name, remote=True, remote_ref="origin/" + name)),
+            ]
+            title = f"Branch · {name}"
+        self.app.open_menu(title, items)
 
-    def _do_checkout(self, name):
+    def _do_checkout(self, name, remote=False):
         async def do():
-            rc, out = await git.checkout_branch(name, self.app.cwd)
+            if remote:
+                rc, out = await git.checkout_remote_branch(name, self.app.cwd)
+            else:
+                rc, out = await git.checkout_branch(name, self.app.cwd)
             if rc == 0:
                 self.refresh()  # the new branch may have a different working tree
                 self.app.set_message(f"checked out: {name}")
@@ -1326,14 +1345,16 @@ class ExplorerView:
                 self.app.set_message(f"checkout failed: {out.strip()}")
         asyncio.ensure_future(do())
 
-    def _confirm_delete_branch(self, name, remote):
+    def _confirm_delete_branch(self, name, remote, remote_ref=None):
         if remote:
-            label = f"Delete remote branch 'origin/{name}'? This affects the remote."
+            remote_ref = remote_ref or "origin/" + name
+            label = f"Delete remote branch '{remote_ref}'? This affects the remote."
         else:
             label = f"Delete local branch '{name}'? This cannot be undone."
-        self.app.confirm(label, lambda ok: self._do_delete_branch(name, remote, ok))
+        self.app.confirm(label, lambda ok: self._do_delete_branch(
+            name, remote, ok, remote_ref=remote_ref))
 
-    def _do_delete_branch(self, name, remote, ok):
+    def _do_delete_branch(self, name, remote, ok, remote_ref=None):
         if not ok:
             self.app.set_message("delete cancelled")
             return
@@ -1344,11 +1365,13 @@ class ExplorerView:
                 # a username/password. Run it on a real terminal (like the shell
                 # does for push/pull) — a piped run_git would hang or fail with
                 # "could not read Username" where credentials are required.
-                self.app.set_message(f"deleting remote branch: {name}…")
+                ref = remote_ref or "origin/" + name
+                remote_name, branch_name = ref.split("/", 1)
+                self.app.set_message(f"deleting remote branch: {ref}…")
                 rc = await self.app.runner.run_in_term(
-                    f'git push origin --delete "{name}"')
+                    f'git push "{remote_name}" --delete "{branch_name}"')
                 if rc == 0:
-                    self.app.set_message(f"deleted remote branch: origin/{name}")
+                    self.app.set_message(f"deleted remote branch: {ref}")
                 else:
                     self.app.set_message(f"delete remote failed (exit {rc})")
             else:

@@ -5,9 +5,10 @@ from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.data_structures import Point
 from prompt_toolkit.formatted_text import ANSI, to_formatted_text
 from prompt_toolkit.history import InMemoryHistory
-from prompt_toolkit.layout.containers import HSplit, VSplit, Window
+from prompt_toolkit.layout.containers import HSplit, Window
 from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
 from prompt_toolkit.layout.dimension import Dimension
+from prompt_toolkit.layout.processors import BeforeInput
 
 from ..util.width import text_width
 from ..util.widgets import WheelScrollControl
@@ -76,6 +77,7 @@ class ShellView:
             # typing while scrolled up jumps the view back to the bottom, so the
             # (collapsed) input line reappears and you can see what you type
             on_text_changed=self._on_command_changed,
+            on_cursor_position_changed=self._on_command_cursor_changed,
         )
 
         # wrap_lines=True so long output stays readable. prompt_toolkit ignores
@@ -101,18 +103,16 @@ class ShellView:
         self.command_window = Window(
             BufferControl(
                 buffer=self.command_buffer, lexer=ShellLexer(),
+                # Render the prompt in the same window as the editable command.
+                # Horizontal scrolling can then move cwd out of the way and give
+                # the command the full terminal width.
+                input_processors=[BeforeInput(self._prompt_text)],
                 # Keep the completion menu anchored sensibly on a single, non-
                 # wrapping input line (see _menu_position).
                 menu_position=self._menu_position),
-            height=1)
-        self.input_window = VSplit(
-            [
-                Window(FormattedTextControl(self._prompt_text),
-                       dont_extend_width=True, height=1),
-                self.command_window,
-            ],
             height=self._input_height,
         )
+        self.input_window = self.command_window
         # commands waiting to run in this tab, listed in grey just above the
         # prompt (one row each; collapses to nothing when the queue is empty)
         self.queue_window = Window(
@@ -141,10 +141,12 @@ class ShellView:
         if not state:
             return None
         anchor = min(buff.cursor_position, state.original_document.cursor_position)
+        prompt_width = sum(text_width(text) for _, text in self._prompt_text())
+        anchor_col = prompt_width + text_width(buff.text[:anchor])
         # the Window tracks its own left scroll (display column of the first
         # visible char); when the stable anchor falls left of it, it's off-screen
         h_scroll = getattr(self.command_window, "horizontal_scroll", 0)
-        if anchor < h_scroll:
+        if anchor_col < h_scroll:
             return buff.cursor_position  # the stable anchor scrolled off-screen
         return None  # on screen: keep prompt_toolkit's stable default
 
@@ -157,6 +159,28 @@ class ShellView:
         # following, so it doesn't fight a deliberate scroll-up that has no input)
         if self.scroll_top is not None:
             self.scroll_to_bottom()
+        self._reset_stale_input_scroll(_buff)
+
+    def _on_command_cursor_changed(self, buff):
+        self._reset_stale_input_scroll(buff)
+
+    def _reset_stale_input_scroll(self, buff):
+        """Discard horizontal scroll left behind by a longer history entry.
+
+        prompt_toolkit normally keeps this value in step with the cursor, but a
+        history replacement can shorten the document without reducing the old
+        scroll offset. The new command then sits to the left of the viewport and
+        appears blank until the user moves the cursor. Only reset that invalid
+        case; normal scrolling within a genuinely long command is untouched.
+        """
+        window = getattr(self, "command_window", None)
+        if window is None:
+            return
+        prompt_width = sum(text_width(text) for _, text in self._prompt_text())
+        cursor_col = prompt_width + text_width(buff.text[:buff.cursor_position])
+        horizontal_scroll = getattr(window, "horizontal_scroll", 0)
+        if horizontal_scroll > cursor_col:
+            window.horizontal_scroll = 0
 
     def busy(self) -> bool:
         return self.runner.is_running()
@@ -290,26 +314,34 @@ class ShellView:
         prompt = self._prompt_fragments()
         el = self.runner.elapsed()
         if el is not None:
-            # running: dim the prompt itself — the previous command hasn't
-            # finished, so entering a command here asks whether to queue it or
-            # open a new tab.
-            dim = [("class:shell.prompt.dim", text) for _, text in prompt]
+            # The previous command has not finished, so this is a queue-entry
+            # prompt: omit cwd / branch and show only a dim `$`.
+            dim_dollar = [("class:shell.prompt.dim", "$ ")]
             # the live elapsed time (ticking each second, as the app repaints)
             # prefixes the prompt — unless commands are queued, in which case it
-            # moves up to sit before the first queued command instead.
+            # moves up to sit before the first queued command instead. Pad by
+            # that badge's width so this `$` stays aligned with the queue above.
             if self.pending:
-                return dim
+                badge = f"[{_fmt_elapsed(el)}] "
+                return [
+                    ("class:shell.queued", " " * text_width(badge)),
+                    *dim_dollar,
+                ]
             # keep the trailing gap outside the badge so its background
             # (none here, but a tint when finished) doesn't bleed past the ]
-            return [("class:shell.elapsed", f"[{_fmt_elapsed(el)}]"),
-                    ("", " "), *dim]
+            return [
+                ("class:shell.elapsed", f"[{_fmt_elapsed(el)}]"),
+                ("", " "), *dim_dollar,
+            ]
         # finished: keep the run time on the prompt until the next command, tinted
         # green on success / red on failure (shown even for sub-second commands).
         result = self.runner.last_result()
         if result is not None:
             duration, rc = result
             style = "class:shell.elapsed.ok" if rc == 0 else "class:shell.elapsed.err"
-            return [(style, f"[{_fmt_elapsed(duration)}]"), ("", " "), *prompt]
+            return [
+                (style, f"[{_fmt_elapsed(duration)}]"), ("", " "), *prompt,
+            ]
         return prompt
 
     @staticmethod

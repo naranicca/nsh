@@ -218,19 +218,45 @@ async def create_branch(name, cwd):
 
 
 async def list_branches(cwd):
-    """Return ``(branches, current)`` — local branch names and the checked-out one."""
-    out = await _out(["branch", "--format=%(refname:short)"], cwd)
-    if out is None:
-        return [], None
-    branches = [ln.strip() for ln in out.splitlines() if ln.strip()]
+    """Return ``(local, remote, current)`` branch names.
+
+    Remote symbolic refs such as ``origin/HEAD`` are omitted; they are aliases,
+    not branches a user should check out directly.
+    """
+    local_out = await _out(
+        ["for-each-ref", "--format=%(refname:short)", "refs/heads"], cwd)
+    remote_out = await _out(
+        ["for-each-ref", "--format=%(refname:short)%00%(symref)",
+         "refs/remotes"], cwd)
+    branches = ([ln.strip() for ln in local_out.splitlines() if ln.strip()]
+                if local_out is not None else [])
+    remotes = []
+    if remote_out is not None:
+        for line in remote_out.splitlines():
+            ref, _nul, symbolic_target = line.partition("\0")
+            if ref.strip() and not symbolic_target.strip():
+                remotes.append(ref.strip())
     cur = await _out(["rev-parse", "--abbrev-ref", "HEAD"], cwd)
     cur = cur.strip() if cur else None
-    return branches, cur
+    return branches, remotes, cur
 
 
 async def checkout_branch(name, cwd):
     """Switch to an existing branch (``git checkout <name>``)."""
     return await run_git(["checkout", name], cwd)
+
+
+async def checkout_remote_branch(ref, cwd):
+    """Check out ``remote/branch``, creating its tracking local branch.
+
+    If the conventional local name already exists, switch to it rather than
+    failing ``checkout --track`` because the branch has already been created.
+    """
+    local = ref.split("/", 1)[1] if "/" in ref else ref
+    exists = await _out(["show-ref", "--verify", "refs/heads/" + local], cwd)
+    if exists is not None:
+        return await checkout_branch(local, cwd)
+    return await run_git(["checkout", "--track", ref], cwd)
 
 
 # -- read-only tree browsing (the branch "Browse" dialog) --------------------
