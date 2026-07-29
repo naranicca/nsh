@@ -9,6 +9,7 @@ from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.layout.containers import HSplit, VSplit, Window
 from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
 from prompt_toolkit.layout.dimension import Dimension
+from prompt_toolkit.layout.margins import Margin
 
 from ..util.width import char_width, text_width
 from ..util.widgets import WheelScrollControl
@@ -26,6 +27,28 @@ _CSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 # A few extra lines are sliced below the estimated viewport so a one-frame-stale
 # height estimate (render_info lags a frame) never blanks the bottom edge.
 SCROLL_BUFFER = 5
+
+
+class _CommandScrollMargin(Margin):
+    """Fixed one-cell marker when command text is clipped on either side."""
+
+    def __init__(self, shell_view, side):
+        self.shell_view = shell_view
+        self.side = side
+
+    def get_width(self, get_ui_content):
+        return 1
+
+    def create_margin(self, window_render_info, width, height):
+        window = self.shell_view.command_window
+        scroll = getattr(window, "horizontal_scroll", 0)
+        if self.side == "left":
+            clipped = scroll > 0
+        else:
+            command_width = text_width(self.shell_view.command_buffer.text)
+            clipped = command_width > scroll + window_render_info.window_width
+        marker = "⋯" if clipped else " "
+        return [("class:shell.prompt.dim", marker)]
 
 
 def _fmt_elapsed(seconds):
@@ -106,6 +129,8 @@ class ShellView:
                 # Keep the completion menu anchored sensibly on a single, non-
                 # wrapping input line (see _menu_position).
                 menu_position=self._menu_position),
+            left_margins=[_CommandScrollMargin(self, "left")],
+            right_margins=[_CommandScrollMargin(self, "right")],
             height=1,
         )
         # Keep the prompt in a separate window: only the command buffer scrolls
@@ -323,7 +348,7 @@ class ShellView:
         """Keep the styled right-hand tail, including the final ``$ ``."""
         if sum(text_width(text) for _, text in fragments) <= width:
             return fragments
-        if width <= 1:
+        if width <= 2:
             return [("class:shell.prompt.dim", "$ ")]
         budget = width - 1
         kept = []
@@ -342,13 +367,20 @@ class ShellView:
         kept.reverse()
         return [("class:shell.prompt.dim", "…"), *kept]
 
-    def _prompt_width_cap(self):
-        """At most half the terminal, leaving the other half for commands."""
+    def _prompt_width_cap(self, minimum=2):
+        """Prompt width left after giving the typed command all space it needs.
+
+        A short command lets the prompt use up to half the terminal. As the
+        command grows, cwd / branch are progressively removed until only the
+        caller-supplied minimum (elapsed badge plus ``$ ``, when present) stays.
+        """
         try:
             columns = get_app().output.get_size().columns
         except Exception:
             columns = 80
-        return max(4, min(columns - 2, columns // 2))
+        command_width = text_width(self.command_buffer.text) + 1  # cursor cell
+        available = columns - command_width
+        return max(minimum, min(columns // 2, available))
 
     def _prompt_text(self):
         prompt = self._prompt_fragments()
@@ -380,8 +412,9 @@ class ShellView:
             duration, rc = result
             style = "class:shell.elapsed.ok" if rc == 0 else "class:shell.elapsed.err"
             prefix = [(style, f"[{_fmt_elapsed(duration)}]"), ("", " ")]
-            remaining = max(2, self._prompt_width_cap()
-                            - sum(text_width(text) for _, text in prefix))
+            prefix_width = sum(text_width(text) for _, text in prefix)
+            cap = self._prompt_width_cap(prefix_width + 2)
+            remaining = max(2, cap - prefix_width)
             return prefix + self._right_fit_fragments(prompt, remaining)
         return self._right_fit_fragments(prompt, self._prompt_width_cap())
 
