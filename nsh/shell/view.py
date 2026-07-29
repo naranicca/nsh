@@ -1,16 +1,16 @@
 """Command-line mode UI: a scrollback area above an input prompt."""
 import re
 
+from prompt_toolkit.application.current import get_app
 from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.data_structures import Point
 from prompt_toolkit.formatted_text import ANSI, to_formatted_text
 from prompt_toolkit.history import InMemoryHistory
-from prompt_toolkit.layout.containers import HSplit, Window
+from prompt_toolkit.layout.containers import HSplit, VSplit, Window
 from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
 from prompt_toolkit.layout.dimension import Dimension
-from prompt_toolkit.layout.processors import BeforeInput
 
-from ..util.width import text_width
+from ..util.width import char_width, text_width
 from ..util.widgets import WheelScrollControl
 from .completer import ShellCompleter
 from .lexer import ShellLexer, lex_line
@@ -103,16 +103,21 @@ class ShellView:
         self.command_window = Window(
             BufferControl(
                 buffer=self.command_buffer, lexer=ShellLexer(),
-                # Render the prompt in the same window as the editable command.
-                # Horizontal scrolling can then move cwd out of the way and give
-                # the command the full terminal width.
-                input_processors=[BeforeInput(self._prompt_text)],
                 # Keep the completion menu anchored sensibly on a single, non-
                 # wrapping input line (see _menu_position).
                 menu_position=self._menu_position),
+            height=1,
+        )
+        # Keep the prompt in a separate window: only the command buffer scrolls
+        # horizontally, so the elapsed-time badge and `$ ` remain visible.
+        self.input_window = VSplit(
+            [
+                Window(FormattedTextControl(self._prompt_text),
+                       dont_extend_width=True, height=1),
+                self.command_window,
+            ],
             height=self._input_height,
         )
-        self.input_window = self.command_window
         # commands waiting to run in this tab, listed in grey just above the
         # prompt (one row each; collapses to nothing when the queue is empty)
         self.queue_window = Window(
@@ -141,8 +146,7 @@ class ShellView:
         if not state:
             return None
         anchor = min(buff.cursor_position, state.original_document.cursor_position)
-        prompt_width = sum(text_width(text) for _, text in self._prompt_text())
-        anchor_col = prompt_width + text_width(buff.text[:anchor])
+        anchor_col = text_width(buff.text[:anchor])
         # the Window tracks its own left scroll (display column of the first
         # visible char); when the stable anchor falls left of it, it's off-screen
         h_scroll = getattr(self.command_window, "horizontal_scroll", 0)
@@ -152,6 +156,11 @@ class ShellView:
 
     def _accept(self, buff):
         self.app.run_in_shell(self, buff.text)
+        # The accepted line may have scrolled far to the right. Its replacement
+        # is the much shorter dim queue prompt, but that prompt change does not
+        # itself fire a buffer/cursor event, so prompt_toolkit would retain the
+        # old offset and render the prompt off-screen until another keypress.
+        self.command_window.horizontal_scroll = 0
         return False  # clear the input line
 
     def _on_command_changed(self, _buff):
@@ -176,8 +185,7 @@ class ShellView:
         window = getattr(self, "command_window", None)
         if window is None:
             return
-        prompt_width = sum(text_width(text) for _, text in self._prompt_text())
-        cursor_col = prompt_width + text_width(buff.text[:buff.cursor_position])
+        cursor_col = text_width(buff.text[:buff.cursor_position])
         horizontal_scroll = getattr(window, "horizontal_scroll", 0)
         if horizontal_scroll > cursor_col:
             window.horizontal_scroll = 0
@@ -310,6 +318,38 @@ class ShellView:
     def _prompt_fragments(self):
         return prompt_fragments(self.app)
 
+    @staticmethod
+    def _right_fit_fragments(fragments, width):
+        """Keep the styled right-hand tail, including the final ``$ ``."""
+        if sum(text_width(text) for _, text in fragments) <= width:
+            return fragments
+        if width <= 1:
+            return [("class:shell.prompt.dim", "$ ")]
+        budget = width - 1
+        kept = []
+        for style, text in reversed(fragments):
+            chars = []
+            for ch in reversed(text):
+                cells = char_width(ch)
+                if cells > budget:
+                    break
+                chars.append(ch)
+                budget -= cells
+            if chars:
+                kept.append((style, "".join(reversed(chars))))
+            if budget <= 0:
+                break
+        kept.reverse()
+        return [("class:shell.prompt.dim", "…"), *kept]
+
+    def _prompt_width_cap(self):
+        """At most half the terminal, leaving the other half for commands."""
+        try:
+            columns = get_app().output.get_size().columns
+        except Exception:
+            columns = 80
+        return max(4, min(columns - 2, columns // 2))
+
     def _prompt_text(self):
         prompt = self._prompt_fragments()
         el = self.runner.elapsed()
@@ -339,10 +379,11 @@ class ShellView:
         if result is not None:
             duration, rc = result
             style = "class:shell.elapsed.ok" if rc == 0 else "class:shell.elapsed.err"
-            return [
-                (style, f"[{_fmt_elapsed(duration)}]"), ("", " "), *prompt,
-            ]
-        return prompt
+            prefix = [(style, f"[{_fmt_elapsed(duration)}]"), ("", " ")]
+            remaining = max(2, self._prompt_width_cap()
+                            - sum(text_width(text) for _, text in prefix))
+            return prefix + self._right_fit_fragments(prompt, remaining)
+        return self._right_fit_fragments(prompt, self._prompt_width_cap())
 
     @staticmethod
     def _last_segment(text):
