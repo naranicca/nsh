@@ -21,6 +21,7 @@ from prompt_toolkit.layout.containers import (
 )
 from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
 from prompt_toolkit.layout.dimension import Dimension
+from prompt_toolkit.layout.processors import ConditionalProcessor, PasswordProcessor
 from prompt_toolkit.mouse_events import MouseEventType
 from prompt_toolkit.widgets import Frame
 
@@ -55,9 +56,13 @@ class InputDialog:
         self._on_accept = None
         self._on_change = None      # live callback fired on every text edit
         self._on_cancel = None      # called when the dialog is dismissed (Esc)
+        self.password = False
         self.buffer = Buffer(multiline=False, on_text_changed=self._text_changed)
 
-        self.control = BufferControl(self.buffer, key_bindings=self._kb())
+        self.control = BufferControl(
+            self.buffer, key_bindings=self._kb(),
+            input_processors=[ConditionalProcessor(
+                PasswordProcessor(), Condition(lambda: self.password))])
         body = HSplit(
             [
                 Window(self.control, height=1, style="class:dialog.input",
@@ -74,13 +79,15 @@ class InputDialog:
             filter=Condition(lambda: self.active),
         )
 
-    def open(self, title, text, cursor, on_accept, on_change=None, on_cancel=None):
+    def open(self, title, text, cursor, on_accept, on_change=None, on_cancel=None,
+             password=False):
         self.title = title
         self._on_accept = on_accept
         # set the live-edit hooks before seeding the text, so a non-empty initial
         # value (rare) reaches on_change too
         self._on_change = on_change
         self._on_cancel = on_cancel
+        self.password = password
         self.button = "ok"
         self.active = True
         self.buffer.text = text
@@ -112,6 +119,8 @@ class InputDialog:
         self._on_accept = None
         self._on_change = None
         self._on_cancel = None
+        self.password = False
+        self.buffer.text = ""  # do not retain passwords after the dialog closes
         self._on_close()
 
     def _toggle(self):

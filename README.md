@@ -4,9 +4,9 @@
 
 A cross-platform (Windows / Linux / macOS) interactive **file explorer + shell**,
 rewritten in Python on top of [`prompt_toolkit`](https://python-prompt-toolkit.readthedocs.io/).
-No install needed beyond two pure-Python packages, and it's CJK-aware throughout.
+It is CJK-aware throughout and includes FTP/SFTP remote browsing.
 
-It has three modes:
+Its primary modes are:
 
 1. **Explorer** (default) — an `mc`/`lf`-style directory pane with type-coloured
    entries, icons, a live Git status overlay, multi-select, file operations, and
@@ -16,6 +16,8 @@ It has three modes:
    and a scrollback you can page through. Press **`ESC`** to return to the explorer.
 3. **Fuzzy search** — an fzf-style file picker (`/` from the explorer, or
    `nsh search` from the command line).
+4. **Network** — an FTP/SFTP remote browser with recursive transfers and file
+   operations, opened from **F10 → Network**.
 
 Everything runs in **tabs**: each tab is its own explorer + shell pair, so you
 can keep several working directories — each with its own command-line session —
@@ -189,6 +191,33 @@ or with `/` from the explorer. Build outputs (`build/`, `dist/`) are indexed too
 so a built executable is findable; the skipped directories are configurable via
 `search_exclude` (see [Configuration](#configuration)).
 
+### Network mode (FTP / SSH-SFTP)
+
+Open **F10 → Network**, choose SFTP or FTP, and enter a target such as
+`user@example.com:22/home/user`. SFTP is the file-transfer subsystem of SSH;
+leave its password blank to use your SSH agent or configured private keys. Host
+keys must already be present in the user's `known_hosts` file. Plain FTP is not
+encrypted and should only be used with trusted legacy servers.
+
+| Key | Action |
+| --- | --- |
+| `↑`/`↓`, `j`/`k` | move cursor |
+| `↵`, `l`, `→` | enter a directory; download a file |
+| `⌫`, `h`, `←` | parent directory |
+| `Space` | select / deselect |
+| `c` | copy/download selected remote items to the current local directory |
+| `p` | copy/upload the local explorer selection to the remote directory |
+| `n` | create remote directory |
+| `i` | rename remote item |
+| `D` | permanently delete selected remote items |
+| `Tab` | remote actions menu |
+| `r` | refresh |
+| `Esc` | disconnect and return to the local explorer |
+
+Transfers and recursive directory operations run in worker threads. Uploads
+and downloads never overwrite an existing name; they use `name (2)`, `name
+(3)`, and so on.
+
 ## Configuration
 
 On first run nsh seeds a commented template at `~/.config/nsh/nshrc`
@@ -227,7 +256,10 @@ Bookmarks (the `b` key) are saved one path per line in `~/.config/nsh/bookmarks`
 
 ```
 nsh/
-  app.py              the three modes, layout, central key dispatch, cwd/git state
+  app.py              application modes, layout, central key dispatch, cwd/git state
+  network/
+    backend.py         FTP/SFTP connection and remote filesystem operations
+    view.py            remote browser, transfers and action bindings
   config.py           styles, icons, key map, nshrc loading
   util/
     width.py          wcwidth-based truncate/pad (CJK-correct columns)

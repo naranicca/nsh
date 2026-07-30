@@ -35,6 +35,7 @@ from .explorer import git
 from .explorer.browse import BranchBrowser
 from .explorer.preview import PreviewView
 from .notes.view import NotesView
+from .network.view import NetworkView
 from .search.view import SearchView
 from .system.view import SystemView
 from .shell.quoting import quote_arg, unquote_body
@@ -55,6 +56,7 @@ GIT = "git"
 LOG = "gitlog"
 NOTES = "notes"
 SYSTEM = "system"
+NETWORK = "network"
 
 # Once the shell output would shrink the explorer below this many rows, the
 # shell takes over the whole screen.
@@ -180,6 +182,7 @@ class NshApp:
         # its own in ShellTabs, so no app-wide instance is built here
         self.notesview = NotesView(self)
         self.systemview = SystemView(self)
+        self.networkview = NetworkView(self)
         self._notes_return = EXPLORER  # the mode Notes was opened from
 
         # popup action menu (Tab in the explorer)
@@ -751,6 +754,8 @@ class NshApp:
                 return self.notesview.container
             if self.mode == SYSTEM:
                 return self.systemview.container
+            if self.mode == NETWORK:
+                return self.networkview.window
             if self.mode == GIT:
                 return git_area
             if self.mode == LOG:
@@ -939,7 +944,10 @@ class NshApp:
         return "…" + self._tail_to_width(s, width - 1)
 
     # the current mode shown alongside the "nsh" label as "nsh|mode"
-    _MODE_LABELS = {GIT: "git", LOG: "log", NOTES: "notes", SYSTEM: "system"}
+    _MODE_LABELS = {
+        GIT: "git", LOG: "log", NOTES: "notes", SYSTEM: "system",
+        NETWORK: "network",
+    }
 
     def _name_label(self):
         """The leading ``nsh`` label, suffixed with the active mode (e.g.
@@ -956,6 +964,12 @@ class NshApp:
         tint = self.menu.active and not self._menu_at_cursor
         name_style = "class:menu.title" if tint else "class:titlebar.name"
         clock = [("class:titlebar.clock", f" {datetime.now().strftime('%H:%M:%S')} ")]
+        if self.mode == NETWORK:
+            return self._fill_with_right([
+                (name_style, self._name_label()),
+                ("class:titlebar", " "),
+                ("class:titlebar.path", self.networkview.location),
+            ], "class:titlebar", clock)
         if self.two_pane:
             return self._two_pane_title(name_style, clock)
         segs = [
@@ -1124,6 +1138,14 @@ class NshApp:
                 ("^N", "note", self.open_notes),
                 ("ESC", "back", lambda: self.switch_mode(EXPLORER)),
             ]
+        elif self.mode == NETWORK:
+            nv = self.networkview
+            hints = [
+                ("↵", "open/download", nv.open), ("Space", "select", nv.toggle),
+                ("c", "download", nv.download), ("p", "upload", nv.upload),
+                ("n", "mkdir", nv.new_dir), ("Tab", "actions", nv.actions),
+                ("ESC", "disconnect", nv.disconnect),
+            ]
         else:
             hints = [
                 ("Tab", "complete"), ("↵", "run"), ("↑↓", "history"),
@@ -1207,6 +1229,8 @@ class NshApp:
         elif mode == SYSTEM:
             self.systemview.start()
             self.application.layout.focus(self.systemview.list_control)
+        elif mode == NETWORK:
+            self.application.layout.focus(self.networkview.control)
         else:
             self.application.layout.focus(self.explorer.control)
         self.invalidate()
@@ -1691,6 +1715,8 @@ class NshApp:
             self.notesview.focus_input()
         elif self.mode == SYSTEM:
             self.application.layout.focus(self.systemview.list_control)
+        elif self.mode == NETWORK:
+            self.application.layout.focus(self.networkview.control)
         elif self.mode == SEARCH:
             self.application.layout.focus(self.search.query_buffer)
         else:
@@ -2021,6 +2047,7 @@ class NshApp:
             ("Find", self.open_find),
             ("Notes", self.open_notes),
             ("System", self.open_system),
+            ("Network", self.open_network_menu),
             (SEPARATOR, None),
             ("Preferences", self.open_preferences),
             (SEPARATOR, None),
@@ -2045,10 +2072,38 @@ class NshApp:
         self.application.layout.focus(self.about_dialog.control)
         self.invalidate()
 
+    # -- remote connections --------------------------------------------------
+    def open_network_menu(self):
+        items = [
+            ("Connect SFTP (SSH)", lambda: self._network_target("sftp")),
+            ("Connect FTP", lambda: self._network_target("ftp")),
+        ]
+        if self.networkview.connected:
+            items += [
+                (SEPARATOR, None),
+                ("Open current connection", lambda: self.switch_mode(NETWORK)),
+                ("Disconnect", self.networkview.disconnect),
+            ]
+        self.open_menu("Network", items)
+
+    def _network_target(self, protocol):
+        example = ("user@host:22/" if protocol == "sftp"
+                   else "user@host:21/")
+        self.open_input_dialog(
+            f"{protocol.upper()} target", example, len(example),
+            lambda target: self._network_password(protocol, target))
+
+    def _network_password(self, protocol, target):
+        self.open_input_dialog(
+            "Password (blank uses SSH key/anonymous)", "", 0,
+            lambda password: self.networkview.connect(protocol, target, password),
+            password=True)
+
     # -- input dialog ---------------------------------------------------------
     def open_input_dialog(self, title, text, cursor, on_accept,
-                          on_change=None, on_cancel=None):
-        self.dialog.open(title, text, cursor, on_accept, on_change, on_cancel)
+                          on_change=None, on_cancel=None, password=False):
+        self.dialog.open(title, text, cursor, on_accept, on_change, on_cancel,
+                         password=password)
         self.application.layout.focus(self.dialog.control)
         self.invalidate()
 
@@ -2119,6 +2174,7 @@ class NshApp:
             self._do_exit()
 
     def _do_exit(self):
+        self.networkview.close()
         try:
             self.application.exit()
         except Exception:
