@@ -40,7 +40,7 @@ class NetworkView:
     def location(self):
         return f"{self.backend.label}{self.path}" if self.backend else "network"
 
-    def connect(self, protocol, target, password):
+    def connect(self, protocol, target, password, jump=None):
         if self.busy:
             return
         self.busy = True
@@ -49,7 +49,7 @@ class NetworkView:
         async def do():
             try:
                 backend, path = await run_in_thread(
-                    remote.connect, protocol, target, password)
+                    remote.connect, protocol, target, password, jump)
                 old = self.backend
                 self.backend, self.path = backend, path
                 if old is not None:

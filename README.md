@@ -199,6 +199,13 @@ leave its password blank to use your SSH agent or configured private keys. Host
 keys must already be present in the user's `known_hosts` file. Plain FTP is not
 encrypted and should only be used with trusted legacy servers.
 
+For SFTP, the next dialog accepts an optional jump host such as
+`jumpuser@bastion.example.com:22`. Leave it blank to use `ProxyJump` from
+`~/.ssh/config`; comma-separated ProxyJump chains are supported. Host name,
+user, port and `IdentityFile` settings are resolved for every hop, every host
+key is checked independently, and the final SFTP transport runs through SSH
+`direct-tcpip` channels.
+
 | Key | Action |
 | --- | --- |
 | `↑`/`↓`, `j`/`k` | move cursor |

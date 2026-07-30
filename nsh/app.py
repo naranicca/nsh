@@ -2091,12 +2091,19 @@ class NshApp:
                    else "user@host:21/")
         self.open_input_dialog(
             f"{protocol.upper()} target", example, len(example),
-            lambda target: self._network_password(protocol, target))
+            lambda target: (self._network_jump(target) if protocol == "sftp"
+                            else self._network_password(protocol, target)))
 
-    def _network_password(self, protocol, target):
+    def _network_jump(self, target):
+        self.open_input_dialog(
+            "Jump host (blank uses ~/.ssh/config)", "", 0,
+            lambda jump: self._network_password("sftp", target, jump.strip()))
+
+    def _network_password(self, protocol, target, jump=None):
         self.open_input_dialog(
             "Password (blank uses SSH key/anonymous)", "", 0,
-            lambda password: self.networkview.connect(protocol, target, password),
+            lambda password: self.networkview.connect(
+                protocol, target, password, jump=jump),
             password=True)
 
     # -- input dialog ---------------------------------------------------------

@@ -170,27 +170,90 @@ class SFTPBackend(RemoteBackend):
     protocol = "sftp"
 
     @classmethod
-    def connect(cls, host, port, username, password):
+    def connect(cls, host, port, username, password, jump=None):
         try:
             import paramiko
         except ImportError as exc:
             raise RuntimeError("SFTP requires paramiko (pip install paramiko)") from exc
-        ssh = paramiko.SSHClient()
-        ssh.load_system_host_keys()
-        ssh.set_missing_host_key_policy(paramiko.RejectPolicy())
-        ssh.connect(host, port=port, username=username or None,
-                    password=password or None, timeout=15,
+
+        config = paramiko.SSHConfig()
+        config_path = Path.home() / ".ssh" / "config"
+        try:
+            with open(config_path, encoding="utf-8") as stream:
+                config.parse(stream)
+        except OSError:
+            pass
+
+        def node(alias, fallback_port=22, fallback_user=""):
+            values = config.lookup(alias)
+            return {
+                "alias": alias,
+                "host": values.get("hostname", alias),
+                "port": int(values.get("port", fallback_port)),
+                "username": values.get("user", fallback_user) or None,
+                "keys": [os.path.expanduser(p)
+                         for p in values.get("identityfile", [])] or None,
+                "host_key_name": values.get("hostkeyalias") or
+                                 values.get("hostname", alias),
+                "proxyjump": values.get("proxyjump", ""),
+            }
+
+        destination = node(host, port, username)
+        jump_spec = jump.strip() if jump else destination["proxyjump"].strip()
+        jump_nodes = []
+        if jump_spec and jump_spec.lower() != "none":
+            for spec in jump_spec.split(","):
+                jump_host, jump_port, jump_user, _path = parse_target(
+                    "sftp", spec.strip())
+                jump_nodes.append(node(jump_host, jump_port, jump_user))
+
+        clients = []
+        previous = None
+        try:
+            for current in [*jump_nodes, destination]:
+                sock = None
+                if previous is not None:
+                    transport = previous.get_transport()
+                    if transport is None or not transport.is_active():
+                        raise RuntimeError("jump host transport is not active")
+                    sock = transport.open_channel(
+                        "direct-tcpip", (current["host"], current["port"]),
+                        ("127.0.0.1", 0))
+                ssh = paramiko.SSHClient()
+                ssh.load_system_host_keys()
+                ssh.set_missing_host_key_policy(paramiko.RejectPolicy())
+                # With a supplied channel, hostname is used for host-key lookup;
+                # network routing itself is handled by direct-tcpip above.
+                connect_host = (current["host_key_name"] if sock is not None
+                                else current["host"])
+                ssh.connect(
+                    connect_host, port=current["port"],
+                    username=current["username"], password=password or None,
+                    key_filename=current["keys"], timeout=15,
+                    banner_timeout=15, auth_timeout=15, sock=sock,
                     allow_agent=True, look_for_keys=True)
-        obj = cls(host, port, username)
-        obj.ssh = ssh
-        obj.client = ssh.open_sftp()
-        return obj
+                clients.append(ssh)
+                previous = ssh
+
+            obj = cls(host, port, destination["username"] or username)
+            obj.ssh_clients = clients
+            obj.ssh = clients[-1]
+            obj.client = obj.ssh.open_sftp()
+            return obj
+        except Exception:
+            for ssh in reversed(clients):
+                try:
+                    ssh.close()
+                except Exception:
+                    pass
+            raise
 
     def close(self):
         try:
             self.client.close()
         finally:
-            self.ssh.close()
+            for ssh in reversed(self.ssh_clients):
+                ssh.close()
 
     def listdir(self, path):
         entries = []
@@ -220,8 +283,11 @@ class SFTPBackend(RemoteBackend):
         self.client.put(os.fspath(local), remote)
 
 
-def connect(protocol, target, password):
+def connect(protocol, target, password, jump=None):
     host, port, username, path = parse_target(protocol, target)
     cls = SFTPBackend if protocol == "sftp" else FTPBackend
-    backend = cls.connect(host, port, username, password)
+    if protocol == "sftp":
+        backend = cls.connect(host, port, username, password, jump=jump)
+    else:
+        backend = cls.connect(host, port, username, password)
     return backend, posixpath.normpath(path or "/")
