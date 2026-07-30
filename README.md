@@ -193,18 +193,59 @@ so a built executable is findable; the skipped directories are configurable via
 
 ### Network mode (FTP / SSH-SFTP)
 
-Open **F10 → Network**, choose SFTP or FTP, and enter a target such as
-`user@example.com:22/home/user`. SFTP is the file-transfer subsystem of SSH;
-leave its password blank to use your SSH agent or configured private keys. Host
-keys must already be present in the user's `known_hosts` file. Plain FTP is not
-encrypted and should only be used with trusted legacy servers.
+Network mode browses an FTP server or the SFTP subsystem of an SSH server as a
+remote directory tree. Open **F10 → Network** and choose a connection type.
 
-For SFTP, the next dialog accepts an optional jump host such as
-`jumpuser@bastion.example.com:22`. Leave it blank to use `ProxyJump` from
-`~/.ssh/config`; comma-separated ProxyJump chains are supported. Host name,
-user, port and `IdentityFile` settings are resolved for every hop, every host
-key is checked independently, and the final SFTP transport runs through SSH
-`direct-tcpip` channels.
+Connection targets use `[user@]host[:port][/initial/path]`:
+
+```text
+alice@example.com:22/home/alice       # SFTP
+files@example.com:21/incoming         # FTP
+internal-server/projects              # SSH alias + initial path
+```
+
+SFTP defaults to port 22 and the current operating-system user; FTP defaults
+to port 21 and anonymous login. The password dialog is masked and cleared as
+soon as it closes. Leave the SFTP password blank to use `IdentityFile` entries,
+your SSH agent, or Paramiko's normal private-key discovery. Leave an anonymous
+FTP password blank to use `anonymous@`.
+
+#### SSH config and jump hosts
+
+SFTP resolves aliases through `~/.ssh/config`, including `HostName`, `User`,
+`Port`, `IdentityFile`, and `ProxyJump`. For example:
+
+```sshconfig
+Host bastion
+    HostName bastion.example.com
+    User jumpuser
+    IdentityFile ~/.ssh/bastion_ed25519
+
+Host internal
+    HostName 10.20.0.15
+    User deploy
+    IdentityFile ~/.ssh/internal_ed25519
+    ProxyJump bastion
+```
+
+Choose SFTP and enter `internal/var/www` as the target. At the next prompt,
+leave **Jump host** empty: nsh reads `ProxyJump bastion` from the config and
+opens the final SFTP session through an SSH `direct-tcpip` channel.
+
+A jump host can also be entered explicitly as
+`jumpuser@bastion.example.com:2222`. Comma-separated chains such as
+`edge@edge-host,core@core-host` are supported. An explicit value overrides the
+destination's `ProxyJump` setting. Each hop resolves its own SSH config and is
+closed in reverse order when the connection ends or fails.
+
+Every SSH host key is checked independently against the user's system
+`known_hosts`; unknown keys are rejected rather than accepted automatically.
+Connect once with OpenSSH (and verify the fingerprint) or add the verified key
+with `ssh-keyscan` before using nsh. A password entered in nsh is available as
+an authentication fallback for the destination and every jump host, while
+per-host keys and the SSH agent remain preferred alternatives.
+
+#### Browsing and file operations
 
 | Key | Action |
 | --- | --- |
@@ -221,9 +262,23 @@ key is checked independently, and the final SFTP transport runs through SSH
 | `r` | refresh |
 | `Esc` | disconnect and return to the local explorer |
 
-Transfers and recursive directory operations run in worker threads. Uploads
-and downloads never overwrite an existing name; they use `name (2)`, `name
-(3)`, and so on.
+`c` downloads into the local explorer's current directory. `p` uploads the
+local explorer's marked selection, or its cursor item when nothing is marked,
+into the currently displayed remote directory. Files and whole directory trees
+are supported in both directions. `Enter` on a remote file is a download
+shortcut; `Enter` on a directory opens it.
+
+Transfers and recursive delete operations run in worker threads so the TUI can
+continue repainting. Existing names are never overwritten: uploads and
+downloads use `name (2)`, `name (3)`, and so on. Disconnect is blocked while an
+operation is active, and connection/transfer errors remain visible in the
+status bar.
+
+Current limitations: transfers cannot yet be resumed, there is no remote-to-
+remote copy/move or chmod action, credentials are not saved, and only plain FTP
+(not FTPS) is implemented. Plain FTP sends credentials and data without
+encryption and should only be used with trusted legacy servers; prefer SFTP for
+normal use.
 
 ## Configuration
 
