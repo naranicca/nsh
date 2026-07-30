@@ -345,11 +345,11 @@ class ShellView:
 
     @staticmethod
     def _right_fit_fragments(fragments, width):
-        """Keep the styled right-hand tail, including the final ``$ ``."""
+        """Keep the styled right-hand tail, including the final ``$``."""
         if sum(text_width(text) for _, text in fragments) <= width:
             return fragments
-        if width <= 2:
-            return [("class:shell.prompt.dim", "$ ")]
+        if width <= 1:
+            return [("class:shell.prompt.dim", "$")]
         budget = width - 1
         kept = []
         for style, text in reversed(fragments):
@@ -367,7 +367,7 @@ class ShellView:
         kept.reverse()
         return [("class:shell.prompt.dim", "…"), *kept]
 
-    def _prompt_width_cap(self, minimum=2):
+    def _prompt_width_cap(self, minimum=1):
         """Prompt width left after giving the typed command all space it needs.
 
         A short command lets the prompt use up to half the terminal. As the
@@ -384,11 +384,16 @@ class ShellView:
 
     def _prompt_text(self):
         prompt = self._prompt_fragments()
+        # The command window's fixed left marker margin supplies the single
+        # blank after `$` when nothing is clipped (and becomes `⋯` when the
+        # command's front is clipped). Do not leave a second blank here.
+        if prompt and prompt[-1][1].endswith("$ "):
+            prompt[-1] = (prompt[-1][0], prompt[-1][1][:-1])
         el = self.runner.elapsed()
         if el is not None:
             # The previous command has not finished, so this is a queue-entry
             # prompt: omit cwd / branch and show only a dim `$`.
-            dim_dollar = [("class:shell.prompt.dim", "$ ")]
+            dim_dollar = [("class:shell.prompt.dim", "$")]
             # the live elapsed time (ticking each second, as the app repaints)
             # prefixes the prompt — unless commands are queued, in which case it
             # moves up to sit before the first queued command instead. Pad by
@@ -413,8 +418,8 @@ class ShellView:
             style = "class:shell.elapsed.ok" if rc == 0 else "class:shell.elapsed.err"
             prefix = [(style, f"[{_fmt_elapsed(duration)}]"), ("", " ")]
             prefix_width = sum(text_width(text) for _, text in prefix)
-            cap = self._prompt_width_cap(prefix_width + 2)
-            remaining = max(2, cap - prefix_width)
+            cap = self._prompt_width_cap(prefix_width + 1)
+            remaining = max(1, cap - prefix_width)
             return prefix + self._right_fit_fragments(prompt, remaining)
         return self._right_fit_fragments(prompt, self._prompt_width_cap())
 
