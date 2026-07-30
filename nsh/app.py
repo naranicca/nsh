@@ -351,6 +351,21 @@ class NshApp:
         the two-pane active pane (click a pane). Ctrl combos are allowed; a bad
         key spec in nshrc is skipped, as elsewhere."""
         kb = KeyBindings()
+
+        network_mode = Condition(lambda: self.mode == NETWORK)
+        network_local = Condition(self.network_local_focused)
+
+        # In the mixed local/remote view, copy from the focused local pane to
+        # the remote pane. These eager bindings override the local explorer's
+        # ordinary paste/action meanings only while Network mode is visible.
+        @kb.add("c", filter=network_mode & network_local, eager=True)
+        @kb.add("p", filter=network_mode & network_local, eager=True)
+        def _(event):
+            self.networkview.upload()
+
+        @kb.add("escape", filter=network_mode & network_local, eager=True)
+        def _(event):
+            self.networkview.disconnect()
         tab_mode = Condition(lambda: self.mode in (EXPLORER, SHELL, GIT, LOG))
 
         def add(key, filt, handler):
@@ -747,6 +762,18 @@ class NshApp:
             ]
         )
 
+        # Network mode is a real two-pane transfer view: the explorer pane from
+        # which the connection was opened remains on the left, and the remote
+        # browser lives on the right. DynamicContainer keeps the captured local
+        # pane stable without inserting its Window into two visible layouts.
+        self.networkview.window.width = Dimension(min=0, preferred=0, weight=1)
+        self._network_split = VSplit([
+            DynamicContainer(lambda: (
+                self.networkview.local_view or self.explorer).window),
+            Window(width=1, char="│", style="class:preview.border"),
+            self.networkview.window,
+        ])
+
         def _body():
             if self.mode == SEARCH:
                 return self.search.container
@@ -755,7 +782,7 @@ class NshApp:
             if self.mode == SYSTEM:
                 return self.systemview.container
             if self.mode == NETWORK:
-                return self.networkview.window
+                return self._network_split
             if self.mode == GIT:
                 return git_area
             if self.mode == LOG:
@@ -965,11 +992,27 @@ class NshApp:
         name_style = "class:menu.title" if tint else "class:titlebar.name"
         clock = [("class:titlebar.clock", f" {datetime.now().strftime('%H:%M:%S')} ")]
         if self.mode == NETWORK:
-            return self._fill_with_right([
-                (name_style, self._name_label()),
-                ("class:titlebar", " "),
-                ("class:titlebar.path", self.networkview.location),
-            ], "class:titlebar", clock)
+            try:
+                total = get_app().output.get_size().columns
+            except Exception:
+                total = 80
+            label = self._name_label()
+            clock_w = sum(text_width(text) for _, text in clock)
+            usable = max(0, total - text_width(label) - clock_w - 4)
+            local_width = usable // 2
+            remote_width = usable - local_width
+            local = self.networkview.local_view or self.explorer
+            local_text = self._clip_path(shorten_home(local.cwd), local_width)
+            remote_text = self._clip_path(self.networkview.location, remote_width)
+            return [
+                (name_style, label), ("class:titlebar", " "),
+                ("class:titlebar.path", local_text + " " * max(
+                    0, local_width - text_width(local_text))),
+                ("class:titlebar", " │ "),
+                ("class:titlebar.path", remote_text + " " * max(
+                    0, remote_width - text_width(remote_text))),
+                *clock,
+            ]
         if self.two_pane:
             return self._two_pane_title(name_style, clock)
         segs = [
@@ -1140,12 +1183,23 @@ class NshApp:
             ]
         elif self.mode == NETWORK:
             nv = self.networkview
-            hints = [
-                ("↵", "open/download", nv.open), ("Space", "select", nv.toggle),
-                ("c", "download", nv.download), ("p", "upload", nv.upload),
-                ("n", "mkdir", nv.new_dir), ("Tab", "actions", nv.actions),
-                ("ESC", "disconnect", nv.disconnect),
-            ]
+            if self.network_local_focused():
+                hints = [
+                    ("↵", "open", (nv.local_view or ex).open),
+                    ("Space", "select", (nv.local_view or ex).toggle_select),
+                    ("c/p", "upload", nv.upload),
+                    ("Shift+L", "remote", lambda: self.focus_network_pane(1)),
+                    ("ESC", "disconnect", nv.disconnect),
+                ]
+            else:
+                hints = [
+                    ("↵", "open/download", nv.open),
+                    ("Space", "select", nv.toggle),
+                    ("c", "download", nv.download), ("p", "upload", nv.upload),
+                    ("n", "mkdir", nv.new_dir), ("Tab", "actions", nv.actions),
+                    ("Shift+H", "local", lambda: self.focus_network_pane(-1)),
+                    ("ESC", "disconnect", nv.disconnect),
+                ]
         else:
             hints = [
                 ("Tab", "complete"), ("↵", "run"), ("↑↓", "history"),
@@ -1901,6 +1955,9 @@ class NshApp:
         (> 0) across the on-screen columns. In two-pane view those are the two
         explorer panes; in single-pane view they are the list and its preview
         (so Shift+L steps into the preview and Shift+H steps back)."""
+        if self.mode == NETWORK:
+            self.focus_network_pane(direction)
+            return
         if self.two_pane:  # [left pane, right pane]; no preview in this layout
             self.switch_to_pane(1 if direction > 0 else 0)
             return
@@ -1918,6 +1975,25 @@ class NshApp:
                 self.invalidate()
         elif direction < 0 and self.preview_focused():
             self.focus_active_list()
+
+    def network_local_focused(self):
+        """Whether focus is on the local half of the Network transfer view."""
+        local = self.networkview.local_view
+        if local is None or not hasattr(self, "application"):
+            return False
+        try:
+            return self.application.layout.has_focus(local.control)
+        except Exception:
+            return False
+
+    def focus_network_pane(self, direction):
+        """Shift+H/L focus the local/remote halves of Network mode."""
+        if self.mode != NETWORK:
+            return
+        local = self.networkview.local_view or self.explorer
+        target = local.control if direction < 0 else self.networkview.control
+        self.application.layout.focus(target)
+        self.invalidate()
 
     def switch_to_pane(self, idx):
         """Make pane ``idx`` (0 = left, 1 = right) the active one in two-pane

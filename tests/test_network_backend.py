@@ -1,3 +1,4 @@
+import asyncio
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -5,6 +6,7 @@ from unittest import mock
 
 from nsh.network.backend import (
     RemoteBackend, RemoteEntry, SFTPBackend, parse_target)
+from nsh.network.view import NetworkView
 
 
 class FakeBackend(RemoteBackend):
@@ -98,6 +100,100 @@ class NetworkBackendTests(unittest.TestCase):
         )
         self.assertIs(clients[1].connect_args[1]["sock"], channel)
         self.assertEqual(len(backend.ssh_clients), 2)
+
+    def test_download_targets_displayed_local_pane(self):
+        class App:
+            cwd = Path("wrong-directory")
+
+            def set_message(self, message):
+                self.message = message
+
+            def invalidate(self):
+                pass
+
+        class LocalPane:
+            def __init__(self, cwd):
+                self.cwd = cwd
+                self.refreshed = False
+
+            def refresh(self):
+                self.refreshed = True
+
+        class DownloadBackend:
+            def download(self, remote, local):
+                with open(local, "wb") as stream:
+                    stream.write(b"remote data")
+
+        async def scenario(directory):
+            app = App()
+            view = NetworkView(app)
+            local = LocalPane(Path(directory))
+            view.local_view = local
+            view.backend = DownloadBackend()
+            view.entries = [RemoteEntry("report.txt", "/report.txt", False)]
+            view.download()
+            while view.busy:
+                await asyncio.sleep(0.01)
+            return local
+
+        with TemporaryDirectory() as temp:
+            local = asyncio.run(scenario(temp))
+            self.assertEqual(
+                (Path(temp) / "report.txt").read_bytes(), b"remote data")
+            self.assertTrue(local.refreshed)
+
+    def test_upload_reads_displayed_local_pane_selection(self):
+        class App:
+            class WrongPane:
+                def _targets(self):
+                    raise AssertionError("hidden app explorer must not be used")
+
+            explorer = WrongPane()
+
+            def set_message(self, message):
+                self.message = message
+
+            def invalidate(self):
+                pass
+
+        class LocalPane:
+            def __init__(self, path):
+                self.path = path
+
+            def _targets(self):
+                return [self.path]
+
+        class UploadBackend:
+            def __init__(self):
+                self.uploaded = None
+
+            def unique_path(self, directory, name):
+                return directory + "/" + name
+
+            def upload(self, local, remote):
+                self.uploaded = (Path(local), remote)
+
+            def listdir(self, path):
+                return []
+
+        async def scenario(local_file):
+            app = App()
+            view = NetworkView(app)
+            backend = UploadBackend()
+            view.local_view = LocalPane(local_file)
+            view.backend = backend
+            view.path = "/incoming"
+            view.upload()
+            while view.busy:
+                await asyncio.sleep(0.01)
+            return backend
+
+        with TemporaryDirectory() as temp:
+            local_file = Path(temp) / "upload.txt"
+            local_file.write_text("local data", encoding="utf-8")
+            backend = asyncio.run(scenario(local_file))
+            self.assertEqual(
+                backend.uploaded, (local_file, "/incoming/upload.txt"))
 
 
 if __name__ == "__main__":

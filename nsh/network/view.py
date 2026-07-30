@@ -18,6 +18,10 @@ class NetworkView:
     def __init__(self, app):
         self.app = app
         self.backend = None
+        # The local explorer pane paired with this connection. It remains
+        # visible beside the remote pane and is the source/destination for all
+        # transfers, even if the app's tab or active-pane state later changes.
+        self.local_view = None
         self.path = "/"
         self.entries = []
         self.cursor = 0
@@ -43,6 +47,7 @@ class NetworkView:
     def connect(self, protocol, target, password, jump=None):
         if self.busy:
             return
+        local_view = self.app.explorer  # capture before the network handshake
         self.busy = True
         self.app.set_message(f"connecting to {target}…")
 
@@ -51,6 +56,7 @@ class NetworkView:
                 backend, path = await run_in_thread(
                     remote.connect, protocol, target, password, jump)
                 old = self.backend
+                self.local_view = local_view
                 self.backend, self.path = backend, path
                 if old is not None:
                     await run_in_thread(old.close)
@@ -70,16 +76,23 @@ class NetworkView:
             self.app.set_message("wait for the remote operation to finish")
             return
         backend, self.backend = self.backend, None
+        local_view, self.local_view = self.local_view, None
         self.entries = []
         self.selected.clear()
         if backend is not None:
             asyncio.ensure_future(run_in_thread(backend.close))
         self.app.switch_mode("explorer")
+        if local_view is not None:
+            try:
+                self.app.application.layout.focus(local_view.control)
+            except Exception:
+                pass
         self.app.set_message("remote disconnected")
 
     def close(self):
         """Close the transport during application shutdown without changing UI."""
         backend, self.backend = self.backend, None
+        self.local_view = None
         if backend is not None:
             try:
                 backend.close()
@@ -176,7 +189,8 @@ class NetworkView:
         targets = self.targets()
         if not targets or self.busy:
             return
-        backend, local_dir = self.backend, Path(self.app.cwd)
+        local_view = self.local_view or self.app.explorer
+        backend, local_dir = self.backend, Path(local_view.cwd)
         self.busy = True
         self.app.set_message(f"downloading {len(targets)} item(s)…")
 
@@ -190,7 +204,7 @@ class NetworkView:
                     else:
                         await run_in_thread(backend.download, entry.path, target)
                     done += 1
-                self.app.explorer.refresh()
+                local_view.refresh()
                 self.app.set_message(f"downloaded {done} item(s) to {local_dir}")
             except Exception as exc:
                 self.app.set_message(f"download failed after {done}: {exc}")
@@ -202,7 +216,8 @@ class NetworkView:
     def upload(self):
         if self.busy:
             return
-        paths = list(self.app.explorer._targets())
+        local_view = self.local_view or self.app.explorer
+        paths = list(local_view._targets())
         if not paths:
             self.app.set_message("no local file selected")
             return
@@ -352,5 +367,7 @@ class NetworkView:
         kb.add("i")(lambda e: self.rename())
         kb.add("D")(lambda e: self.delete())
         kb.add("r")(lambda e: self.refresh())
+        kb.add("H")(lambda e: self.app.focus_network_pane(-1))
+        kb.add("L")(lambda e: self.app.focus_network_pane(1))
         kb.add("escape")(lambda e: self.disconnect())
         return kb

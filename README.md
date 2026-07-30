@@ -193,8 +193,10 @@ so a built executable is findable; the skipped directories are configurable via
 
 ### Network mode (FTP / SSH-SFTP)
 
-Network mode browses an FTP server or the SFTP subsystem of an SSH server as a
-remote directory tree. Open **F10 → Network** and choose a connection type.
+Network mode places the active local explorer pane on the left and an FTP or
+SSH-SFTP directory tree on the right. Open **F10 → Network** from the local pane
+you want to use as the transfer endpoint, then choose a connection type. Both
+directories remain visible while files are transferred between them.
 
 Connection targets use `[user@]host[:port][/initial/path]`:
 
@@ -253,8 +255,9 @@ per-host keys and the SSH agent remain preferred alternatives.
 | `↵`, `l`, `→` | enter a directory; download a file |
 | `⌫`, `h`, `←` | parent directory |
 | `Space` | select / deselect |
-| `c` | copy/download selected remote items to the current local directory |
-| `p` | copy/upload the local explorer selection to the remote directory |
+| `Shift+H` / `Shift+L` | focus the local / remote pane |
+| `c` | copy focused-pane selection to the other pane (upload or download) |
+| `p` | upload the displayed local pane's selection to the remote pane |
 | `n` | create remote directory |
 | `i` | rename remote item |
 | `D` | permanently delete selected remote items |
@@ -262,11 +265,12 @@ per-host keys and the SSH agent remain preferred alternatives.
 | `r` | refresh |
 | `Esc` | disconnect and return to the local explorer |
 
-`c` downloads into the local explorer's current directory. `p` uploads the
-local explorer's marked selection, or its cursor item when nothing is marked,
-into the currently displayed remote directory. Files and whole directory trees
-are supported in both directions. `Enter` on a remote file is a download
-shortcut; `Enter` on a directory opens it.
+With the remote pane focused, `c` downloads into the displayed local pane's
+current directory. With the local pane focused, `c` or `p` uploads its marked
+selection—or its cursor item when nothing is marked—into the displayed remote
+directory. Files and whole directory trees are supported in both directions.
+`Enter` on a remote file is a download shortcut; `Enter` on a directory opens
+it. A transfer refreshes only its destination pane.
 
 Transfers and recursive delete operations run in worker threads so the TUI can
 continue repainting. Existing names are never overwritten: uploads and
