@@ -365,7 +365,14 @@ class NshApp:
 
         @kb.add("escape", filter=network_mode & network_local, eager=True)
         def _(event):
-            self.networkview.disconnect()
+            (self.networkview.local_view or self.explorer).clear_selection()
+
+        # The local explorer normally owns ``2`` (toggle explorer split).  The
+        # network layout is already a fixed local/remote split, so swallowing it
+        # avoids silently changing the hidden explorer layout underneath it.
+        @kb.add("2", filter=network_mode & network_local, eager=True)
+        def _(event):
+            pass
         tab_mode = Condition(lambda: self.mode in (EXPLORER, SHELL, GIT, LOG))
 
         def add(key, filt, handler):
@@ -1189,7 +1196,7 @@ class NshApp:
                     ("Space", "select", (nv.local_view or ex).toggle_select),
                     ("c/p", "upload", nv.upload),
                     ("Shift+L", "remote", lambda: self.focus_network_pane(1)),
-                    ("ESC", "disconnect", nv.disconnect),
+                    ("ESC", "clear selection"),
                 ]
             else:
                 hints = [
@@ -1198,7 +1205,7 @@ class NshApp:
                     ("c", "download", nv.download), ("p", "upload", nv.upload),
                     ("n", "mkdir", nv.new_dir), ("Tab", "actions", nv.actions),
                     ("Shift+H", "local", lambda: self.focus_network_pane(-1)),
-                    ("ESC", "disconnect", nv.disconnect),
+                    ("ESC", "clear selection", nv.cancel),
                 ]
         else:
             hints = [

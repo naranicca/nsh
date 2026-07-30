@@ -195,6 +195,47 @@ class NetworkBackendTests(unittest.TestCase):
             self.assertEqual(
                 backend.uploaded, (local_file, "/incoming/upload.txt"))
 
+    def test_escape_action_clears_selection_without_disconnect(self):
+        class App:
+            def invalidate(self):
+                self.invalidated = True
+
+        app = App()
+        view = NetworkView(app)
+        backend = object()
+        view.backend = backend
+        view.selected = {"/important.txt"}
+
+        view.cancel()
+
+        self.assertEqual(view.selected, set())
+        self.assertIs(view.backend, backend)
+        self.assertTrue(app.invalidated)
+
+    def test_disconnect_requires_confirmation(self):
+        class Backend:
+            label = "sftp://example.com"
+
+        class App:
+            def confirm(self, label, callback):
+                self.confirmation = (label, callback)
+
+            def set_message(self, message):
+                self.message = message
+
+        app = App()
+        view = NetworkView(app)
+        backend = Backend()
+        view.backend = backend
+
+        view.disconnect()
+
+        self.assertIs(view.backend, backend)
+        self.assertEqual(app.confirmation[0],
+                         "Disconnect from sftp://example.com?")
+        app.confirmation[1](False)
+        self.assertIs(view.backend, backend)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -75,6 +75,14 @@ class NetworkView:
         if self.busy:
             self.app.set_message("wait for the remote operation to finish")
             return
+        if self.backend is None:
+            return
+        self.app.confirm(
+            f"Disconnect from {self.backend.label}?",
+            lambda ok: self._disconnect() if ok else None,
+        )
+
+    def _disconnect(self):
         backend, self.backend = self.backend, None
         local_view, self.local_view = self.local_view, None
         self.entries = []
@@ -88,6 +96,11 @@ class NetworkView:
             except Exception:
                 pass
         self.app.set_message("remote disconnected")
+
+    def cancel(self):
+        """Clear remote selection without risking the active connection."""
+        self.selected.clear()
+        self.app.invalidate()
 
     def close(self):
         """Close the transport during application shutdown without changing UI."""
@@ -369,5 +382,6 @@ class NetworkView:
         kb.add("r")(lambda e: self.refresh())
         kb.add("H")(lambda e: self.app.focus_network_pane(-1))
         kb.add("L")(lambda e: self.app.focus_network_pane(1))
-        kb.add("escape")(lambda e: self.disconnect())
+        kb.add("escape")(lambda e: self.cancel())
+        kb.add("2")(lambda e: None)
         return kb

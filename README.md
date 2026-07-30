@@ -263,7 +263,7 @@ per-host keys and the SSH agent remain preferred alternatives.
 | `D` | permanently delete selected remote items |
 | `Tab` | remote actions menu |
 | `r` | refresh |
-| `Esc` | disconnect and return to the local explorer |
+| `Esc` | clear the focused pane's selection |
 
 With the remote pane focused, `c` downloads into the displayed local pane's
 current directory. With the local pane focused, `c` or `p` uploads its marked
@@ -277,6 +277,11 @@ continue repainting. Existing names are never overwritten: uploads and
 downloads use `name (2)`, `name (3)`, and so on. Disconnect is blocked while an
 operation is active, and connection/transfer errors remain visible in the
 status bar.
+
+Disconnect deliberately has no single-key shortcut. Choose `Disconnect` from
+the `Tab` remote-actions menu (or `F10` network menu) and approve the
+confirmation prompt. The `2` key is disabled while this fixed local/remote
+layout is open, so it cannot alter the hidden local explorer split.
 
 Current limitations: transfers cannot yet be resumed, there is no remote-to-
 remote copy/move or chmod action, credentials are not saved, and only plain FTP
