@@ -96,7 +96,7 @@ class SearchView:
 
     def _start_remote(self, query=""):
         self.remote_view = self.app.networkview
-        self.remote_view.busy = True
+        self.remote_view.indexing = True
         self.candidates = self.remote_view.search_candidates()
         self.results = []
         self.cursor = 0
@@ -120,7 +120,7 @@ class SearchView:
             self.loading = False
             self._refilter()
         finally:
-            remote_view.busy = False
+            remote_view.indexing = False
             self.app.invalidate()
 
     def _exclude_dirs(self):
@@ -166,9 +166,6 @@ class SearchView:
             return
         rel = self.results[self.cursor][0]
         if self.remote_view is not None:
-            if self.loading:
-                self.app.set_message("wait for remote indexing to finish")
-                return
             self.remote_view.open_search_result(rel)
             return
         path = (self.app.cwd / rel).resolve()

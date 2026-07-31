@@ -1,6 +1,7 @@
 """Interactive remote file browser shared by FTP and SFTP connections."""
 import asyncio
 import posixpath
+import threading
 from dataclasses import replace
 from pathlib import Path
 
@@ -45,6 +46,8 @@ class NetworkView:
         self.reverse = (settings.get("sort_reverse", "false").lower()
                         in ("true", "1", "yes", "on"))
         self.busy = False
+        self.indexing = False
+        self._backend_lock = threading.RLock()
         self.control = WheelScrollControl(
             lambda d: self.move(d * 3), on_click=self._on_mouse,
             text=self._text, focusable=True,
@@ -104,7 +107,7 @@ class NetworkView:
         asyncio.ensure_future(do())
 
     def disconnect(self):
-        if self.busy:
+        if self.busy or self.indexing:
             self.app.set_message("wait for the remote operation to finish")
             return
         if self.backend is None:
@@ -147,7 +150,8 @@ class NetworkView:
                 pass
 
     async def _load(self, select=None):
-        entries = await run_in_thread(self.backend.listdir, self.path)
+        entries = await run_in_thread(
+            self._backend_call, self.backend.listdir, self.path)
         self.expanded.clear()
         self._children = {self.path: entries}
         self.entries = self._flatten(self.path)
@@ -157,6 +161,11 @@ class NetworkView:
             self.cursor = next((i for i, e in enumerate(self.entries)
                                 if e.name == select), self.cursor)
         self.app.invalidate()
+
+    def _backend_call(self, function, *args):
+        """Serialize access to clients that do not support concurrent calls."""
+        with self._backend_lock:
+            return function(*args)
 
     def _flatten(self, directory, depth=0):
         out = []
@@ -309,7 +318,7 @@ class NetworkView:
         async def do():
             try:
                 self._children[entry.path] = await run_in_thread(
-                    self.backend.listdir, entry.path)
+                    self._backend_call, self.backend.listdir, entry.path)
                 self.expanded.add(entry.path)
                 self._apply_tree(entry.path)
             except Exception as exc:
@@ -396,7 +405,7 @@ class NetworkView:
         self._apply_tree(current.path if current else None)
 
     def start_search(self):
-        if self.busy:
+        if self.busy or self.indexing:
             self.app.set_message("wait for the remote operation to finish")
             return
         self.app.enter_network_search()
@@ -415,6 +424,7 @@ class NetworkView:
         """Recursively index remote names; called in a worker thread."""
         out = []
         visited = set()
+        root = self.path
 
         def walk(directory):
             directory = posixpath.normpath(directory)
@@ -422,16 +432,16 @@ class NetworkView:
                 return
             visited.add(directory)
             try:
-                entries = self.backend.listdir(directory)
+                entries = self._backend_call(self.backend.listdir, directory)
             except Exception:
                 return
             for entry in entries:
-                rel = posixpath.relpath(entry.path, self.path)
+                rel = posixpath.relpath(entry.path, root)
                 out.append(rel + ("/" if entry.is_dir else ""))
                 if entry.is_dir:
                     walk(entry.path)
 
-        walk(self.path)
+        walk(root)
         return out
 
     def open_search_result(self, relative):
@@ -470,9 +480,13 @@ class NetworkView:
                 for entry in targets:
                     target = unique_target(local_dir, entry.name)
                     if entry.is_dir:
-                        await run_in_thread(backend.download_tree, entry.path, target)
+                        await run_in_thread(
+                            self._backend_call, backend.download_tree,
+                            entry.path, target)
                     else:
-                        await run_in_thread(backend.download, entry.path, target)
+                        await run_in_thread(
+                            self._backend_call, backend.download,
+                            entry.path, target)
                     done += 1
                 local_view.refresh()
                 self.app.set_message(f"downloaded {done} item(s) to {local_dir}")
@@ -500,11 +514,14 @@ class NetworkView:
             try:
                 for path in paths:
                     target = await run_in_thread(
-                        backend.unique_path, remote_dir, path.name)
+                        self._backend_call, backend.unique_path,
+                        remote_dir, path.name)
                     if path.is_dir() and not path.is_symlink():
-                        await run_in_thread(backend.upload_tree, path, target)
+                        await run_in_thread(
+                            self._backend_call, backend.upload_tree, path, target)
                     else:
-                        await run_in_thread(backend.upload, path, target)
+                        await run_in_thread(
+                            self._backend_call, backend.upload, path, target)
                     done += 1
                 await self._load()
                 self.app.set_message(f"uploaded {done} item(s)")
@@ -555,7 +572,7 @@ class NetworkView:
             try:
                 for entry in targets:
                     fn = self.backend.remove_tree if entry.is_dir else self.backend.remove
-                    await run_in_thread(fn, entry.path)
+                    await run_in_thread(self._backend_call, fn, entry.path)
                     done += 1
                 await self._load()
                 self.app.set_message(f"deleted {done} remote item(s)")
@@ -573,7 +590,7 @@ class NetworkView:
 
         async def do():
             try:
-                await run_in_thread(fn, *args)
+                await run_in_thread(self._backend_call, fn, *args)
                 await self._load(select)
                 self.app.set_message(success)
             except Exception as exc:

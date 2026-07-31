@@ -9,6 +9,7 @@ from nsh.explorer.view import ExplorerView
 from nsh.network.backend import (
     HostKeyRequired, RemoteBackend, RemoteEntry, SFTPBackend, parse_target)
 from nsh.network.view import NetworkView
+from nsh.search.view import SearchView
 
 
 class FakeBackend(RemoteBackend):
@@ -566,6 +567,26 @@ class NetworkBackendTests(unittest.TestCase):
         self.assertEqual(view.path, "/work/docs")
         self.assertEqual(view.current().name, "guide.txt")
         self.assertEqual(app.mode, "network")
+
+    def test_remote_search_accepts_visible_result_while_indexing(self):
+        class RemoteView:
+            def open_search_result(self, relative):
+                self.opened = relative
+
+        class App:
+            def invalidate(self):
+                pass
+
+        view = SearchView(App())
+        remote = RemoteView()
+        view.remote_view = remote
+        view.loading = True
+        view.results = [("docs/", 100, [])]
+        view.cursor = 0
+
+        view.accept()
+
+        self.assertEqual(remote.opened, "docs/")
 
 
 if __name__ == "__main__":
