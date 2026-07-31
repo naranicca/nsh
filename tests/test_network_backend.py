@@ -460,6 +460,62 @@ class NetworkBackendTests(unittest.TestCase):
         shell._reset_stale_input_scroll(shell.command_buffer)
         self.assertEqual(shell.command_window.horizontal_scroll, 0)
 
+    def test_remote_shell_queues_commands_and_shows_elapsed_time(self):
+        class Backend:
+            label = "sftp://user@example:22"
+
+            def __init__(self):
+                self.commands = []
+
+            def execute(self, directory, command):
+                self.commands.append(command)
+                return command + "\n", "", 0
+
+        class App:
+            settings = {}
+
+            def invalidate(self):
+                pass
+
+            def set_message(self, message):
+                self.message = message
+
+            def switch_mode(self, mode):
+                self.mode = mode
+
+        async def scenario():
+            app = App()
+            view = NetworkView(app)
+            backend = Backend()
+            view.backend = backend
+            view.path = "/srv"
+            app.networkview = view
+            shell = RemoteShellView(app)
+            shell.run("first")
+            shell.run("second")
+            shell.run("third")
+            queue_fragments = shell._queue_text()
+            queued = "".join(text for _style, text in queue_fragments)
+            running_prompt = shell._prompt_text()
+            while shell.busy or shell.pending:
+                await asyncio.sleep(0.01)
+            return shell, backend, queued, queue_fragments, running_prompt
+
+        shell, backend, queued, queue_fragments, running_prompt = \
+            asyncio.run(scenario())
+        self.assertEqual(backend.commands, ["first", "second", "third"])
+        self.assertIn("$ second", queued)
+        self.assertIn("$ third", queued)
+        self.assertTrue(any(style == "class:shell.elapsed"
+                            for style, _text in queue_fragments))
+        self.assertTrue(any(style == "class:shell.prompt.dim"
+                            for style, _text in running_prompt))
+        self.assertEqual(shell.pending, [])
+        self.assertEqual(shell._last_result[1], 0)
+        finished_prompt = shell._prompt_text()
+        self.assertTrue(any(style == "class:shell.elapsed.ok"
+                            for style, _text in finished_prompt))
+
     def test_disconnect_requires_confirmation(self):
         class Backend:
             label = "sftp://example.com"

@@ -2,6 +2,7 @@
 import asyncio
 import posixpath
 import shlex
+import time
 
 from prompt_toolkit.application.current import get_app
 from prompt_toolkit.buffer import Buffer
@@ -10,10 +11,24 @@ from prompt_toolkit.formatted_text import ANSI, to_formatted_text
 from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.layout.containers import HSplit, VSplit, Window
 from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
+from prompt_toolkit.layout.dimension import Dimension
 from prompt_toolkit.layout.margins import Margin
 
 from ..util.aio import run_in_thread
 from ..util.width import char_width, text_width
+
+
+def _fmt_elapsed(seconds):
+    if seconds < 1:
+        return f"{seconds:.1f}s"
+    value = int(seconds)
+    if value < 60:
+        return f"{value}s"
+    minutes, seconds = divmod(value, 60)
+    if minutes < 60:
+        return f"{minutes}m{seconds:02d}s"
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours}h{minutes:02d}m"
 
 
 class _CommandScrollMargin(Margin):
@@ -40,6 +55,9 @@ class RemoteShellView:
         self.app = app
         self.lines = []
         self.busy = False
+        self.pending = []
+        self._started_at = None
+        self._last_result = None
         self.command_buffer = Buffer(
             name="remote-command", multiline=False,
             history=InMemoryHistory(), accept_handler=self._accept,
@@ -61,18 +79,41 @@ class RemoteShellView:
             right_margins=[_CommandScrollMargin(self, "right")],
             height=1)
         self.input = self.command_window
+        self.queue_window = Window(
+            FormattedTextControl(self._queue_text),
+            height=self._queue_height, style="class:shell.queued")
         self.container = HSplit([
             self.output,
             Window(height=1, char="─", style="class:preview.border"),
+            self.queue_window,
             VSplit([self.prompt, self.input], height=1),
         ])
 
     def _prompt_text(self):
         view = self.app.networkview
         location = view.location if view.connected else "ssh"
-        style = "class:shell.prompt.dim" if self.busy else "class:explorer.dir"
-        fragments = [(style, f"{location} "), ("", "$")]
-        return self._right_fit_fragments(fragments, self._prompt_width_cap())
+        prompt = [("class:explorer.dir", f"{location} "), ("", "$")]
+        elapsed = self._elapsed()
+        if elapsed is not None:
+            dim_dollar = [("class:shell.prompt.dim", "$")]
+            if self.pending:
+                badge = f"[{_fmt_elapsed(elapsed)}] "
+                return [("class:shell.queued", " " * text_width(badge)),
+                        *dim_dollar]
+            return [
+                ("class:shell.elapsed", f"[{_fmt_elapsed(elapsed)}]"),
+                ("", " "), *dim_dollar,
+            ]
+        if self._last_result is not None:
+            duration, status = self._last_result
+            badge_style = ("class:shell.elapsed.ok" if status == 0
+                           else "class:shell.elapsed.err")
+            prefix = [(badge_style, f"[{_fmt_elapsed(duration)}]"), ("", " ")]
+            prefix_width = sum(text_width(text) for _style, text in prefix)
+            return prefix + self._right_fit_fragments(
+                prompt, max(1, self._prompt_width_cap(prefix_width + 1) -
+                            prefix_width))
+        return self._right_fit_fragments(prompt, self._prompt_width_cap())
 
     @staticmethod
     def _right_fit_fragments(fragments, width):
@@ -99,13 +140,37 @@ class RemoteShellView:
         kept.reverse()
         return [("class:shell.prompt.dim", "…"), *kept]
 
-    def _prompt_width_cap(self):
+    def _prompt_width_cap(self, minimum=1):
         try:
             columns = get_app().output.get_size().columns
         except Exception:
             columns = 80
         command_width = text_width(self.command_buffer.text) + 1
-        return max(1, min(columns // 2, columns - command_width))
+        return max(minimum, min(columns // 2, columns - command_width))
+
+    def _elapsed(self):
+        if not self.busy or self._started_at is None:
+            return None
+        return time.monotonic() - self._started_at
+
+    def _queue_height(self):
+        return Dimension.exact(len(self.pending))
+
+    def _queue_text(self):
+        elapsed = self._elapsed()
+        badge = f"[{_fmt_elapsed(elapsed)}] " if elapsed is not None else ""
+        padding = " " * text_width(badge)
+        out = []
+        for index, command in enumerate(self.pending):
+            if index:
+                out.append(("", "\n"))
+            if index == 0 and badge:
+                out.append(("class:shell.elapsed", badge.rstrip()))
+                out.append(("class:shell.queued", " "))
+            elif badge:
+                out.append(("class:shell.queued", padding))
+            out.append(("class:shell.queued", f"$ {command}"))
+        return out
 
     def _reset_stale_input_scroll(self, buffer):
         window = getattr(self, "command_window", None)
@@ -138,27 +203,28 @@ class RemoteShellView:
 
     def run(self, command):
         if self.busy:
-            self.app.set_message("wait for the remote command to finish")
+            self.pending.append(command)
+            self.app.invalidate()
             return
         if command in ("exit", "quit"):
+            self.pending.clear()
             self.app.switch_mode("network")
             return
         if command in ("clear", "cls"):
             self.lines.clear()
             self.app.invalidate()
+            self._drain_pending()
             return
         if command == "cd" or command.startswith("cd "):
             target = command[2:].strip() or getattr(
                 self.app.networkview.backend, "home", "/")
+            self._begin(command)
             self._change_directory(target)
             return
-        self.lines.append([
-            ("class:explorer.dir", f"{self.app.networkview.location} $ "),
-            ("class:shell.output", command),
-        ])
-        self.busy = True
+        self._begin(command)
 
         async def do():
+            status = -1
             try:
                 backend = self.app.networkview.backend
                 output, error, status = await run_in_thread(
@@ -173,9 +239,38 @@ class RemoteShellView:
             except Exception as exc:
                 self.append(f"ssh: {exc}", "class:shell.error")
             finally:
-                self.busy = False
-                self.app.invalidate()
+                self._finish(status)
         asyncio.ensure_future(do())
+
+    def _begin(self, command):
+        line = []
+        if self._last_result is not None:
+            duration, status = self._last_result
+            style = ("class:shell.elapsed.ok" if status == 0
+                     else "class:shell.elapsed.err")
+            line.extend([(style, f"[{_fmt_elapsed(duration)}]"), ("", " ")])
+        line.extend([
+            ("class:explorer.dir", f"{self.app.networkview.location} "),
+            ("", "$ "), ("class:shell.output", command),
+        ])
+        self.lines.append(line)
+        self._last_result = None
+        self._started_at = time.monotonic()
+        self.busy = True
+        self.app.invalidate()
+
+    def _finish(self, status):
+        duration = (time.monotonic() - self._started_at
+                    if self._started_at is not None else 0.0)
+        self._last_result = (duration, status)
+        self._started_at = None
+        self.busy = False
+        self.app.invalidate()
+        self._drain_pending()
+
+    def _drain_pending(self):
+        if not self.busy and self.pending:
+            self.run(self.pending.pop(0))
 
     def _change_directory(self, target):
         view = self.app.networkview
@@ -186,10 +281,9 @@ class RemoteShellView:
         else:
             candidate = posixpath.join(view.path, target)
         candidate = posixpath.normpath(candidate)
-        self.busy = True
-
         async def do():
             old = view.path
+            status = -1
             try:
                 # Let the remote shell resolve permissions and symlinks, then
                 # use that canonical directory in both shell and file views.
@@ -201,10 +295,10 @@ class RemoteShellView:
                     return
                 view.path = output.strip().splitlines()[-1]
                 await view._load()
+                status = 0
             except Exception as exc:
                 view.path = old
                 self.append(f"cd: {exc}", "class:shell.error")
             finally:
-                self.busy = False
-                self.app.invalidate()
+                self._finish(status)
         asyncio.ensure_future(do())

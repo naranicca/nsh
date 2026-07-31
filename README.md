@@ -298,8 +298,11 @@ On an SFTP connection, `:` opens a remote command shell that reuses the active
 authenticated SSH session. Commands run in the directory displayed by the
 remote file pane. `cd` updates that pane's directory, `clear` clears remote
 shell output, and `exit`/`quit` or `Esc` returns to the remote files. Commands
-are executed one at a time without an interactive PTY, so full-screen programs
-such as `vim` and `top` are not supported in this view.
+entered while another command is running are shown above the prompt and executed
+in queue order. Running and completed commands show elapsed-time badges using
+the same colours and alignment as the local shell. Commands are executed one at
+a time without an interactive PTY, so full-screen programs such as `vim` and
+`top` are not supported in this view.
 
 Transfers and recursive delete operations run in worker threads so the TUI can
 continue repainting. Existing names are never overwritten: uploads and
