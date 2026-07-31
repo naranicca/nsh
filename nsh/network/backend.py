@@ -318,6 +318,15 @@ class SFTPBackend(RemoteBackend):
     def upload(self, local, remote):
         self.client.put(os.fspath(local), remote)
 
+    def execute(self, directory, command):
+        """Run one command through the authenticated SSH transport."""
+        import shlex
+        wrapped = f"cd -- {shlex.quote(directory)} && {command}"
+        _stdin, stdout, stderr = self.ssh.exec_command(wrapped)
+        output = stdout.read().decode("utf-8", errors="replace")
+        error = stderr.read().decode("utf-8", errors="replace")
+        return output, error, stdout.channel.recv_exit_status()
+
 
 def connect(protocol, target, password, jump=None, accept_host_key=None):
     host, port, username, path = parse_target(protocol, target)

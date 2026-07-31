@@ -671,6 +671,7 @@ class NetworkView:
         kb.add("~")(lambda e: self.go_home())
         kb.add("s")(lambda e: self.open_sort_menu())
         kb.add("/")(lambda e: self.start_search())
+        kb.add(":")(lambda e: self.app.open_remote_shell())
         kb.add("enter")(lambda e: self.open())
         kb.add("right")(lambda e: self.toggle_expand())
         kb.add("l")(lambda e: self.toggle_expand())

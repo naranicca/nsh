@@ -261,6 +261,7 @@ alternatives.
 | `~` | open the remote login home directory |
 | `s` | sort by name, size, date, or type in either direction |
 | `/` | fuzzy-find files and directories below the remote directory |
+| `:` | open a command shell over the current SSH connection |
 | `↵` | enter a directory; download a file |
 | `l`, `→` | expand / fold a remote directory inline |
 | `⌫`, `h`, `←` | fold, move to the tree parent, or open the parent directory |
@@ -287,6 +288,13 @@ sizes are right-aligned, directories use `▸`/`▾` carets, expanded children a
 indented, and the cursor highlights the complete row with the explorer colour
 scheme. A `..` row is shown outside the remote root. Directory contents are
 fetched only when first expanded.
+
+On an SFTP connection, `:` opens a remote command shell that reuses the active
+authenticated SSH session. Commands run in the directory displayed by the
+remote file pane. `cd` updates that pane's directory, `clear` clears remote
+shell output, and `exit`/`quit` or `Esc` returns to the remote files. Commands
+are executed one at a time without an interactive PTY, so full-screen programs
+such as `vim` and `top` are not supported in this view.
 
 Transfers and recursive delete operations run in worker threads so the TUI can
 continue repainting. Existing names are never overwritten: uploads and

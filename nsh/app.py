@@ -35,6 +35,7 @@ from .explorer import git
 from .explorer.browse import BranchBrowser
 from .explorer.preview import PreviewView
 from .notes.view import NotesView
+from .network.shell import RemoteShellView
 from .network.view import NetworkView
 from .search.view import SearchView
 from .system.view import SystemView
@@ -58,6 +59,7 @@ LOG = "gitlog"
 NOTES = "notes"
 SYSTEM = "system"
 NETWORK = "network"
+REMOTE_SHELL = "remote-shell"
 
 # Once the shell output would shrink the explorer below this many rows, the
 # shell takes over the whole screen.
@@ -185,6 +187,7 @@ class NshApp:
         self.notesview = NotesView(self)
         self.systemview = SystemView(self)
         self.networkview = NetworkView(self)
+        self.remote_shell = RemoteShellView(self)
         self._notes_return = EXPLORER  # the mode Notes was opened from
 
         # popup action menu (Tab in the explorer)
@@ -536,6 +539,8 @@ class NshApp:
                 self.leave_notes()
             elif self.mode == SYSTEM:
                 self.switch_mode(EXPLORER)
+            elif self.mode == REMOTE_SHELL:
+                self.switch_mode(NETWORK)
             else:  # EXPLORER: clear any multi-selection
                 self.explorer.clear_selection()
 
@@ -793,6 +798,8 @@ class NshApp:
                 return self.systemview.container
             if self.mode == NETWORK:
                 return self._network_split
+            if self.mode == REMOTE_SHELL:
+                return self.remote_shell.container
             if self.mode == GIT:
                 return git_area
             if self.mode == LOG:
@@ -983,7 +990,7 @@ class NshApp:
     # the current mode shown alongside the "nsh" label as "nsh|mode"
     _MODE_LABELS = {
         GIT: "git", LOG: "log", NOTES: "notes", SYSTEM: "system",
-        NETWORK: "network",
+        NETWORK: "network", REMOTE_SHELL: "ssh shell",
     }
 
     def _name_label(self):
@@ -1211,6 +1218,11 @@ class NshApp:
                     ("Shift+H", "local", lambda: self.focus_network_pane(-1)),
                     ("ESC", "clear selection", nv.cancel), ("q", "quit", self.exit),
                 ]
+        elif self.mode == REMOTE_SHELL:
+            hints = [
+                ("↵", "run"), ("↑↓", "history"),
+                ("ESC", "files", lambda: self.switch_mode(NETWORK)),
+            ]
         else:
             hints = [
                 ("Tab", "complete"), ("↵", "run"), ("↑↓", "history"),
@@ -1296,6 +1308,8 @@ class NshApp:
             self.application.layout.focus(self.systemview.list_control)
         elif mode == NETWORK:
             self.application.layout.focus(self.networkview.control)
+        elif mode == REMOTE_SHELL:
+            self.application.layout.focus(self.remote_shell.buffer)
         else:
             self.application.layout.focus(self.explorer.control)
         self.invalidate()
@@ -1788,6 +1802,8 @@ class NshApp:
             self.application.layout.focus(self.systemview.list_control)
         elif self.mode == NETWORK:
             self.application.layout.focus(self.networkview.control)
+        elif self.mode == REMOTE_SHELL:
+            self.application.layout.focus(self.remote_shell.buffer)
         elif self.mode == SEARCH:
             self.application.layout.focus(self.search.query_buffer)
         else:
@@ -2187,6 +2203,16 @@ class NshApp:
                 ("Disconnect", self.networkview.disconnect),
             ]
         self.open_menu("Network", items)
+
+    def open_remote_shell(self):
+        backend = self.networkview.backend
+        if backend is None or not hasattr(backend, "execute"):
+            self.set_message("remote shell requires an SSH/SFTP connection")
+            return
+        if self.networkview.busy or self.networkview.indexing:
+            self.set_message("wait for the remote operation to finish")
+            return
+        self.switch_mode(REMOTE_SHELL)
 
     def _network_target(self, protocol):
         example = (state.get("network_sftp_target", "user@host:22/")

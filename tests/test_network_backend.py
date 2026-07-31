@@ -9,6 +9,7 @@ from nsh.explorer.view import ExplorerView
 from nsh.network.backend import (
     HostKeyRequired, RemoteBackend, RemoteEntry, SFTPBackend, parse_target)
 from nsh.network.view import NetworkView
+from nsh.network.shell import RemoteShellView
 from nsh.search.view import SearchView
 
 
@@ -305,6 +306,61 @@ class NetworkBackendTests(unittest.TestCase):
         view.download.assert_called_once_with()
         self.assertTrue(app.exited)
         self.assertEqual(bindings.get_bindings_for_keys(("p",)), [])
+
+    def test_remote_colon_opens_ssh_shell(self):
+        class App:
+            settings = {}
+
+            def open_remote_shell(self):
+                self.opened = True
+
+        app = App()
+        view = NetworkView(app)
+        view._keys().get_bindings_for_keys((":",))[0].handler(None)
+        self.assertTrue(app.opened)
+
+    def test_remote_shell_executes_in_file_view_directory(self):
+        class Backend:
+            label = "sftp://user@example:22"
+            home = "/home/user"
+
+            def execute(self, directory, command):
+                self.executed = (directory, command)
+                return "hello\n", "", 0
+
+            def listdir(self, path):
+                return []
+
+        class App:
+            settings = {}
+
+            def invalidate(self):
+                pass
+
+            def set_message(self, message):
+                self.message = message
+
+            def switch_mode(self, mode):
+                self.mode = mode
+
+        async def scenario():
+            app = App()
+            view = NetworkView(app)
+            backend = Backend()
+            view.backend = backend
+            view.path = "/srv/project"
+            app.networkview = view
+            shell = RemoteShellView(app)
+            shell.run("pwd")
+            while shell.busy:
+                await asyncio.sleep(0.01)
+            return shell, backend
+
+        shell, backend = asyncio.run(scenario())
+        self.assertEqual(backend.executed, ("/srv/project", "pwd"))
+        rendered = "\n".join(
+            "".join(text for _style, text in line) for line in shell.lines)
+        self.assertIn("hello", rendered)
 
     def test_disconnect_requires_confirmation(self):
         class Backend:
