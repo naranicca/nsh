@@ -15,6 +15,7 @@ class RemoteEntry:
     is_dir: bool
     size: int = 0
     mtime: int = 0
+    depth: int = 0
 
 
 def parse_target(protocol, target):

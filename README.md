@@ -252,8 +252,9 @@ per-host keys and the SSH agent remain preferred alternatives.
 | Key | Action |
 | --- | --- |
 | `↑`/`↓`, `j`/`k` | move cursor |
-| `↵`, `l`, `→` | enter a directory; download a file |
-| `⌫`, `h`, `←` | parent directory |
+| `↵` | enter a directory; download a file |
+| `l`, `→` | expand / fold a remote directory inline |
+| `⌫`, `h`, `←` | fold, move to the tree parent, or open the parent directory |
 | `Space` | select / deselect |
 | `Shift+H` / `Shift+L` | focus the local / remote pane |
 | `c` | copy focused-pane selection to the other pane (upload or download) |
@@ -271,6 +272,11 @@ selection—or its cursor item when nothing is marked—into the displayed remot
 directory. Files and whole directory trees are supported in both directions.
 `Enter` on a remote file is a download shortcut; `Enter` on a directory opens
 it. A transfer refreshes only its destination pane.
+
+The remote pane uses the same tree presentation as the local file pane: file
+sizes are right-aligned, directories use `▸`/`▾` carets, expanded children are
+indented, and the cursor highlights the complete row with the explorer colour
+scheme. Directory contents are fetched only when first expanded.
 
 Transfers and recursive delete operations run in worker threads so the TUI can
 continue repainting. Existing names are never overwritten: uploads and

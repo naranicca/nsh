@@ -236,6 +236,59 @@ class NetworkBackendTests(unittest.TestCase):
         app.confirmation[1](False)
         self.assertIs(view.backend, backend)
 
+    def test_remote_directory_expands_inline(self):
+        class App:
+            def invalidate(self):
+                pass
+
+            def set_message(self, message):
+                self.message = message
+
+        class Backend:
+            def listdir(self, path):
+                if path == "/docs":
+                    return [RemoteEntry("guide.txt", "/docs/guide.txt",
+                                        False, 1536)]
+                return []
+
+        async def scenario():
+            view = NetworkView(App())
+            view.backend = Backend()
+            view.path = "/"
+            view.entries = [RemoteEntry("docs", "/docs", True)]
+            view._children = {"/": list(view.entries)}
+            view.toggle_expand()
+            while view.busy:
+                await asyncio.sleep(0.01)
+            return view
+
+        view = asyncio.run(scenario())
+        self.assertEqual([entry.path for entry in view.entries],
+                         ["/docs", "/docs/guide.txt"])
+        self.assertEqual(view.entries[1].depth, 1)
+        self.assertIn("/docs", view.expanded)
+
+        view.toggle_expand()
+        self.assertEqual([entry.path for entry in view.entries], ["/docs"])
+
+    def test_remote_rows_show_size_and_explorer_cursor_style(self):
+        class App:
+            def invalidate(self):
+                pass
+
+        view = NetworkView(App())
+        view.entries = [RemoteEntry("archive.bin", "/archive.bin",
+                                    False, 1536)]
+
+        fragments = view._text()
+        rendered = "".join(text for _style, text in fragments)
+        styles = [style for style, _text in fragments]
+
+        self.assertIn("archive.bin", rendered)
+        self.assertIn("1.5K", rendered)
+        self.assertTrue(any("class:explorer.file" in style and
+                            "reverse" in style for style in styles))
+
 
 if __name__ == "__main__":
     unittest.main()

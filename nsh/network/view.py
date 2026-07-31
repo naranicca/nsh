@@ -1,17 +1,24 @@
 """Interactive remote file browser shared by FTP and SFTP connections."""
 import asyncio
 import posixpath
+from dataclasses import replace
 from pathlib import Path
 
 from prompt_toolkit.data_structures import Point
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout.containers import Window
+from prompt_toolkit.mouse_events import MouseModifier
 
+from .. import config
 from ..explorer.fileops import unique_target
 from ..util.aio import run_in_thread
+from ..util.paths import human_size
 from ..util.widgets import WheelScrollControl, visible_slice
-from ..util.width import cut_to_width
+from ..util.width import pad_to_width
 from . import backend as remote
+
+
+SIZE_COL = 8
 
 
 class NetworkView:
@@ -24,12 +31,15 @@ class NetworkView:
         self.local_view = None
         self.path = "/"
         self.entries = []
+        self.expanded = set()
+        self._children = {}
         self.cursor = 0
         self._top = 0
         self.selected = set()
         self.busy = False
         self.control = WheelScrollControl(
-            lambda d: self.move(d * 3), text=self._text, focusable=True,
+            lambda d: self.move(d * 3), on_click=self._on_mouse,
+            text=self._text, focusable=True,
             show_cursor=False, key_bindings=self._keys(),
             get_cursor_position=lambda: Point(0, self.cursor - self._top),
         )
@@ -86,6 +96,8 @@ class NetworkView:
         backend, self.backend = self.backend, None
         local_view, self.local_view = self.local_view, None
         self.entries = []
+        self.expanded.clear()
+        self._children.clear()
         self.selected.clear()
         if backend is not None:
             asyncio.ensure_future(run_in_thread(backend.close))
@@ -114,12 +126,33 @@ class NetworkView:
 
     async def _load(self, select=None):
         entries = await run_in_thread(self.backend.listdir, self.path)
-        self.entries = entries
+        self.expanded.clear()
+        self._children = {self.path: entries}
+        self.entries = self._flatten(self.path)
         self.selected.clear()
         self.cursor = 0
         if select:
             self.cursor = next((i for i, e in enumerate(entries)
                                 if e.name == select), 0)
+        self.app.invalidate()
+
+    def _flatten(self, directory, depth=0):
+        out = []
+        for entry in self._children.get(directory, []):
+            row = replace(entry, depth=depth)
+            out.append(row)
+            if row.is_dir and row.path in self.expanded:
+                out.extend(self._flatten(row.path, depth + 1))
+        return out
+
+    def _apply_tree(self, cursor_path=None):
+        self.entries = self._flatten(self.path)
+        if cursor_path is not None:
+            self.cursor = next((i for i, entry in enumerate(self.entries)
+                                if entry.path == cursor_path), self.cursor)
+        self.cursor = max(0, min(self.cursor, len(self.entries) - 1))
+        visible = {entry.path for entry in self.entries}
+        self.selected &= visible
         self.app.invalidate()
 
     def refresh(self):
@@ -160,6 +193,29 @@ class NetworkView:
                 self.selected.add(cur.path)
             self.move(1)
 
+    def _on_mouse(self, mouse_event):
+        """Match the local pane's selection, caret, and double-click behavior."""
+        if self.app.consume_menu_click():
+            return
+        self.app.focus_network_pane(1)
+        index = self._top + mouse_event.position.y
+        if not 0 <= index < len(self.entries):
+            return
+        self.cursor = index
+        entry = self.entries[index]
+        if MouseModifier.CONTROL in getattr(
+                mouse_event, "modifiers", frozenset()):
+            if entry.path in self.selected:
+                self.selected.discard(entry.path)
+            else:
+                self.selected.add(entry.path)
+        elif (entry.is_dir and
+              mouse_event.position.x == 4 + 2 * entry.depth):
+            self.toggle_expand()
+        elif self.app.double_click(("network", id(self)), index):
+            self.open()
+        self.app.invalidate()
+
     def open(self):
         cur = self.current()
         if not cur:
@@ -179,6 +235,50 @@ class NetworkView:
             finally:
                 self.busy = False
         asyncio.ensure_future(do())
+
+    def toggle_expand(self):
+        """Lazily expand or fold the remote directory under the cursor."""
+        entry = self.current()
+        if entry is None or not entry.is_dir or self.busy:
+            return
+        if entry.path in self.expanded:
+            self.expanded.discard(entry.path)
+            self._apply_tree(entry.path)
+            return
+        if entry.path in self._children:
+            self.expanded.add(entry.path)
+            self._apply_tree(entry.path)
+            return
+
+        self.busy = True
+
+        async def do():
+            try:
+                self._children[entry.path] = await run_in_thread(
+                    self.backend.listdir, entry.path)
+                self.expanded.add(entry.path)
+                self._apply_tree(entry.path)
+            except Exception as exc:
+                self.app.set_message(f"cannot expand directory: {exc}")
+            finally:
+                self.busy = False
+                self.app.invalidate()
+        asyncio.ensure_future(do())
+
+    def collapse_or_up(self):
+        """Fold a directory, move to its tree parent, or leave the directory."""
+        entry = self.current()
+        if entry is not None and entry.is_dir and entry.path in self.expanded:
+            self.expanded.discard(entry.path)
+            self._apply_tree(entry.path)
+            return
+        if entry is not None and entry.depth > 0:
+            parent = posixpath.dirname(entry.path) or "/"
+            self.cursor = next((i for i, row in enumerate(self.entries)
+                                if row.path == parent), self.cursor)
+            self.app.invalidate()
+            return
+        self.up()
 
     def up(self):
         if self.path == "/" or self.busy:
@@ -278,7 +378,7 @@ class NetworkView:
         name = name.strip()
         if name and name != entry.name:
             self._operation(self.backend.rename, entry.path,
-                            posixpath.join(self.path, name),
+                            posixpath.join(posixpath.dirname(entry.path), name),
                             success=f"renamed to: {name}", select=name)
 
     def delete(self):
@@ -347,17 +447,35 @@ class NetworkView:
         self._top = start
         width = (self.window.render_info.window_width
                  if self.window.render_info else 80)
+        name_w = max(4, width - 7 - SIZE_COL)
         out = []
         for i in range(start, end):
             entry = self.entries[i]
             selected = entry.path in self.selected
-            cursor = i == self.cursor
-            marker = "●" if selected else ("▸" if cursor else " ")
-            suffix = "/" if entry.is_dir else ""
-            style = "class:explorer.dir" if entry.is_dir else "class:explorer.file"
-            if cursor:
-                style += " class:search-selected"
-            out.append((style, f"{marker} {cut_to_width(entry.name + suffix, width - 2)}\n"))
+            on = i == self.cursor
+            base_style = ("class:explorer.dir" if entry.is_dir
+                          else "class:explorer.file")
+            style = "class:explorer.selected" if selected else base_style
+            cursor_style = (style + " reverse").strip() if on else style
+            name = entry.name + ("/" if entry.is_dir else "")
+            size = "" if entry.is_dir else human_size(entry.size)
+            size_style = cursor_style if on else (
+                "class:explorer.size" if size else style)
+            indent = "  " * entry.depth
+            row_name_w = max(4, name_w - 2 * entry.depth)
+            icon = ("▾" if entry.is_dir and entry.path in self.expanded
+                    else (config.ICONS["dir"] if entry.is_dir
+                          else config.ICONS["file"]))
+            out.extend([
+                (cursor_style, "● " if selected else "  "),
+                (cursor_style, "  " + indent),
+                (cursor_style, f"{icon} "),
+                (cursor_style, pad_to_width(name, row_name_w)),
+                (cursor_style, " "),
+                (size_style, pad_to_width(size, SIZE_COL, align="right")),
+            ])
+            if i != end - 1:
+                out.append(("", "\n"))
         return out
 
     def _keys(self):
@@ -367,11 +485,11 @@ class NetworkView:
         kb.add("down")(lambda e: self.move(1))
         kb.add("j")(lambda e: self.move(1))
         kb.add("enter")(lambda e: self.open())
-        kb.add("right")(lambda e: self.open())
-        kb.add("l")(lambda e: self.open())
-        kb.add("left")(lambda e: self.up())
-        kb.add("h")(lambda e: self.up())
-        kb.add("backspace")(lambda e: self.up())
+        kb.add("right")(lambda e: self.toggle_expand())
+        kb.add("l")(lambda e: self.toggle_expand())
+        kb.add("left")(lambda e: self.collapse_or_up())
+        kb.add("h")(lambda e: self.collapse_or_up())
+        kb.add("backspace")(lambda e: self.collapse_or_up())
         kb.add(" ")(lambda e: self.toggle())
         kb.add("tab")(lambda e: self.actions())
         kb.add("c")(lambda e: self.download())
