@@ -54,7 +54,8 @@ class NetworkView:
     def location(self):
         return f"{self.backend.label}{self.path}" if self.backend else "network"
 
-    def connect(self, protocol, target, password, jump=None):
+    def connect(self, protocol, target, password, jump=None,
+                accept_host_key=None):
         if self.busy:
             return
         local_view = self.app.explorer  # capture before the network handshake
@@ -64,7 +65,8 @@ class NetworkView:
         async def do():
             try:
                 backend, path = await run_in_thread(
-                    remote.connect, protocol, target, password, jump)
+                    remote.connect, protocol, target, password, jump,
+                    accept_host_key)
                 old = self.backend
                 self.local_view = local_view
                 self.backend, self.path = backend, path
@@ -73,6 +75,16 @@ class NetworkView:
                 await self._load()
                 self.app.switch_mode("network")
                 self.app.set_message(f"connected: {self.location}")
+            except remote.HostKeyRequired as exc:
+                label = (f"Trust {exc.hostname} {exc.key_type} host key? "
+                         f"{exc.fingerprint}")
+                accepted_key = (exc.hostname, exc.fingerprint)
+                self.app.confirm(
+                    label,
+                    lambda ok, key=accepted_key: self.connect(
+                        protocol, target, password, jump,
+                        key) if ok else None,
+                )
             except Exception as exc:  # noqa: BLE001 - surfaced in status bar
                 self.app.set_message(f"connection failed: {exc}")
             finally:

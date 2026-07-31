@@ -241,11 +241,13 @@ destination's `ProxyJump` setting. Each hop resolves its own SSH config and is
 closed in reverse order when the connection ends or fails.
 
 Every SSH host key is checked independently against the user's system
-`known_hosts`; unknown keys are rejected rather than accepted automatically.
-Connect once with OpenSSH (and verify the fingerprint) or add the verified key
-with `ssh-keyscan` before using nsh. A password entered in nsh is available as
-an authentication fallback for the destination and every jump host, while
-per-host keys and the SSH agent remain preferred alternatives.
+`known_hosts`. On first connection nsh shows the key type and SHA256 fingerprint
+for approval; verify it with the server owner. An approved key is saved to
+`~/.ssh/known_hosts` and the connection is retried. A key that conflicts with
+an existing entry is still rejected without an approval prompt. A password
+entered in nsh is available as an authentication fallback for the destination
+and every jump host, while per-host keys and the SSH agent remain preferred
+alternatives.
 
 #### Browsing and file operations
 

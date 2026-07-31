@@ -1,11 +1,23 @@
 """Synchronous remote filesystem backends, called from worker threads."""
+import base64
 import ftplib
+import hashlib
 import os
 import posixpath
 import stat
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
+
+
+class HostKeyRequired(Exception):
+    """An SSH server presented a host key that is not trusted yet."""
+
+    def __init__(self, hostname, key_type, fingerprint):
+        self.hostname = hostname
+        self.key_type = key_type
+        self.fingerprint = fingerprint
+        super().__init__(f"unknown SSH host key for {hostname}: {fingerprint}")
 
 
 @dataclass
@@ -171,7 +183,8 @@ class SFTPBackend(RemoteBackend):
     protocol = "sftp"
 
     @classmethod
-    def connect(cls, host, port, username, password, jump=None):
+    def connect(cls, host, port, username, password, jump=None,
+                accept_host_key=None):
         try:
             import paramiko
         except ImportError as exc:
@@ -179,6 +192,7 @@ class SFTPBackend(RemoteBackend):
 
         config = paramiko.SSHConfig()
         config_path = Path.home() / ".ssh" / "config"
+        known_hosts_path = Path.home() / ".ssh" / "known_hosts"
         try:
             with open(config_path, encoding="utf-8") as stream:
                 config.parse(stream)
@@ -210,6 +224,19 @@ class SFTPBackend(RemoteBackend):
 
         clients = []
         previous = None
+
+        class ConfirmHostKeyPolicy(paramiko.MissingHostKeyPolicy):
+            def missing_host_key(self, client, hostname, key):
+                digest = base64.b64encode(
+                    hashlib.sha256(key.asbytes()).digest()
+                ).decode("ascii").rstrip("=")
+                fingerprint = f"SHA256:{digest}"
+                if accept_host_key != (hostname, fingerprint):
+                    raise HostKeyRequired(
+                        hostname, key.get_name(), fingerprint)
+                known_hosts_path.parent.mkdir(parents=True, exist_ok=True)
+                client.get_host_keys().add(hostname, key.get_name(), key)
+                client.save_host_keys(os.fspath(known_hosts_path))
         try:
             for current in [*jump_nodes, destination]:
                 sock = None
@@ -222,7 +249,9 @@ class SFTPBackend(RemoteBackend):
                         ("127.0.0.1", 0))
                 ssh = paramiko.SSHClient()
                 ssh.load_system_host_keys()
-                ssh.set_missing_host_key_policy(paramiko.RejectPolicy())
+                if known_hosts_path.exists():
+                    ssh.load_host_keys(os.fspath(known_hosts_path))
+                ssh.set_missing_host_key_policy(ConfirmHostKeyPolicy())
                 # With a supplied channel, hostname is used for host-key lookup;
                 # network routing itself is handled by direct-tcpip above.
                 connect_host = (current["host_key_name"] if sock is not None
@@ -284,11 +313,12 @@ class SFTPBackend(RemoteBackend):
         self.client.put(os.fspath(local), remote)
 
 
-def connect(protocol, target, password, jump=None):
+def connect(protocol, target, password, jump=None, accept_host_key=None):
     host, port, username, path = parse_target(protocol, target)
     cls = SFTPBackend if protocol == "sftp" else FTPBackend
     if protocol == "sftp":
-        backend = cls.connect(host, port, username, password, jump=jump)
+        backend = cls.connect(host, port, username, password, jump=jump,
+                              accept_host_key=accept_host_key)
     else:
         backend = cls.connect(host, port, username, password)
     return backend, posixpath.normpath(path or "/")

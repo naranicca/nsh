@@ -5,7 +5,7 @@ from tempfile import TemporaryDirectory
 from unittest import mock
 
 from nsh.network.backend import (
-    RemoteBackend, RemoteEntry, SFTPBackend, parse_target)
+    HostKeyRequired, RemoteBackend, RemoteEntry, SFTPBackend, parse_target)
 from nsh.network.view import NetworkView
 
 
@@ -69,7 +69,10 @@ class NetworkBackendTests(unittest.TestCase):
                 return self.transport
 
             def open_sftp(self):
-                return object()
+                class SFTP:
+                    def close(self):
+                        pass
+                return SFTP()
 
             def close(self):
                 pass
@@ -100,6 +103,75 @@ class NetworkBackendTests(unittest.TestCase):
         )
         self.assertIs(clients[1].connect_args[1]["sock"], channel)
         self.assertEqual(len(backend.ssh_clients), 2)
+
+    def test_sftp_prompts_then_saves_an_approved_host_key(self):
+        class Key:
+            def asbytes(self):
+                return b"mac-host-key"
+
+            def get_name(self):
+                return "ssh-ed25519"
+
+        class HostKeys:
+            def __init__(self):
+                self.added = None
+
+            def add(self, hostname, key_type, key):
+                self.added = (hostname, key_type, key)
+
+        clients = []
+
+        class Client:
+            def __init__(self):
+                self.host_keys = HostKeys()
+                clients.append(self)
+
+            def load_system_host_keys(self):
+                pass
+
+            def load_host_keys(self, filename):
+                self.loaded = filename
+
+            def set_missing_host_key_policy(self, policy):
+                self.policy = policy
+
+            def connect(self, hostname, **kwargs):
+                self.policy.missing_host_key(self, hostname, Key())
+
+            def get_host_keys(self):
+                return self.host_keys
+
+            def save_host_keys(self, filename):
+                Path(filename).write_text("saved", encoding="utf-8")
+
+            def open_sftp(self):
+                class SFTP:
+                    def close(self):
+                        pass
+                return SFTP()
+
+            def close(self):
+                pass
+
+        with TemporaryDirectory() as temp:
+            home = Path(temp)
+            with mock.patch("paramiko.SSHClient", Client), mock.patch(
+                    "nsh.network.backend.Path.home", return_value=home):
+                with self.assertRaises(HostKeyRequired) as raised:
+                    SFTPBackend.connect(
+                        "192.168.45.75", 22, "naranicca", "secret")
+                requested = raised.exception
+                backend = SFTPBackend.connect(
+                    "192.168.45.75", 22, "naranicca", "secret",
+                    accept_host_key=(requested.hostname,
+                                     requested.fingerprint))
+
+            self.assertEqual(requested.hostname, "192.168.45.75")
+            self.assertTrue(requested.fingerprint.startswith("SHA256:"))
+            self.assertTrue((home / ".ssh" / "known_hosts").exists())
+            self.assertEqual(clients[-1].host_keys.added[0],
+                             "192.168.45.75")
+            backend.close()
 
     def test_download_targets_displayed_local_pane(self):
         class App:
