@@ -2210,7 +2210,7 @@ class NshApp:
         if backend is None or not hasattr(backend, "execute"):
             self.set_message("remote shell requires an SSH/SFTP connection")
             return
-        if self.networkview.busy or self.networkview.indexing:
+        if self.networkview.busy:
             self.set_message("wait for the remote operation to finish")
             return
         self.switch_mode(REMOTE_SHELL)

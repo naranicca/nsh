@@ -380,6 +380,26 @@ class NetworkBackendTests(unittest.TestCase):
         view._keys().get_bindings_for_keys((":",))[0].handler(None)
         self.assertTrue(app.opened)
 
+    def test_remote_shell_can_open_during_background_indexing(self):
+        class Backend:
+            def execute(self):
+                pass
+
+        class Network:
+            backend = Backend()
+            busy = False
+            indexing = True
+
+        app = object.__new__(NshApp)
+        app.networkview = Network()
+        app.switch_mode = mock.Mock()
+        app.set_message = mock.Mock()
+
+        app.open_remote_shell()
+
+        app.switch_mode.assert_called_once_with("remote-shell")
+        app.set_message.assert_not_called()
+
     def test_remote_shell_executes_in_file_view_directory(self):
         class Backend:
             label = "sftp://user@example:22"

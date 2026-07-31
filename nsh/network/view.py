@@ -84,6 +84,10 @@ class NetworkView:
                 if old is not None:
                     await run_in_thread(old.close)
                 await self._load()
+                # The Network layout becomes interactive as soon as it is
+                # shown. Clear the handshake flag first so an immediate `:`
+                # keypress can enter the remote shell on the same event-loop turn.
+                self.busy = False
                 self.app.switch_mode("network")
                 if protocol == "sftp":
                     state.set("network_sftp_target", target)
