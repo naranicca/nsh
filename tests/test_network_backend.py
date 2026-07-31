@@ -402,6 +402,38 @@ class NetworkBackendTests(unittest.TestCase):
         self.assertTrue(any("reverse" in style
                             for style, _text in remote_view._text()))
 
+    def test_network_menu_restores_the_originating_local_pane(self):
+        local_control = object()
+        menu_control = object()
+
+        class Layout:
+            current_control = local_control
+
+            def focus(self, control):
+                self.current_control = control
+
+        class Application:
+            layout = Layout()
+
+        class Menu:
+            control = menu_control
+
+            def open(self, title, items, on_close):
+                self.opened = (title, items, on_close)
+
+        app = object.__new__(NshApp)
+        app.application = Application()
+        app.menu = Menu()
+        app._menu_float = mock.Mock()
+        app._menu_return_focus = None
+        app.invalidate = mock.Mock()
+
+        app.open_menu("Sort by", [("Name", lambda: None)])
+        self.assertIs(app.application.layout.current_control, menu_control)
+        app._menu_closed()
+
+        self.assertIs(app.application.layout.current_control, local_control)
+
     def test_successful_sftp_target_is_remembered_and_prefilled(self):
         class Backend:
             label = "sftp://naranicca@192.168.45.75:22"

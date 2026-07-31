@@ -192,6 +192,7 @@ class NshApp:
         # whether the open menu is anchored at the cursor row (vs. the top under
         # the "nsh" label); only the latter tints the "nsh" label (see _title_text)
         self._menu_at_cursor = False
+        self._menu_return_focus = None
         self.bookmarks = Bookmarks()
         self.visited = []  # most-recent-first history of directories we've left
         # last directory visited on each Windows drive letter (for "D:" changes)
@@ -1884,6 +1885,9 @@ class NshApp:
         label (where every menu used to be). The file/item action menus pass
         ``at_cursor=True`` to drop from the cursor row instead."""
         items = list(items)  # materialize once (may be a generator) before counting
+        # Menus temporarily own focus. Remember the exact originating control so
+        # a local-pane menu in Network mode does not fall back to the remote pane.
+        self._menu_return_focus = self.application.layout.current_control
         self._menu_at_cursor = at_cursor
         if at_cursor:
             self._position_menu_float(title, items)
@@ -1894,7 +1898,13 @@ class NshApp:
         self.invalidate()
 
     def _menu_closed(self):
-        self._restore_focus()
+        control, self._menu_return_focus = self._menu_return_focus, None
+        try:
+            if control is None:
+                raise ValueError("no menu return focus")
+            self.application.layout.focus(control)
+        except Exception:  # noqa: BLE001 - stale/hidden control: mode fallback
+            self._restore_focus()
         self.invalidate()
 
     # -- mouse ----------------------------------------------------------------
