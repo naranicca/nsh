@@ -79,7 +79,9 @@ class RemoteShellView:
         if sum(text_width(text) for _style, text in fragments) <= width:
             return fragments
         if width <= 1:
-            return [("class:shell.prompt.dim", "$")]
+            # Keep the prompt's own colour even when only its final `$` fits.
+            style = fragments[-1][0] if fragments else "class:explorer.dir"
+            return [(style, "$")]
         budget = width - 1
         kept = []
         for style, value in reversed(fragments):

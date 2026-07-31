@@ -444,8 +444,11 @@ class NetworkBackendTests(unittest.TestCase):
         self.assertIn("hello", rendered)
 
         shell.command_buffer.text = "x" * 200
-        prompt = "".join(text for _style, text in shell._prompt_text())
+        prompt_fragments = shell._prompt_text()
+        prompt = "".join(text for _style, text in prompt_fragments)
         self.assertTrue(prompt.endswith("$"))
+        self.assertNotEqual(prompt_fragments[-1][0],
+                            "class:shell.prompt.dim")
         shell.command_window.horizontal_scroll = 80
         shell.command_buffer.text = "short"
         shell.command_buffer.cursor_position = len("short")
