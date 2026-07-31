@@ -142,20 +142,28 @@ class NetworkView:
         self._children = {self.path: entries}
         self.entries = self._flatten(self.path)
         self.selected.clear()
-        self.cursor = 0
+        self.cursor = self.first_index()
         if select:
-            self.cursor = next((i for i, e in enumerate(entries)
-                                if e.name == select), 0)
+            self.cursor = next((i for i, e in enumerate(self.entries)
+                                if e.name == select), self.cursor)
         self.app.invalidate()
 
     def _flatten(self, directory, depth=0):
         out = []
+        if depth == 0 and directory != "/":
+            out.append(remote.RemoteEntry(
+                "..", posixpath.dirname(directory) or "/", True,
+                depth=0, is_parent=True))
         for entry in self._children.get(directory, []):
             row = replace(entry, depth=depth)
             out.append(row)
             if row.is_dir and row.path in self.expanded:
                 out.extend(self._flatten(row.path, depth + 1))
         return out
+
+    def first_index(self):
+        return 1 if (self.entries and self.entries[0].is_parent and
+                     len(self.entries) > 1) else 0
 
     def _apply_tree(self, cursor_path=None):
         self.entries = self._flatten(self.path)
@@ -187,18 +195,24 @@ class NetworkView:
 
     def targets(self):
         if self.selected:
-            return [e for e in self.entries if e.path in self.selected]
+            return [e for e in self.entries
+                    if not e.is_parent and e.path in self.selected]
         cur = self.current()
-        return [cur] if cur else []
+        return [cur] if cur and not cur.is_parent else []
 
     def move(self, delta):
         if self.entries:
             self.cursor = max(0, min(len(self.entries) - 1, self.cursor + delta))
             self.app.invalidate()
 
+    def _move_to(self, index):
+        if self.entries:
+            self.cursor = max(0, min(len(self.entries) - 1, index))
+            self.app.invalidate()
+
     def toggle(self):
         cur = self.current()
-        if cur:
+        if cur and not cur.is_parent:
             if cur.path in self.selected:
                 self.selected.remove(cur.path)
             else:
@@ -217,11 +231,13 @@ class NetworkView:
         entry = self.entries[index]
         if MouseModifier.CONTROL in getattr(
                 mouse_event, "modifiers", frozenset()):
-            if entry.path in self.selected:
+            if entry.is_parent:
+                pass
+            elif entry.path in self.selected:
                 self.selected.discard(entry.path)
             else:
                 self.selected.add(entry.path)
-        elif (entry.is_dir and
+        elif (entry.is_dir and not entry.is_parent and
               mouse_event.position.x == 4 + 2 * entry.depth):
             self.toggle_expand()
         elif self.app.double_click(("network", id(self)), index):
@@ -231,6 +247,9 @@ class NetworkView:
     def open(self):
         cur = self.current()
         if not cur:
+            return
+        if cur.is_parent:
+            self.up()
             return
         if not cur.is_dir:
             self.download()
@@ -251,7 +270,8 @@ class NetworkView:
     def toggle_expand(self):
         """Lazily expand or fold the remote directory under the cursor."""
         entry = self.current()
-        if entry is None or not entry.is_dir or self.busy:
+        if (entry is None or not entry.is_dir or entry.is_parent or
+                self.busy):
             return
         if entry.path in self.expanded:
             self.expanded.discard(entry.path)
@@ -308,6 +328,30 @@ class NetworkView:
                 self.app.set_message(f"cannot open parent: {exc}")
             finally:
                 self.busy = False
+        asyncio.ensure_future(do())
+
+    def go_home(self):
+        """Open the login directory reported by the remote server."""
+        if self.busy:
+            return
+        home = posixpath.normpath(getattr(self.backend, "home", "/") or "/")
+        if home == self.path:
+            self.cursor = self.first_index()
+            self.app.invalidate()
+            return
+        old_path = self.path
+        self.path = home
+        self.busy = True
+
+        async def do():
+            try:
+                await self._load()
+            except Exception as exc:
+                self.path = old_path
+                self.app.set_message(f"cannot open remote home: {exc}")
+            finally:
+                self.busy = False
+                self.app.invalidate()
         asyncio.ensure_future(do())
 
     def download(self):
@@ -382,7 +426,7 @@ class NetworkView:
 
     def rename(self):
         cur = self.current()
-        if cur:
+        if cur and not cur.is_parent:
             self.app.open_input_dialog("Rename remote item", cur.name, len(cur.name),
                                        lambda name: self._rename(cur, name))
 
@@ -469,15 +513,17 @@ class NetworkView:
                           else "class:explorer.file")
             style = "class:explorer.selected" if selected else base_style
             cursor_style = (style + " reverse").strip() if on else style
-            name = entry.name + ("/" if entry.is_dir else "")
+            name = ".." if entry.is_parent else (
+                entry.name + ("/" if entry.is_dir else ""))
             size = "" if entry.is_dir else human_size(entry.size)
             size_style = cursor_style if on else (
                 "class:explorer.size" if size else style)
             indent = "  " * entry.depth
             row_name_w = max(4, name_w - 2 * entry.depth)
-            icon = ("▾" if entry.is_dir and entry.path in self.expanded
-                    else (config.ICONS["dir"] if entry.is_dir
-                          else config.ICONS["file"]))
+            icon = (" " if entry.is_parent else
+                    ("▾" if entry.is_dir and entry.path in self.expanded
+                     else (config.ICONS["dir"] if entry.is_dir
+                           else config.ICONS["file"])))
             out.extend([
                 (cursor_style, "● " if selected else "  "),
                 (cursor_style, "  " + indent),
@@ -496,6 +542,11 @@ class NetworkView:
         kb.add("k")(lambda e: self.move(-1))
         kb.add("down")(lambda e: self.move(1))
         kb.add("j")(lambda e: self.move(1))
+        kb.add("g")(lambda e: self._move_to(0))
+        kb.add("home")(lambda e: self._move_to(0))
+        kb.add("G")(lambda e: self._move_to(len(self.entries) - 1))
+        kb.add("end")(lambda e: self._move_to(len(self.entries) - 1))
+        kb.add("~")(lambda e: self.go_home())
         kb.add("enter")(lambda e: self.open())
         kb.add("right")(lambda e: self.toggle_expand())
         kb.add("l")(lambda e: self.toggle_expand())

@@ -28,6 +28,7 @@ class RemoteEntry:
     size: int = 0
     mtime: int = 0
     depth: int = 0
+    is_parent: bool = False
 
 
 def parse_target(protocol, target):
@@ -112,6 +113,7 @@ class FTPBackend(RemoteBackend):
         ftp.encoding = "utf-8"
         obj = cls(host, port, username or "anonymous")
         obj.client = ftp
+        obj.home = ftp.pwd()
         return obj
 
     def close(self):
@@ -269,6 +271,10 @@ class SFTPBackend(RemoteBackend):
             obj.ssh_clients = clients
             obj.ssh = clients[-1]
             obj.client = obj.ssh.open_sftp()
+            try:
+                obj.home = obj.client.normalize(".")
+            except Exception:
+                obj.home = "/"
             return obj
         except Exception:
             for ssh in reversed(clients):

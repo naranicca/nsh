@@ -254,6 +254,8 @@ alternatives.
 | Key | Action |
 | --- | --- |
 | `↑`/`↓`, `j`/`k` | move cursor |
+| `g`/`Home`, `G`/`End` | first / last row |
+| `~` | open the remote login home directory |
 | `↵` | enter a directory; download a file |
 | `l`, `→` | expand / fold a remote directory inline |
 | `⌫`, `h`, `←` | fold, move to the tree parent, or open the parent directory |
@@ -278,7 +280,8 @@ it. A transfer refreshes only its destination pane.
 The remote pane uses the same tree presentation as the local file pane: file
 sizes are right-aligned, directories use `▸`/`▾` carets, expanded children are
 indented, and the cursor highlights the complete row with the explorer colour
-scheme. Directory contents are fetched only when first expanded.
+scheme. A `..` row is shown outside the remote root. Directory contents are
+fetched only when first expanded.
 
 Transfers and recursive delete operations run in worker threads so the TUI can
 continue repainting. Existing names are never overwritten: uploads and

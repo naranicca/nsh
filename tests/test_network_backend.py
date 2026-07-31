@@ -361,6 +361,54 @@ class NetworkBackendTests(unittest.TestCase):
         self.assertTrue(any("class:explorer.file" in style and
                             "reverse" in style for style in styles))
 
+    def test_remote_listing_has_parent_row_and_navigation_shortcuts(self):
+        class App:
+            def invalidate(self):
+                pass
+
+            def set_message(self, message):
+                self.message = message
+
+        class Backend:
+            home = "/Users/naranicca"
+
+            def listdir(self, path):
+                if path == "/var/log":
+                    return [RemoteEntry("a.log", "/var/log/a.log", False)]
+                if path == self.home:
+                    return [RemoteEntry("Desktop",
+                                        "/Users/naranicca/Desktop", True)]
+                return []
+
+        async def scenario():
+            view = NetworkView(App())
+            view.backend = Backend()
+            view.path = "/var/log"
+            await view._load()
+            initial = list(view.entries)
+            initial_cursor = view.cursor
+            view._move_to(len(view.entries) - 1)
+            last_cursor = view.cursor
+            view._move_to(0)
+            first_cursor = view.cursor
+            view.go_home()
+            while view.busy:
+                await asyncio.sleep(0.01)
+            return (view, initial, initial_cursor,
+                    first_cursor, last_cursor)
+
+        view, initial, initial_cursor, first_cursor, last_cursor = \
+            asyncio.run(scenario())
+        self.assertTrue(initial[0].is_parent)
+        self.assertEqual(initial[0].name, "..")
+        self.assertEqual(initial[0].path, "/var")
+        self.assertEqual(initial_cursor, 1)
+        self.assertEqual(first_cursor, 0)
+        self.assertEqual(last_cursor, 1)
+        self.assertEqual(view.path, "/Users/naranicca")
+        self.assertTrue(view.entries[0].is_parent)
+        self.assertEqual(view.entries[1].name, "Desktop")
+
 
 if __name__ == "__main__":
     unittest.main()
