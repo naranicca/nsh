@@ -4,8 +4,8 @@ A tab bundles a :class:`ShellView` (its scrollback, input line and running
 process) with its own explorer pane(s) — so switching tabs swaps the whole
 working context, not just the command line. Only one tab is visible at a time;
 a thin tab bar below the prompt lists the others; a tab whose command is still
-running is tinted orange. A new tab is spawned automatically when a command is
-entered while the active session is busy, or explicitly with Ctrl-T.
+running is tinted orange. Commands entered while it is busy are queued in that
+tab; a new tab can be opened explicitly with Ctrl-T.
 """
 from prompt_toolkit.layout.containers import (
     DynamicContainer,

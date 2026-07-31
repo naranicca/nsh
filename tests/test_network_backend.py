@@ -401,6 +401,25 @@ class NetworkBackendTests(unittest.TestCase):
         app.switch_mode.assert_called_once_with("remote-shell")
         app.set_message.assert_not_called()
 
+    def test_local_shell_queues_immediately_while_command_is_running(self):
+        class Session:
+            pending = ["already queued"]
+
+            @staticmethod
+            def busy():
+                return True
+
+        app = object.__new__(NshApp)
+        app.invalidate = mock.Mock()
+        app._dispatch_command = mock.Mock()
+        session = Session()
+
+        app.run_in_shell(session, "next command")
+
+        self.assertEqual(session.pending, ["already queued", "next command"])
+        app._dispatch_command.assert_not_called()
+        app.invalidate.assert_called_once_with()
+
     def test_remote_shell_executes_in_file_view_directory(self):
         class Backend:
             label = "sftp://user@example:22"

@@ -1497,9 +1497,9 @@ class NshApp:
     def run_in_shell(self, session, cmd):
         """Run ``cmd`` typed in ``session``.
 
-        If that session is still running a command, ask whether to queue the new
-        command (it runs in this tab once the current one — and any already
-        queued ahead of it — finishes) or to run it now in a fresh tab.
+        If that session is still running a command, queue the new command in the
+        same tab. It runs once the current one — and any commands already ahead
+        of it — finishes.
 
         A leading ``!`` forces the rest of the line onto the real terminal
         (run_in_term) — an escape hatch for interactive tools nsh doesn't
@@ -1508,36 +1508,10 @@ class NshApp:
         if not cmd.strip():
             return
         if session.busy():
-            self._ask_busy(session, cmd)
+            session.pending.append(cmd)
+            self.invalidate()
             return
         self._dispatch_command(session, cmd)
-
-    def _ask_busy(self, session, cmd):
-        """A command was entered while ``session`` is still busy: pop a centered
-        dialog to either queue it behind the running one or run it now in a new
-        tab."""
-        queued = len(session.pending)
-        ahead = (f" ({queued} already queued)" if queued else "")
-        message = (f"A command is still running{ahead}.\n\n"
-                   f"  {cmd}\n\nQueue it behind the running command, or run it "
-                   "now in a new tab?")
-
-        def choose(queue):
-            if queue:
-                session.pending.append(cmd)  # the status bar shows the live count
-                # the running command may have finished while this dialog was
-                # open, draining an empty queue; if the tab is now free, start
-                # the just-queued command right away instead of stranding it
-                self._drain_pending(session)
-                self.invalidate()
-            else:
-                self._dispatch_command(self.shells.new_session(), cmd)
-
-        self.confirm_dialog.open(
-            "Command still running", message, choose,
-            ok_label="Queue", cancel_label="New tab", default="ok")
-        self.application.layout.focus(self.confirm_dialog.control)
-        self.invalidate()
 
     def _dispatch_command(self, session, cmd):
         """Actually run ``cmd`` in ``session`` (no busy check). When a builtin
