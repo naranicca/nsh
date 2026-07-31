@@ -11,6 +11,7 @@ from nsh.network.backend import (
 from nsh.network.view import NetworkView
 from nsh.network.shell import RemoteShellView
 from nsh.search.view import SearchView
+from nsh.shell.view import ShellView
 
 
 class FakeBackend(RemoteBackend):
@@ -447,8 +448,12 @@ class NetworkBackendTests(unittest.TestCase):
         prompt_fragments = shell._prompt_text()
         prompt = "".join(text for _style, text in prompt_fragments)
         self.assertTrue(prompt.endswith("$"))
-        self.assertNotEqual(prompt_fragments[-1][0],
-                            "class:shell.prompt.dim")
+        self.assertEqual(prompt_fragments[-1][0], "")
+        self.assertEqual(
+            ShellView._right_fit_fragments(
+                [("class:explorer.dir", "/very/long/path "), ("", "$")], 1),
+            [("", "$")],
+        )
         shell.command_window.horizontal_scroll = 80
         shell.command_buffer.text = "short"
         shell.command_buffer.cursor_position = len("short")

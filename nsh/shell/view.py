@@ -349,7 +349,10 @@ class ShellView:
         if sum(text_width(text) for _, text in fragments) <= width:
             return fragments
         if width <= 1:
-            return [("class:shell.prompt.dim", "$")]
+            # The normal prompt's `$` uses the terminal's default foreground;
+            # clipping must not replace that with the grey overflow style.
+            style = fragments[-1][0] if fragments else ""
+            return [(style, "$")]
         budget = width - 1
         kept = []
         for style, text in reversed(fragments):

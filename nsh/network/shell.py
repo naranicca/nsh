@@ -71,7 +71,7 @@ class RemoteShellView:
         view = self.app.networkview
         location = view.location if view.connected else "ssh"
         style = "class:shell.prompt.dim" if self.busy else "class:explorer.dir"
-        fragments = [(style, f"{location} $")]
+        fragments = [(style, f"{location} "), ("", "$")]
         return self._right_fit_fragments(fragments, self._prompt_width_cap())
 
     @staticmethod
@@ -80,7 +80,7 @@ class RemoteShellView:
             return fragments
         if width <= 1:
             # Keep the prompt's own colour even when only its final `$` fits.
-            style = fragments[-1][0] if fragments else "class:explorer.dir"
+            style = fragments[-1][0] if fragments else ""
             return [(style, "$")]
         budget = width - 1
         kept = []
