@@ -28,6 +28,7 @@ class SearchView:
         self.scroll = 0
         self.loading = False
         self._index_generation = 0
+        self.remote_view = None
 
         self.query_buffer = Buffer(multiline=False, on_text_changed=self._on_query)
 
@@ -65,6 +66,10 @@ class SearchView:
 
     # -- lifecycle ------------------------------------------------------------
     def start(self, query=""):
+        if getattr(self.app, "_search_remote", False):
+            self._start_remote(query)
+            return
+        self.remote_view = None
         root = self.app.cwd
         # The explorer has already scanned the current directory.  Reuse that
         # listing as an instant first-stage index while the recursive walk runs
@@ -88,6 +93,35 @@ class SearchView:
         # Assigning the same query does not necessarily fire on_text_changed.
         self._refilter()
         asyncio.ensure_future(self._index(generation, root, show_hidden, skip))
+
+    def _start_remote(self, query=""):
+        self.remote_view = self.app.networkview
+        self.remote_view.busy = True
+        self.candidates = self.remote_view.search_candidates()
+        self.results = []
+        self.cursor = 0
+        self.scroll = 0
+        self.loading = True
+        self._index_generation += 1
+        generation = self._index_generation
+        self.query_buffer.text = query
+        self.query_buffer.cursor_position = len(query)
+        self._refilter()
+        asyncio.ensure_future(self._index_remote(generation))
+
+    async def _index_remote(self, generation):
+        remote_view = self.remote_view
+        try:
+            items = await run_in_thread(
+                remote_view.gather_search_candidates)
+            if generation != self._index_generation:
+                return
+            self.candidates = items
+            self.loading = False
+            self._refilter()
+        finally:
+            remote_view.busy = False
+            self.app.invalidate()
 
     def _exclude_dirs(self):
         """The directory names to skip during search, from the nshrc
@@ -131,6 +165,12 @@ class SearchView:
         if not self.results:
             return
         rel = self.results[self.cursor][0]
+        if self.remote_view is not None:
+            if self.loading:
+                self.app.set_message("wait for remote indexing to finish")
+                return
+            self.remote_view.open_search_result(rel)
+            return
         path = (self.app.cwd / rel).resolve()
         self.app.search_select(path)
 
@@ -169,7 +209,8 @@ class SearchView:
             # an explicit bg (search.selected) rather than reverse, which would
             # flip the orange match colour into a harsh yellow block.
             cur = " class:search-selected" if on else ""
-            base = "class:explorer.dir" if rel.endswith(os.sep) else "class:explorer.file"
+            base = ("class:explorer.dir" if rel.endswith((os.sep, "/"))
+                    else "class:explorer.file")
             posset = set(positions)
             frags.append((base + cur, "▸ " if on else "  "))
             for ci, ch in enumerate(rel):

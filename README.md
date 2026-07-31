@@ -259,6 +259,8 @@ alternatives.
 | `↑`/`↓`, `j`/`k` | move cursor |
 | `g`/`Home`, `G`/`End` | first / last row |
 | `~` | open the remote login home directory |
+| `s` | sort by name, size, date, or type in either direction |
+| `/` | fuzzy-find files and directories below the remote directory |
 | `↵` | enter a directory; download a file |
 | `l`, `→` | expand / fold a remote directory inline |
 | `⌫`, `h`, `←` | fold, move to the tree parent, or open the parent directory |

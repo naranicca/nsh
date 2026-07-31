@@ -140,6 +140,7 @@ class NshApp:
         self._start_mode = start_mode
         self._initial_query = query
         self._pending_query = ""
+        self._search_remote = False
         self.picker = picker
         self.search_result = None
 
@@ -1204,7 +1205,8 @@ class NshApp:
                     ("↵", "open/download", nv.open),
                     ("Space", "select", nv.toggle),
                     ("c", "download", nv.download), ("p", "upload", nv.upload),
-                    ("n", "mkdir", nv.new_dir), ("Tab", "actions", nv.actions),
+                    ("n", "mkdir", nv.new_dir), ("s", "sort", nv.open_sort_menu),
+                    ("/", "find", nv.start_search), ("Tab", "actions", nv.actions),
                     ("Shift+H", "local", lambda: self.focus_network_pane(-1)),
                     ("ESC", "clear selection", nv.cancel),
                 ]
@@ -1369,6 +1371,12 @@ class NshApp:
 
     # -- fuzzy search ---------------------------------------------------------
     def enter_search(self, query=""):
+        self._search_remote = False
+        self._pending_query = query
+        self.switch_mode(SEARCH)
+
+    def enter_network_search(self, query=""):
+        self._search_remote = True
         self._pending_query = query
         self.switch_mode(SEARCH)
 
@@ -1389,7 +1397,7 @@ class NshApp:
             self.search_result = None
             self.exit()
             return
-        self.switch_mode(EXPLORER)
+        self.switch_mode(NETWORK if self._search_remote else EXPLORER)
 
     def toggle_preview(self):
         self.show_preview = not self.show_preview

@@ -490,6 +490,83 @@ class NetworkBackendTests(unittest.TestCase):
         self.assertTrue(view.entries[0].is_parent)
         self.assertEqual(view.entries[1].name, "Desktop")
 
+    def test_remote_sort_matches_explorer_groups_and_keeps_cursor(self):
+        class App:
+            settings = {"sort": "name", "sort_reverse": "false"}
+
+            def invalidate(self):
+                pass
+
+        view = NetworkView(App())
+        view.path = "/"
+        view._children = {"/": [
+            RemoteEntry("small.txt", "/small.txt", False, 10, 10),
+            RemoteEntry("folder", "/folder", True, 0, 30),
+            RemoteEntry("large.bin", "/large.bin", False, 100, 20),
+        ]}
+        view.entries = view._flatten("/")
+        view.cursor = 0
+
+        view.set_sort("size", reverse=True)
+
+        self.assertEqual([entry.name for entry in view.entries],
+                         ["folder", "large.bin", "small.txt"])
+        self.assertEqual(view.current().name, "folder")
+
+    def test_remote_fuzzy_search_indexes_tree_and_opens_result(self):
+        class Backend:
+            def listdir(self, path):
+                return {
+                    "/work": [
+                        RemoteEntry("docs", "/work/docs", True),
+                        RemoteEntry("readme.md", "/work/readme.md", False),
+                    ],
+                    "/work/docs": [
+                        RemoteEntry("guide.txt", "/work/docs/guide.txt", False),
+                    ],
+                }.get(path, [])
+
+        class Layout:
+            def focus(self, control):
+                self.focused = control
+
+        class Application:
+            layout = Layout()
+
+        class App:
+            settings = {}
+            application = Application()
+
+            def invalidate(self):
+                pass
+
+            def set_message(self, message):
+                self.message = message
+
+            def switch_mode(self, mode):
+                self.mode = mode
+
+        async def scenario():
+            app = App()
+            view = NetworkView(app)
+            view.backend = Backend()
+            view.path = "/work"
+            await view._load()
+            immediate = view.search_candidates()
+            indexed = view.gather_search_candidates()
+            view.open_search_result("docs/guide.txt")
+            while view.busy:
+                await asyncio.sleep(0.01)
+            return app, view, immediate, indexed
+
+        app, view, immediate, indexed = asyncio.run(scenario())
+        self.assertEqual(immediate, ["docs/", "readme.md"])
+        self.assertEqual(indexed,
+                         ["docs/", "docs/guide.txt", "readme.md"])
+        self.assertEqual(view.path, "/work/docs")
+        self.assertEqual(view.current().name, "guide.txt")
+        self.assertEqual(app.mode, "network")
+
 
 if __name__ == "__main__":
     unittest.main()

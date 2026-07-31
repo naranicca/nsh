@@ -10,6 +10,7 @@ from prompt_toolkit.layout.containers import Window
 from prompt_toolkit.mouse_events import MouseModifier
 
 from .. import config
+from ..explorer.model import natural_key
 from ..explorer.fileops import unique_target
 from ..util import state
 from ..util.aio import run_in_thread
@@ -37,6 +38,12 @@ class NetworkView:
         self.cursor = 0
         self._top = 0
         self.selected = set()
+        settings = getattr(app, "settings", {})
+        self.sort = settings.get("sort", "name")
+        if self.sort not in ("name", "size", "date", "type"):
+            self.sort = "name"
+        self.reverse = (settings.get("sort_reverse", "false").lower()
+                        in ("true", "1", "yes", "on"))
         self.busy = False
         self.control = WheelScrollControl(
             lambda d: self.move(d * 3), on_click=self._on_mouse,
@@ -157,12 +164,24 @@ class NetworkView:
             out.append(remote.RemoteEntry(
                 "..", posixpath.dirname(directory) or "/", True,
                 depth=0, is_parent=True))
-        for entry in self._children.get(directory, []):
+        for entry in self._sorted(self._children.get(directory, [])):
             row = replace(entry, depth=depth)
             out.append(row)
             if row.is_dir and row.path in self.expanded:
                 out.extend(self._flatten(row.path, depth + 1))
         return out
+
+    def _sorted(self, entries):
+        keys = {
+            "name": lambda entry: natural_key(entry.name),
+            "size": lambda entry: (entry.size, natural_key(entry.name)),
+            "date": lambda entry: (entry.mtime, natural_key(entry.name)),
+            "type": lambda entry: (
+                posixpath.splitext(entry.name)[1].lower(),
+                natural_key(entry.name)),
+        }
+        rows = sorted(entries, key=keys[self.sort], reverse=self.reverse)
+        return sorted(rows, key=lambda entry: not entry.is_dir)
 
     def first_index(self):
         return 1 if (self.entries and self.entries[0].is_parent and
@@ -352,6 +371,85 @@ class NetworkView:
             except Exception as exc:
                 self.path = old_path
                 self.app.set_message(f"cannot open remote home: {exc}")
+            finally:
+                self.busy = False
+                self.app.invalidate()
+        asyncio.ensure_future(do())
+
+    def open_sort_menu(self):
+        labels = [("Name", "name"), ("Size", "size"),
+                  ("Date", "date"), ("Type", "type")]
+        items = []
+        for label, mode in labels:
+            for arrow, reverse in (("↑", False), ("↓", True)):
+                active = mode == self.sort and reverse == self.reverse
+                items.append((
+                    ("● " if active else "  ") + label + arrow,
+                    lambda mode=mode, reverse=reverse:
+                        self.set_sort(mode, reverse),
+                ))
+        self.app.open_menu("Sort by", items)
+
+    def set_sort(self, mode, reverse=False):
+        current = self.current()
+        self.sort, self.reverse = mode, reverse
+        self._apply_tree(current.path if current else None)
+
+    def start_search(self):
+        if self.busy:
+            self.app.set_message("wait for the remote operation to finish")
+            return
+        self.app.enter_network_search()
+
+    def search_candidates(self):
+        """Already loaded rows for the searcher's immediate first stage."""
+        out = []
+        for entry in self.entries:
+            if entry.is_parent:
+                continue
+            rel = posixpath.relpath(entry.path, self.path)
+            out.append(rel + ("/" if entry.is_dir else ""))
+        return out
+
+    def gather_search_candidates(self):
+        """Recursively index remote names; called in a worker thread."""
+        out = []
+        visited = set()
+
+        def walk(directory):
+            directory = posixpath.normpath(directory)
+            if directory in visited:
+                return
+            visited.add(directory)
+            try:
+                entries = self.backend.listdir(directory)
+            except Exception:
+                return
+            for entry in entries:
+                rel = posixpath.relpath(entry.path, self.path)
+                out.append(rel + ("/" if entry.is_dir else ""))
+                if entry.is_dir:
+                    walk(entry.path)
+
+        walk(self.path)
+        return out
+
+    def open_search_result(self, relative):
+        target = posixpath.normpath(posixpath.join(
+            self.path, relative.rstrip("/")))
+        is_dir = relative.endswith("/")
+        old_path = self.path
+        self.path = target if is_dir else (posixpath.dirname(target) or "/")
+        self.busy = True
+
+        async def do():
+            try:
+                await self._load(None if is_dir else posixpath.basename(target))
+                self.app.switch_mode("network")
+                self.app.application.layout.focus(self.control)
+            except Exception as exc:
+                self.path = old_path
+                self.app.set_message(f"cannot open search result: {exc}")
             finally:
                 self.busy = False
                 self.app.invalidate()
@@ -554,6 +652,8 @@ class NetworkView:
         kb.add("G")(lambda e: self._move_to(len(self.entries) - 1))
         kb.add("end")(lambda e: self._move_to(len(self.entries) - 1))
         kb.add("~")(lambda e: self.go_home())
+        kb.add("s")(lambda e: self.open_sort_menu())
+        kb.add("/")(lambda e: self.start_search())
         kb.add("enter")(lambda e: self.open())
         kb.add("right")(lambda e: self.toggle_expand())
         kb.add("l")(lambda e: self.toggle_expand())
