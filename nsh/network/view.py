@@ -11,6 +11,7 @@ from prompt_toolkit.mouse_events import MouseModifier
 
 from .. import config
 from ..explorer.fileops import unique_target
+from ..util import state
 from ..util.aio import run_in_thread
 from ..util.paths import human_size
 from ..util.widgets import WheelScrollControl, visible_slice
@@ -74,6 +75,8 @@ class NetworkView:
                     await run_in_thread(old.close)
                 await self._load()
                 self.app.switch_mode("network")
+                if protocol == "sftp":
+                    state.set("network_sftp_target", target)
                 self.app.set_message(f"connected: {self.location}")
             except remote.HostKeyRequired as exc:
                 label = (f"Trust {exc.hostname} {exc.key_type} host key? "
@@ -504,11 +507,15 @@ class NetworkView:
         width = (self.window.render_info.window_width
                  if self.window.render_info else 80)
         name_w = max(4, width - 7 - SIZE_COL)
+        try:
+            cursor_shown = self.app.application.layout.has_focus(self.control)
+        except (AttributeError, RuntimeError):
+            cursor_shown = True
         out = []
         for i in range(start, end):
             entry = self.entries[i]
             selected = entry.path in self.selected
-            on = i == self.cursor
+            on = cursor_shown and i == self.cursor
             base_style = ("class:explorer.dir" if entry.is_dir
                           else "class:explorer.file")
             style = "class:explorer.selected" if selected else base_style

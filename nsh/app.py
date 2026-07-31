@@ -41,6 +41,7 @@ from .system.view import SystemView
 from .shell.quoting import quote_arg, unquote_body
 from .shell.runner import CommandRunner
 from .shell.tabs import ShellTabs
+from .util import state
 from .util.bookmarks import Bookmarks
 from .util.dialog import (
     ChmodDialog, ConfirmDialog, FindTextDialog, InfoDialog, InputDialog)
@@ -2170,8 +2171,11 @@ class NshApp:
         self.open_menu("Network", items)
 
     def _network_target(self, protocol):
-        example = ("user@host:22/" if protocol == "sftp"
-                   else "user@host:21/")
+        example = (state.get("network_sftp_target", "user@host:22/")
+                   if protocol == "sftp" else "user@host:21/")
+        if not isinstance(example, str) or not example:
+            example = ("user@host:22/" if protocol == "sftp"
+                       else "user@host:21/")
         self.open_input_dialog(
             f"{protocol.upper()} target", example, len(example),
             lambda target: (self._network_jump(target) if protocol == "sftp"

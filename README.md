@@ -212,6 +212,9 @@ soon as it closes. Leave the SFTP password blank to use `IdentityFile` entries,
 your SSH agent, or Paramiko's normal private-key discovery. Leave an anonymous
 FTP password blank to use `anonymous@`.
 
+After a successful SFTP connection, its target (never its password) is saved in
+the UI state and prefilled the next time the SFTP connection dialog opens.
+
 #### SSH config and jump hosts
 
 SFTP resolves aliases through `~/.ssh/config`, including `HostName`, `User`,

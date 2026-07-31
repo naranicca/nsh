@@ -4,6 +4,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import mock
 
+from nsh.app import NshApp
+from nsh.explorer.view import ExplorerView
 from nsh.network.backend import (
     HostKeyRequired, RemoteBackend, RemoteEntry, SFTPBackend, parse_target)
 from nsh.network.view import NetworkView
@@ -360,6 +362,85 @@ class NetworkBackendTests(unittest.TestCase):
         self.assertIn("1.5K", rendered)
         self.assertTrue(any("class:explorer.file" in style and
                             "reverse" in style for style in styles))
+
+    def test_only_focused_network_pane_shows_its_cursor(self):
+        class Layout:
+            remote_focused = False
+
+            def has_focus(self, control):
+                return self.remote_focused
+
+        class Application:
+            layout = Layout()
+
+        class App:
+            application = Application()
+            mode = "network"
+
+            def invalidate(self):
+                pass
+
+            def network_local_focused(self):
+                return not self.application.layout.remote_focused
+
+        app = App()
+        remote_view = NetworkView(app)
+        remote_view.entries = [RemoteEntry("file.txt", "/file.txt", False)]
+        local_view = object.__new__(ExplorerView)
+        local_view.app = app
+        app.explorer = local_view
+        app.networkview = remote_view
+        remote_view.local_view = local_view
+
+        self.assertTrue(local_view._cursor_visible())
+        self.assertFalse(any("reverse" in style
+                             for style, _text in remote_view._text()))
+
+        app.application.layout.remote_focused = True
+        self.assertFalse(local_view._cursor_visible())
+        self.assertTrue(any("reverse" in style
+                            for style, _text in remote_view._text()))
+
+    def test_successful_sftp_target_is_remembered_and_prefilled(self):
+        class Backend:
+            label = "sftp://naranicca@192.168.45.75:22"
+
+            def listdir(self, path):
+                return []
+
+        class App:
+            explorer = object()
+
+            def set_message(self, message):
+                self.message = message
+
+            def switch_mode(self, mode):
+                self.mode = mode
+
+            def invalidate(self):
+                pass
+
+        async def scenario():
+            view = NetworkView(App())
+            with mock.patch("nsh.network.view.remote.connect",
+                            return_value=(Backend(), "/")), mock.patch(
+                    "nsh.network.view.state.set") as remember:
+                view.connect("sftp", "naranicca@192.168.45.75", "secret")
+                while view.busy:
+                    await asyncio.sleep(0.01)
+                return remember
+
+        remember = asyncio.run(scenario())
+        remember.assert_called_once_with(
+            "network_sftp_target", "naranicca@192.168.45.75")
+
+        app = object.__new__(NshApp)
+        app.open_input_dialog = mock.Mock()
+        with mock.patch("nsh.app.state.get",
+                        return_value="naranicca@192.168.45.75"):
+            app._network_target("sftp")
+        self.assertEqual(app.open_input_dialog.call_args.args[1],
+                         "naranicca@192.168.45.75")
 
     def test_remote_listing_has_parent_row_and_navigation_shortcuts(self):
         class App:

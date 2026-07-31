@@ -233,6 +233,14 @@ class ExplorerView:
     def _cursor_style(base, on_cursor):
         return (base + " reverse").strip() if on_cursor else base
 
+    def _cursor_visible(self):
+        visible = self.app.mode != "shell" and self is self.app.explorer
+        if self.app.mode == "network":
+            network = getattr(self.app, "networkview", None)
+            visible = (network is not None and self is network.local_view and
+                       self.app.network_local_focused())
+        return visible
+
     def _formatted_text(self):
         if not self.entries:
             return [("class:explorer.file", "  (empty directory)")]
@@ -253,7 +261,7 @@ class ExplorerView:
         # is still shown on top of the shell, but the active "cursor" is the
         # command line, so highlighting an explorer row would be misleading.
         # In two-pane mode only the active pane shows its cursor row.
-        cursor_shown = self.app.mode != "shell" and self is self.app.explorer
+        cursor_shown = self._cursor_visible()
         self._top, end = visible_slice(
             self.window, len(self.entries), self.cursor, self._top)
         result = []
