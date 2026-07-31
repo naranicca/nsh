@@ -359,10 +359,10 @@ class NshApp:
         network_local = Condition(self.network_local_focused)
 
         # In the mixed local/remote view, copy from the focused local pane to
-        # the remote pane. These eager bindings override the local explorer's
-        # ordinary paste/action meanings only while Network mode is visible.
+        # the remote pane. This eager binding overrides the local explorer's
+        # ordinary copy action only while Network mode is visible; ``p`` keeps
+        # its normal local paste meaning.
         @kb.add("c", filter=network_mode & network_local, eager=True)
-        @kb.add("p", filter=network_mode & network_local, eager=True)
         def _(event):
             self.networkview.upload()
 
@@ -1197,7 +1197,7 @@ class NshApp:
                 hints = [
                     ("↵", "open", (nv.local_view or ex).open),
                     ("Space", "select", (nv.local_view or ex).toggle_select),
-                    ("c/p", "upload", nv.upload),
+                    ("c", "upload", nv.upload),
                     ("Shift+L", "remote", lambda: self.focus_network_pane(1)),
                     ("ESC", "clear selection"),
                 ]
@@ -1205,11 +1205,11 @@ class NshApp:
                 hints = [
                     ("↵", "open/download", nv.open),
                     ("Space", "select", nv.toggle),
-                    ("c", "download", nv.download), ("p", "upload", nv.upload),
+                    ("c", "download", nv.download),
                     ("n", "mkdir", nv.new_dir), ("s", "sort", nv.open_sort_menu),
                     ("/", "find", nv.start_search), ("Tab", "actions", nv.actions),
                     ("Shift+H", "local", lambda: self.focus_network_pane(-1)),
-                    ("ESC", "clear selection", nv.cancel),
+                    ("ESC", "clear selection", nv.cancel), ("q", "quit", self.exit),
                 ]
         else:
             hints = [

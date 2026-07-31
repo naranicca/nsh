@@ -287,6 +287,25 @@ class NetworkBackendTests(unittest.TestCase):
         self.assertIs(view.backend, backend)
         self.assertTrue(app.invalidated)
 
+    def test_remote_c_downloads_p_is_unbound_and_q_quits(self):
+        class App:
+            settings = {}
+
+            def exit(self):
+                self.exited = True
+
+        app = App()
+        view = NetworkView(app)
+        view.download = mock.Mock()
+        bindings = view._keys()
+
+        bindings.get_bindings_for_keys(("c",))[0].handler(None)
+        bindings.get_bindings_for_keys(("q",))[0].handler(None)
+
+        view.download.assert_called_once_with()
+        self.assertTrue(app.exited)
+        self.assertEqual(bindings.get_bindings_for_keys(("p",)), [])
+
     def test_disconnect_requires_confirmation(self):
         class Backend:
             label = "sftp://example.com"

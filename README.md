@@ -266,17 +266,17 @@ alternatives.
 | `⌫`, `h`, `←` | fold, move to the tree parent, or open the parent directory |
 | `Space` | select / deselect |
 | `Shift+H` / `Shift+L` | focus the local / remote pane |
-| `c` | copy focused-pane selection to the other pane (upload or download) |
-| `p` | upload the displayed local pane's selection to the remote pane |
+| `c` | local focus: upload; remote focus: download |
 | `n` | create remote directory |
 | `i` | rename remote item |
 | `D` | permanently delete selected remote items |
 | `Tab` | remote actions menu |
 | `r` | refresh |
 | `Esc` | clear the focused pane's selection |
+| `q` | quit nsh |
 
 With the remote pane focused, `c` downloads into the displayed local pane's
-current directory. With the local pane focused, `c` or `p` uploads its marked
+current directory. With the local pane focused, `c` uploads its marked
 selection—or its cursor item when nothing is marked—into the displayed remote
 directory. Files and whole directory trees are supported in both directions.
 `Enter` on a remote file is a download shortcut; `Enter` on a directory opens
