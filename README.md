@@ -218,7 +218,7 @@ the UI state and prefilled the next time the SFTP connection dialog opens.
 #### SSH config and jump hosts
 
 SFTP resolves aliases through `~/.ssh/config`, including `HostName`, `User`,
-`Port`, `IdentityFile`, and `ProxyJump`. For example:
+`Port`, `IdentityFile`, `ProxyJump`, and `ProxyCommand`. For example:
 
 ```sshconfig
 Host bastion
@@ -242,6 +242,11 @@ A jump host can also be entered explicitly as
 `edge@edge-host,core@core-host` are supported. An explicit value overrides the
 destination's `ProxyJump` setting. Each hop resolves its own SSH config and is
 closed in reverse order when the connection ends or fails.
+
+When no jump host or `ProxyJump` is active, nsh also opens the expanded
+`ProxyCommand` as the SSH transport socket. Standard tokens such as `%h`, `%p`,
+and `%r` are expanded by the SSH config parser. The proxy process is closed when
+the connection ends or fails.
 
 Every SSH host key is checked independently against the user's system
 `known_hosts`. On first connection nsh shows the key type and SHA256 fingerprint

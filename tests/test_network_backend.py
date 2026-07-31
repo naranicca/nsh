@@ -108,6 +108,67 @@ class NetworkBackendTests(unittest.TestCase):
         self.assertIs(clients[1].connect_args[1]["sock"], channel)
         self.assertEqual(len(backend.ssh_clients), 2)
 
+    def test_sftp_uses_proxycommand_from_ssh_config(self):
+        clients = []
+        proxies = []
+
+        class Proxy:
+            def __init__(self, command):
+                self.command = command
+                self.closed = False
+                proxies.append(self)
+
+            def close(self):
+                self.closed = True
+
+        class Client:
+            def __init__(self):
+                clients.append(self)
+
+            def load_system_host_keys(self):
+                pass
+
+            def set_missing_host_key_policy(self, policy):
+                pass
+
+            def connect(self, hostname, **kwargs):
+                self.connect_args = (hostname, kwargs)
+
+            def open_sftp(self):
+                class SFTP:
+                    def normalize(self, path):
+                        return "/home/proxy-user"
+
+                    def close(self):
+                        pass
+                return SFTP()
+
+            def close(self):
+                pass
+
+        with TemporaryDirectory() as temp:
+            home = Path(temp)
+            ssh_dir = home / ".ssh"
+            ssh_dir.mkdir()
+            (ssh_dir / "config").write_text(
+                "Host proxied\n"
+                "  HostName internal.example\n"
+                "  User proxy-user\n"
+                "  Port 2222\n"
+                "  ProxyCommand ssh -W %h:%p gateway-%r\n",
+                encoding="utf-8")
+            with mock.patch("paramiko.SSHClient", Client), mock.patch(
+                    "paramiko.ProxyCommand", Proxy), mock.patch(
+                    "nsh.network.backend.Path.home", return_value=home):
+                backend = SFTPBackend.connect("proxied", 22, "", "secret")
+
+        self.assertEqual(proxies[0].command,
+                         "ssh -W internal.example:2222 gateway-proxy-user")
+        self.assertIs(clients[0].connect_args[1]["sock"], proxies[0])
+        self.assertEqual(clients[0].connect_args[0], "internal.example")
+        backend.close()
+        self.assertTrue(proxies[0].closed)
+
     def test_sftp_prompts_then_saves_an_approved_host_key(self):
         class Key:
             def asbytes(self):

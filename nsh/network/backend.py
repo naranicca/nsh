@@ -213,6 +213,7 @@ class SFTPBackend(RemoteBackend):
                 "host_key_name": values.get("hostkeyalias") or
                                  values.get("hostname", alias),
                 "proxyjump": values.get("proxyjump", ""),
+                "proxycommand": values.get("proxycommand", "") or "",
             }
 
         destination = node(host, port, username)
@@ -225,6 +226,7 @@ class SFTPBackend(RemoteBackend):
                 jump_nodes.append(node(jump_host, jump_port, jump_user))
 
         clients = []
+        proxy_commands = []
         previous = None
 
         class ConfirmHostKeyPolicy(paramiko.MissingHostKeyPolicy):
@@ -249,7 +251,12 @@ class SFTPBackend(RemoteBackend):
                     sock = transport.open_channel(
                         "direct-tcpip", (current["host"], current["port"]),
                         ("127.0.0.1", 0))
+                elif (current["proxycommand"] and
+                      current["proxycommand"].lower() != "none"):
+                    sock = paramiko.ProxyCommand(current["proxycommand"])
+                    proxy_commands.append(sock)
                 ssh = paramiko.SSHClient()
+                clients.append(ssh)
                 ssh.load_system_host_keys()
                 if known_hosts_path.exists():
                     ssh.load_host_keys(os.fspath(known_hosts_path))
@@ -264,11 +271,11 @@ class SFTPBackend(RemoteBackend):
                     key_filename=current["keys"], timeout=15,
                     banner_timeout=15, auth_timeout=15, sock=sock,
                     allow_agent=True, look_for_keys=True)
-                clients.append(ssh)
                 previous = ssh
 
             obj = cls(host, port, destination["username"] or username)
             obj.ssh_clients = clients
+            obj.proxy_commands = proxy_commands
             obj.ssh = clients[-1]
             obj.client = obj.ssh.open_sftp()
             try:
@@ -282,6 +289,11 @@ class SFTPBackend(RemoteBackend):
                     ssh.close()
                 except Exception:
                     pass
+            for proxy in reversed(proxy_commands):
+                try:
+                    proxy.close()
+                except Exception:
+                    pass
             raise
 
     def close(self):
@@ -290,6 +302,11 @@ class SFTPBackend(RemoteBackend):
         finally:
             for ssh in reversed(self.ssh_clients):
                 ssh.close()
+            for proxy in reversed(getattr(self, "proxy_commands", [])):
+                try:
+                    proxy.close()
+                except Exception:
+                    pass
 
     def listdir(self, path):
         entries = []
