@@ -443,6 +443,15 @@ class NetworkBackendTests(unittest.TestCase):
             "".join(text for _style, text in line) for line in shell.lines)
         self.assertIn("hello", rendered)
 
+        shell.command_buffer.text = "x" * 200
+        prompt = "".join(text for _style, text in shell._prompt_text())
+        self.assertTrue(prompt.endswith("$"))
+        shell.command_window.horizontal_scroll = 80
+        shell.command_buffer.text = "short"
+        shell.command_buffer.cursor_position = len("short")
+        shell._reset_stale_input_scroll(shell.command_buffer)
+        self.assertEqual(shell.command_window.horizontal_scroll, 0)
+
     def test_disconnect_requires_confirmation(self):
         class Backend:
             label = "sftp://example.com"
