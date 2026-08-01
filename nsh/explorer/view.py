@@ -21,6 +21,7 @@ from prompt_toolkit.mouse_events import MouseModifier
 
 from .. import config
 from ..util import hangul
+from ..util.menu import SEPARATOR
 from ..util.paths import human_size, shorten_home
 from ..util.widgets import WheelScrollControl, visible_slice
 from ..util.width import char_width, cut_to_width, pad_to_width, text_width
@@ -962,6 +963,14 @@ class ExplorerView:
             # honours its writable/read-only subset, but keeping the action in
             # the same menu makes the interface predictable across machines.
             items.append(("chmod…", self.chmod_entry))
+        # Creation belongs to the contextual file menu. Keep it as a distinct
+        # group between ordinary file actions (ending in chmod) and Git.
+        items += [
+            (SEPARATOR, None),
+            ("New folder", self.new_dir),
+            ("New file", self.new_file),
+            (SEPARATOR, None),
+        ]
         if self.app.git_status and self.app.git_status.is_repo:
             gs = self.app.git_status
             code = gs.code_for(cur.path) if cur else None
@@ -999,13 +1008,6 @@ class ExplorerView:
             if gs.has_commits:
                 items.append(("Git: Log", self.app.open_log))
             items.append(("Git: Branches", self.git_branches))
-        if not items:
-            # nothing applies here (e.g. an empty, clean directory) — creating
-            # files now lives in the F10 menu, so there's simply nothing to show
-            if forced:
-                self._deselect_forced(forced)
-            self.app.set_message("no actions available here")
-            return
         # clear the force-selected cursor file once the menu closes (whether an
         # action ran or it was cancelled); a real, user-made selection is kept
         on_close = (lambda: self._deselect_forced(forced)) if forced else None
