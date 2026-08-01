@@ -9,6 +9,8 @@
 All: arrow keys / Tab move between fields/buttons, Enter runs the primary action,
 Esc dismisses.
 """
+import re
+
 from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.filters import Condition
 from prompt_toolkit.key_binding import KeyBindings
@@ -519,14 +521,14 @@ class ChmodDialog:
     columns are read / write / execute. A live readout shows the symbolic mode
     (``rwxr-xr-x``) and its octal value (``755``).
 
-    Arrow keys (or h/j/k/l) move around the grid and down to the OK / Cancel
-    buttons; Tab cycles every cell and button; Space toggles the focused cell or
-    presses the focused button; a digit 0-7 typed over a row sets that row's
-    three bits at once; Enter applies; Esc cancels. Every cell and button is also
-    clickable."""
+    The Mode field accepts octal (``755``), symbolic bits (``rwxr-xr-x``), or
+    chmod expressions (``u+x``, ``go-w``, ``a=rw``). The grid stays synchronized
+    with valid text. Arrow keys (or h/j/k/l) move around the grid; Tab cycles
+    through the field, cells and buttons; Space toggles a cell; Enter applies;
+    Esc cancels. Every cell and button is also clickable."""
 
-    # focus indices: 0-8 the grid cells (row-major), 9 OK, 10 Cancel
-    _OK, _CANCEL = 9, 10
+    # focus indices: 0 text, 1-9 grid cells, 10 OK, 11 Cancel
+    _TEXT, _OK, _CANCEL = 0, 10, 11
     _ROWS = ("Owner", "Group", "Other")
 
     def __init__(self, on_close):
@@ -535,13 +537,18 @@ class ChmodDialog:
         self.title = ""
         self._on_accept = None
         self.bits = [False] * 9
-        self.focus = 0
+        self.focus = self._TEXT
+        self.mode_text = ""
+        self.text_pos = 0
+        self._base_mode = 0
+        self._text_pristine = True
+        self.error = ""
 
         self.control = FormattedTextControl(
             self._render, focusable=True, show_cursor=False, key_bindings=self._kb()
         )
         body = HSplit(
-            [Window(self.control, height=9, width=Dimension.exact(WIDTH),
+            [Window(self.control, height=11, width=Dimension.exact(WIDTH),
                     align=WindowAlign.CENTER)],
             style="class:dialog",
             padding=0,
@@ -556,8 +563,13 @@ class ChmodDialog:
         ``on_accept(mode_int)`` receives the chosen 0-0o777 value."""
         self.title = title
         self._on_accept = on_accept
+        self._base_mode = mode & 0o777
         self.bits = [bool(mode & (1 << b)) for b in range(8, -1, -1)]
-        self.focus = 0
+        self.focus = self._TEXT
+        self.mode_text = f"{self._base_mode:03o}"
+        self.text_pos = len(self.mode_text)
+        self._text_pristine = True
+        self.error = ""
         self.active = True
 
     def _close(self):
@@ -573,8 +585,12 @@ class ChmodDialog:
         return m
 
     def _accept(self):
+        mode = self._parse_mode_text(self.mode_text)
+        if mode is None:
+            self.error = "Use 755, rwxr-xr-x, or u+x"
+            return
+        self._set_mode(mode)
         cb = self._on_accept
-        mode = self._mode()
         self._close()
         if cb:
             cb(mode)
@@ -584,8 +600,44 @@ class ChmodDialog:
         return "".join(c if on else "-"
                        for c, on in zip("rwxrwxrwx", self.bits))
 
+    def _set_mode(self, mode):
+        self.bits = [bool(mode & (1 << b)) for b in range(8, -1, -1)]
+
+    def _parse_mode_text(self, text):
+        """Parse octal, rwx bits, or a small chmod-compatible expression."""
+        value = text.strip()
+        if re.fullmatch(r"0?[0-7]{3}", value):
+            return int(value, 8) & 0o777
+        if re.fullmatch(r"[r-][w-][x-][r-][w-][x-][r-][w-][x-]", value):
+            return sum(1 << (8 - i) for i, char in enumerate(value) if char != "-")
+        if not value:
+            return None
+        mode = self._base_mode
+        masks = {"r": 4, "w": 2, "x": 1}
+        for clause in value.split(","):
+            match = re.fullmatch(r"([ugoa]*)([+=-])([rwx]*)", clause)
+            if not match:
+                return None
+            who, operation, permissions = match.groups()
+            who = who or "a"
+            groups = {0 if char == "u" else 1 if char == "g" else 2
+                      for char in who if char in "ugo"}
+            if "a" in who:
+                groups = {0, 1, 2}
+            value_bits = sum(masks[char] for char in permissions)
+            for group in groups:
+                shift = (2 - group) * 3
+                group_mask = 7 << shift
+                if operation == "=":
+                    mode = (mode & ~group_mask) | (value_bits << shift)
+                elif operation == "+":
+                    mode |= value_bits << shift
+                else:
+                    mode &= ~(value_bits << shift)
+        return mode
+
     def _cell(self, idx, letter):
-        on = self.bits[idx]
+        on = self.bits[idx - 1]
         if self.focus == idx:
             style = "class:dialog.button.focus"
         elif on:
@@ -595,22 +647,41 @@ class ChmodDialog:
         return (style, f" [{letter if on else '-'}] ",
                 _on_click(lambda: self._toggle(idx)))
 
+    def _mode_field(self):
+        width = 18
+        text = self.mode_text
+        if self.focus != self._TEXT:
+            shown = cut_to_width(text, width)
+            return [("class:dialog.input",
+                     shown + " " * max(0, width - text_width(shown)))]
+        pos = min(self.text_pos, len(text))
+        start = max(0, pos - width + 1)
+        at = text[pos] if pos < len(text) else " "
+        before = text[start:pos]
+        after = cut_to_width(text[pos + 1:], max(0, width - len(before) - 1))
+        pad = " " * max(0, width - len(before) - 1 - len(after))
+        return [("class:dialog.input", before),
+                ("class:dialog.input reverse", at),
+                ("class:dialog.input", after + pad)]
+
     def _render(self):
         # The window centres each line. The header and the three rows are built
         # to the same width (a 7-col label + three 5-col cells) so they centre to
         # the same offset and the r/w/x columns stay aligned; the readout and
         # buttons centre on their own.
-        out = [("class:dialog", "\n")]
+        out = [("class:dialog", "\nMode  ")]
+        out += self._mode_field()
+        out.append(("class:dialog", "\n"))
         header = " " * 7 + "  r  " + "  w  " + "  x  "  # letters over the cells
         out.append(("class:dialog", header + "\n"))
         for r, name in enumerate(self._ROWS):
             out.append(("class:dialog", f"{name}  "))   # 5-char name + 2 spaces
             for c in range(3):
-                out.append(self._cell(r * 3 + c, "rwx"[c]))
+                out.append(self._cell(1 + r * 3 + c, "rwx"[c]))
             out.append(("class:dialog", "\n"))
         out.append(("class:dialog", "\n"))
-        out.append(("class:dialog.label",
-                    f"{self._symbolic()}   ({self._mode():03o})\n"))
+        message = self.error or f"{self._symbolic()}   ({self._mode():03o})"
+        out.append(("class:dialog.label", message + "\n"))
         out.append(("class:dialog", "\n"))
         ok = ("class:dialog.button.focus" if self.focus == self._OK
               else "class:dialog.button")
@@ -624,37 +695,104 @@ class ChmodDialog:
     # -- editing / navigation -------------------------------------------------
     def _toggle(self, idx):
         self.focus = idx
-        self.bits[idx] = not self.bits[idx]
+        bit = idx - 1
+        self.bits[bit] = not self.bits[bit]
+        self._sync_text()
 
     def _set_row(self, row, value):
         """Set a row's three bits from an octal digit (0-7)."""
         for c in range(3):
             self.bits[row * 3 + c] = bool(value & (1 << (2 - c)))
+        self._sync_text()
+
+    def _sync_text(self):
+        self.mode_text = f"{self._mode():03o}"
+        self.text_pos = len(self.mode_text)
+        self._text_pristine = True
+        self.error = ""
+
+    def _edit_text(self, char):
+        if self._text_pristine:
+            self.mode_text = ""
+            self.text_pos = 0
+            self._text_pristine = False
+        self.mode_text = (self.mode_text[:self.text_pos] + char
+                          + self.mode_text[self.text_pos:])
+        self.text_pos += len(char)
+        parsed = self._parse_mode_text(self.mode_text)
+        if parsed is not None:
+            self._set_mode(parsed)
+            self.error = ""
+
+    def _backspace_text(self):
+        self._text_pristine = False
+        if self.text_pos:
+            self.mode_text = (self.mode_text[:self.text_pos - 1]
+                              + self.mode_text[self.text_pos:])
+            self.text_pos -= 1
+        parsed = self._parse_mode_text(self.mode_text)
+        if parsed is not None:
+            self._set_mode(parsed)
 
     def _pos(self):
-        if self.focus <= 8:
-            return self.focus // 3, self.focus % 3
+        if 1 <= self.focus <= 9:
+            bit = self.focus - 1
+            return bit // 3, bit % 3
+        if self.focus == self._TEXT:
+            return -1, 0
         return 3, 0 if self.focus == self._OK else 1
 
     def _move(self, d_row, d_col):
         row, col = self._pos()
         new_row = max(0, min(3, row + d_row))
         new_col = col + d_col
-        if new_row <= 2:
-            self.focus = new_row * 3 + max(0, min(2, new_col))
+        if new_row < 0:
+            self.focus = self._TEXT
+        elif new_row <= 2:
+            self.focus = 1 + new_row * 3 + max(0, min(2, new_col))
         else:
             self.focus = self._OK + max(0, min(1, new_col))
 
     def _kb(self):
         kb = KeyBindings()
+        on_text = Condition(lambda: self.focus == self._TEXT)
 
-        @kb.add("left")
-        @kb.add("h")
+        @kb.add(Keys.Any, filter=on_text)
+        def _(event):
+            if event.data and event.data.isprintable():
+                self._edit_text(event.data)
+
+        @kb.add("backspace", filter=on_text)
+        def _(event):
+            self._backspace_text()
+
+        @kb.add("delete", filter=on_text)
+        def _(event):
+            self._text_pristine = False
+            if self.text_pos < len(self.mode_text):
+                self.mode_text = (self.mode_text[:self.text_pos]
+                                  + self.mode_text[self.text_pos + 1:])
+            parsed = self._parse_mode_text(self.mode_text)
+            if parsed is not None:
+                self._set_mode(parsed)
+
+        @kb.add("left", filter=on_text)
+        def _(event):
+            self._text_pristine = False
+            self.text_pos = max(0, self.text_pos - 1)
+
+        @kb.add("right", filter=on_text)
+        def _(event):
+            self._text_pristine = False
+            self.text_pos = min(len(self.mode_text), self.text_pos + 1)
+
+        @kb.add("left", filter=~on_text)
+        @kb.add("h", filter=~on_text)
         def _(event):
             self._move(0, -1)
 
-        @kb.add("right")
-        @kb.add("l")
+        @kb.add("right", filter=~on_text)
+        @kb.add("l", filter=~on_text)
         def _(event):
             self._move(0, 1)
 
@@ -670,15 +808,15 @@ class ChmodDialog:
 
         @kb.add("tab")
         def _(event):
-            self.focus = (self.focus + 1) % 11
+            self.focus = (self.focus + 1) % 12
 
         @kb.add("s-tab")
         def _(event):
-            self.focus = (self.focus - 1) % 11
+            self.focus = (self.focus - 1) % 12
 
-        @kb.add(" ")
+        @kb.add(" ", filter=~on_text)
         def _(event):
-            if self.focus <= 8:
+            if 1 <= self.focus <= 9:
                 self._toggle(self.focus)
             elif self.focus == self._OK:
                 self._accept()
@@ -687,10 +825,10 @@ class ChmodDialog:
 
         # type an octal digit to set the focused row at once (e.g. 7 = rwx)
         for d in "01234567":
-            @kb.add(d)
+            @kb.add(d, filter=~on_text)
             def _(event, d=d):
-                if self.focus <= 8:
-                    self._set_row(self.focus // 3, int(d))
+                if 1 <= self.focus <= 9:
+                    self._set_row((self.focus - 1) // 3, int(d))
 
         @kb.add("enter")
         def _(event):

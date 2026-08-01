@@ -958,10 +958,10 @@ class ExplorerView:
             items.append(("Paste", self.paste))
         if has_target:
             items += [("Rename", self.rename_entry), ("Delete", self.delete_entry)]
-            # chmod is a POSIX concept; on Windows it has essentially no effect,
-            # so only offer it where it means something
-            if os.name != "nt":
-                items.append(("chmod…", self.chmod_entry))
+            # Python exposes chmod on every supported platform. Windows only
+            # honours its writable/read-only subset, but keeping the action in
+            # the same menu makes the interface predictable across machines.
+            items.append(("chmod…", self.chmod_entry))
         if self.app.git_status and self.app.git_status.is_repo:
             gs = self.app.git_status
             code = gs.code_for(cur.path) if cur else None

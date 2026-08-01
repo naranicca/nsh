@@ -97,6 +97,7 @@ The action keys (everything below the navigation block) are remappable in
 | `F2` / `i` | rename (inline) |
 | `m` / `N` | new folder / new file — **created in the directory at the cursor** |
 | `D` | delete (asks to confirm) |
+| `Tab` → `chmod…` | change permissions using `755`, `rwxr-xr-x`, `u+x`, or interactive read/write/execute checks |
 | `b` | bookmarks — add/remove this directory, or jump to a saved one |
 | `/` | fuzzy-find a file |
 | `Ctrl+G` | **git mode** — the repository's changed files (see below) |
