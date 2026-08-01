@@ -1,0 +1,1 @@
+"""In-application preferences editor."""

@@ -37,6 +37,7 @@ from .explorer.preview import PreviewView
 from .notes.view import NotesView
 from .network.shell import RemoteShellView
 from .network.view import NetworkView
+from .preferences.view import PreferencesView
 from .search.view import SearchView
 from .system.view import SystemView
 from .shell.quoting import quote_arg, unquote_body
@@ -60,6 +61,7 @@ NOTES = "notes"
 SYSTEM = "system"
 NETWORK = "network"
 REMOTE_SHELL = "remote-shell"
+PREFERENCES = "preferences"
 
 # Once the shell output would shrink the explorer below this many rows, the
 # shell takes over the whole screen.
@@ -188,7 +190,9 @@ class NshApp:
         self.systemview = SystemView(self)
         self.networkview = NetworkView(self)
         self.remote_shell = RemoteShellView(self)
+        self.preferencesview = PreferencesView(self)
         self._notes_return = EXPLORER  # the mode Notes was opened from
+        self._preferences_return = EXPLORER
 
         # popup action menu (Tab in the explorer)
         self.menu = Menu(self._menu_closed)
@@ -431,11 +435,21 @@ class NshApp:
         color_overrides, key_overrides, settings, warning = config.load_user_config()
         self.keys = {**config.DEFAULT_KEYS, **key_overrides}
         self.settings = settings
+        self._two_pane_default = (
+            settings.get("two_pane", "false").strip().lower()
+            in ("true", "1", "yes", "on"))
         self.style = config.build_style(color_overrides)
         self.application.style = self.style
         self._pane_kb = self._build_pane_keys()
+        sort = settings.get("sort", "name")
+        reverse = (settings.get("sort_reverse", "false").strip().lower()
+                   in ("true", "1", "yes", "on"))
         for ex in self._all_explorers():
+            ex.sort, ex.reverse = sort, reverse
+            ex.load()
             ex.rebuild_keys()
+        if self.networkview.entries:
+            self.networkview.set_sort(sort, reverse)
         for gv in self._all_gitviews():
             gv.rebuild_keys()
         for lv in self._all_logviews():
@@ -539,6 +553,8 @@ class NshApp:
                 self.leave_notes()
             elif self.mode == SYSTEM:
                 self.switch_mode(EXPLORER)
+            elif self.mode == PREFERENCES:
+                self.close_preferences()
             elif self.mode == REMOTE_SHELL:
                 self.switch_mode(NETWORK)
             else:  # EXPLORER: clear any multi-selection
@@ -796,6 +812,8 @@ class NshApp:
                 return self.notesview.container
             if self.mode == SYSTEM:
                 return self.systemview.container
+            if self.mode == PREFERENCES:
+                return self.preferencesview.container
             if self.mode == NETWORK:
                 return self._network_split
             if self.mode == REMOTE_SHELL:
@@ -991,6 +1009,7 @@ class NshApp:
     _MODE_LABELS = {
         GIT: "git", LOG: "log", NOTES: "notes", SYSTEM: "system",
         NETWORK: "network", REMOTE_SHELL: "ssh shell",
+        PREFERENCES: "preferences",
     }
 
     def _name_label(self):
@@ -1198,6 +1217,12 @@ class NshApp:
                 ("^N", "note", self.open_notes),
                 ("ESC", "back", lambda: self.switch_mode(EXPLORER)),
             ]
+        elif self.mode == PREFERENCES:
+            hints = [
+                ("type", "search"), ("↑↓", "move"), ("Enter", "edit"),
+                ("^O", "edit nshrc", self.edit_preferences_file),
+                ("ESC", "back", self.close_preferences),
+            ]
         elif self.mode == NETWORK:
             nv = self.networkview
             if self.network_local_focused():
@@ -1306,6 +1331,9 @@ class NshApp:
         elif mode == SYSTEM:
             self.systemview.start()
             self.application.layout.focus(self.systemview.list_control)
+        elif mode == PREFERENCES:
+            self.preferencesview.start()
+            self.application.layout.focus(self.preferencesview.query_control)
         elif mode == NETWORK:
             self.application.layout.focus(self.networkview.control)
         elif mode == REMOTE_SHELL:
@@ -1774,6 +1802,8 @@ class NshApp:
             self.notesview.focus_input()
         elif self.mode == SYSTEM:
             self.application.layout.focus(self.systemview.list_control)
+        elif self.mode == PREFERENCES:
+            self.application.layout.focus(self.preferencesview.query_control)
         elif self.mode == NETWORK:
             self.application.layout.focus(self.networkview.control)
         elif self.mode == REMOTE_SHELL:
@@ -2148,9 +2178,41 @@ class NshApp:
         ])
 
     def open_preferences(self):
-        """Open the nshrc config file in the editor (seeding it first if absent).
-        Edits are picked up automatically on save (see _maybe_reload_config), so
-        new keys / colours apply without restarting nsh."""
+        """Open the searchable, full-screen configuration editor."""
+        config.ensure_default_config()
+        if self.mode != PREFERENCES:
+            self._preferences_return = self.mode
+        self.switch_mode(PREFERENCES)
+
+    def close_preferences(self):
+        self.switch_mode(self._preferences_return)
+
+    def _edit_preference(self, section, name, value, reopen, blank_resets=False,
+                         modified=False, blank_unbinds=False):
+        suffix = (" (blank = default)" if blank_resets else
+                  " (blank = unbind)" if blank_unbinds else "")
+        title = name + suffix
+
+        def apply(value):
+            try:
+                config.save_preference(section, name, value)
+                self._config_mtime = self._read_config_mtime()
+                self.reload_config()
+            except (OSError, ValueError) as exc:
+                self.set_message(f"Preference not saved: {exc}")
+            reopen()
+
+        def save(text):
+            apply(None if blank_resets and not text.strip() else text)
+
+        initial = "" if blank_unbinds and value == "(unbound)" else value
+        self.open_input_dialog(
+            title, initial, len(initial), save,
+            extra_label="Reset Default" if modified else None,
+            on_extra=(lambda: apply(None)) if modified else None)
+
+    def edit_preferences_file(self):
+        """Open nshrc in an external editor for advanced manual changes."""
         config.ensure_default_config()
         self.edit_file(config.config_path())
 
@@ -2214,9 +2276,11 @@ class NshApp:
 
     # -- input dialog ---------------------------------------------------------
     def open_input_dialog(self, title, text, cursor, on_accept,
-                          on_change=None, on_cancel=None, password=False):
+                          on_change=None, on_cancel=None, password=False,
+                          extra_label=None, on_extra=None):
         self.dialog.open(title, text, cursor, on_accept, on_change, on_cancel,
-                         password=password)
+                         password=password, extra_label=extra_label,
+                         on_extra=on_extra)
         self.application.layout.focus(self.dialog.control)
         self.invalidate()
 

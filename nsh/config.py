@@ -5,8 +5,10 @@ Colours and the explorer action keys can be overridden by the user's
 """
 import configparser
 import os
+import re
 from pathlib import Path
 
+from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.styles import Style
 
 from .search.fuzzy import SKIP_DIRS as _SEARCH_SKIP_DIRS
@@ -74,6 +76,17 @@ STYLE_DEFAULTS = {
         # it would re-apply that class's noinherit and wipe the match colour when
         # combined with search.match on a selected, matched character.
         "search-selected": "bg:#444444 bold",
+        # full-screen preferences editor
+        "preferences.header": "bg:#252526",
+        "preferences.title": "bg:#252526 #ffffff bold",
+        "preferences.subtitle": "bg:#252526 #999999",
+        "preferences.search.label": "bg:#005f87 #ffffff bold",
+        "preferences.search.input": "bg:#303030 #ffffff",
+        "preferences.search.count": "bg:#303030 #999999",
+        "preferences.list": "#d0d0d0",
+        "preferences.row": "#d0d0d0",
+        "preferences.row.selected": "bg:#005f87 #ffffff",
+        "preferences.empty": "#808080 italic",
         # shell
         "shell.output": "#d0d0d0",
         "shell.prompt": "#5fff5f bold",
@@ -367,6 +380,8 @@ def _norm_key(value: str) -> str:
     # drops any trailing "(...)" annotation the user left in place after
     # uncommenting a template line (e.g. "f8   (next tab / switch pane)").
     value = value.strip().split()[0] if value.strip() else ""
+    if value.lower() in ("none", "unbound"):
+        return ""
     return " " if value.lower() == "space" else value
 
 
@@ -388,9 +403,118 @@ def load_user_config():
     if parser.has_section("colors"):
         colors = {k.strip(): v.strip() for k, v in parser.items("colors")}
     if parser.has_section("keys"):
-        keys = {k.strip(): _norm_key(v) for k, v in parser.items("keys") if v.strip()}
+        # An empty value or the explicit word "none" disables an action. Keep
+        # that empty normalized value in the override map so it wins over the
+        # built-in default when the dictionaries are merged.
+        keys = {k.strip(): _norm_key(v) for k, v in parser.items("keys")}
     if parser.has_section("general"):
         for k, v in parser.items("general"):
             if k.strip() in settings:
                 settings[k.strip()] = v.strip()
     return colors, keys, settings, None
+
+
+def validate_preference(section, name, value):
+    """Validate and normalize one value entered by the Preferences UI.
+
+    ``None`` removes an override and restores its built-in default. Empty text
+    remains a real value for general variables (notably ``search_exclude``).
+    """
+    if section == "general":
+        if name not in DEFAULT_SETTINGS:
+            raise ValueError(f"unknown variable: {name}")
+        value = "" if value is None else value.strip()
+        if name == "sort" and value not in ("name", "size", "date", "type"):
+            raise ValueError("sort must be name, size, date, or type")
+        if name in ("sort_reverse", "two_pane"):
+            lowered = value.lower()
+            if lowered not in ("true", "false", "1", "0", "yes", "no", "on", "off"):
+                raise ValueError(f"{name} must be true or false")
+            value = "true" if lowered in ("true", "1", "yes", "on") else "false"
+        return value
+    if section == "colors":
+        if name not in STYLE_DEFAULTS:
+            raise ValueError(f"unknown color option: {name}")
+        if value is None or not value.strip():
+            return None
+        value = value.strip()
+        try:
+            build_style({name: value})
+        except Exception as exc:  # prompt_toolkit reports several parse errors
+            raise ValueError(f"invalid color style: {value}") from exc
+        return value
+    if section == "keys":
+        if name not in DEFAULT_KEYS:
+            raise ValueError(f"unknown shortcut: {name}")
+        if value is None:
+            return None
+        if not value.strip() or value.strip().lower() in ("none", "unbound"):
+            return "none"
+        value = _norm_key(value)
+        try:
+            kb = KeyBindings()
+            kb.add(value)(lambda event: None)
+        except Exception as exc:  # invalid named keys raise ValueError
+            raise ValueError(f"invalid key: {value}") from exc
+        return "space" if value == " " else value
+    raise ValueError(f"unknown preference section: {section}")
+
+
+def save_preference(section, name, value):
+    """Write one UI preference while preserving the user's nshrc comments.
+
+    Passing ``None`` removes the active assignment, revealing the commented
+    template and restoring the built-in default. The replacement is atomic so
+    a crash cannot leave a partially-written configuration file.
+    """
+    remove = value is None
+    if remove:
+        known = {"general": DEFAULT_SETTINGS, "colors": STYLE_DEFAULTS,
+                 "keys": DEFAULT_KEYS}
+        if section not in known or name not in known[section]:
+            raise ValueError(f"unknown preference: {section}.{name}")
+    else:
+        value = validate_preference(section, name, value)
+    ensure_default_config()
+    path = config_path()
+    text = path.read_text(encoding="utf-8") if path.exists() else ""
+    lines = text.splitlines()
+    section_re = re.compile(r"^\s*\[([^]]+)\]\s*(?:[#;].*)?$")
+    item_re = re.compile(rf"^\s*{re.escape(name)}\s*=", re.IGNORECASE)
+    section_start = section_end = None
+    for i, line in enumerate(lines):
+        match = section_re.match(line)
+        if not match:
+            continue
+        if section_start is not None:
+            section_end = i
+            break
+        if match.group(1).strip().lower() == section:
+            section_start = i
+    if section_start is not None and section_end is None:
+        section_end = len(lines)
+
+    replacement = None if remove else f"{name} = {value}"
+    found = None
+    if section_start is not None:
+        found = next((i for i in range(section_start + 1, section_end)
+                      if item_re.match(lines[i])), None)
+    if found is not None:
+        if replacement is None:
+            del lines[found]
+        else:
+            lines[found] = replacement
+    elif replacement is not None:
+        if section_start is None:
+            if lines and lines[-1].strip():
+                lines.append("")
+            lines.extend((f"[{section}]", replacement))
+        else:
+            lines.insert(section_end, replacement)
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    result = "\n".join(lines).rstrip() + "\n"
+    temporary = path.with_name(path.name + ".tmp")
+    temporary.write_text(result, encoding="utf-8")
+    temporary.replace(path)
+    return value

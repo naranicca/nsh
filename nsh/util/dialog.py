@@ -56,6 +56,8 @@ class InputDialog:
         self._on_accept = None
         self._on_change = None      # live callback fired on every text edit
         self._on_cancel = None      # called when the dialog is dismissed (Esc)
+        self._on_extra = None       # optional third action (e.g. Reset Default)
+        self.extra_label = None
         self.password = False
         self.buffer = Buffer(multiline=False, on_text_changed=self._text_changed)
 
@@ -80,13 +82,15 @@ class InputDialog:
         )
 
     def open(self, title, text, cursor, on_accept, on_change=None, on_cancel=None,
-             password=False):
+             password=False, extra_label=None, on_extra=None):
         self.title = title
         self._on_accept = on_accept
         # set the live-edit hooks before seeding the text, so a non-empty initial
         # value (rare) reaches on_change too
         self._on_change = on_change
         self._on_cancel = on_cancel
+        self._on_extra = on_extra
+        self.extra_label = extra_label
         self.password = password
         self.button = "ok"
         self.active = True
@@ -119,20 +123,35 @@ class InputDialog:
         self._on_accept = None
         self._on_change = None
         self._on_cancel = None
+        self._on_extra = None
+        self.extra_label = None
         self.password = False
         self.buffer.text = ""  # do not retain passwords after the dialog closes
         self._on_close()
 
     def _toggle(self):
-        self.button = "cancel" if self.button == "ok" else "ok"
+        order = ["ok"] + (["extra"] if self._on_extra else []) + ["cancel"]
+        self.button = order[(order.index(self.button) + 1) % len(order)]
+
+    def _click_extra(self):
+        callback = self._on_extra
+        self._close()
+        if callback:
+            callback()
 
     def _click_ok(self):
         self.button = "ok"
         self._accept()
 
     def _buttons(self):
-        return [_button("OK", self.button == "ok", self._click_ok), ("", "      "),
-                _button("Cancel", self.button == "cancel", self.cancel)]
+        buttons = [_button("OK", self.button == "ok", self._click_ok)]
+        if self._on_extra:
+            buttons += [("", "   "),
+                        _button(self.extra_label or "Action",
+                                self.button == "extra", self._click_extra)]
+        buttons += [("", "   "),
+                    _button("Cancel", self.button == "cancel", self.cancel)]
+        return buttons
 
     def _kb(self):
         kb = KeyBindings()
@@ -144,7 +163,10 @@ class InputDialog:
 
         @kb.add("enter")
         def _(event):
-            self._accept()
+            if self.button == "extra":
+                self._click_extra()
+            else:
+                self._accept()
 
         @kb.add("escape")
         def _(event):

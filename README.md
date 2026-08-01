@@ -323,8 +323,17 @@ normal use.
 
 ## Configuration
 
-On first run nsh seeds a commented template at `~/.config/nsh/nshrc`
-(`$XDG_CONFIG_HOME` is honoured). It is a simple INI file:
+Open **F10 → Preferences** to enter the full-screen settings editor. Its single
+list contains variables, colors, and shortcuts; type in the search field to
+filter by category, setting name, or current value, then press Enter to edit the
+selected row. Changes are validated, saved, and applied immediately. Leave a
+color blank to restore its built-in default; leave a shortcut blank to unbind
+that action. Rows that differ from their defaults have a leading `*`; editing
+one also offers a **Reset Default** button. Press Ctrl+O to open `nshrc` in an
+external editor for advanced manual editing.
+
+The settings are stored in `~/.config/nsh/nshrc` (`$XDG_CONFIG_HOME` is
+honoured). On first run nsh seeds a commented template. It is a simple INI file:
 
 ```ini
 [general]
