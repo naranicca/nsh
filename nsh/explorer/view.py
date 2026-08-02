@@ -983,15 +983,28 @@ class ExplorerView:
                 # Git: Commit here commits the selection (the forced cursor file)
                 items += [
                     ("Git: Stage / Unstage", self.git_stage),
-                    ("Git: Commit", self.git_commit),
                     ("Git: Diff", self.git_diff),
-                    ("Git: Revert", self.git_revert),
                 ]
+            commit_paths = tuple(path for path in self.selected if path.is_file())
+            commit_item = ((_git_action_label("Git: Commit", commit_paths),
+                            self.git_commit) if commit_paths else None)
+            revert_paths = tuple(path for path in self.selected
+                                 if gs.code_for(path) != "?")
+            revert_item = ((_git_action_label("Git: Revert", revert_paths),
+                            lambda paths=revert_paths: self.git_revert(paths))
+                           if revert_paths else None)
             # commit the whole directory ('.') whenever the repo has tracked
             # changes — the selection-based Git: Commit can no longer reach it
             # now that the cursor file is always force-selected
             if gs.dirty:
-                items.append(("Git: Commit all", self.git_commit_all))
+                items.append((_git_action_label("Git: Commit", ()),
+                              self.git_commit_all))
+                if commit_item is not None:
+                    items.append(commit_item)
+                items.append((_git_action_label("Git: Revert", ()),
+                              lambda: self.git_revert(())))
+                if revert_item is not None:
+                    items.append(revert_item)
             # pull when there's an upstream; push when there are commits to push
             # (ahead of the upstream, or an unpushed branch on a repo with a remote)
             if gs.can_pull:
@@ -1006,7 +1019,12 @@ class ExplorerView:
             if gs.has_stash:
                 items.append(("Git: Stashes…", self.git_stash_menu))
             if gs.has_commits:
-                items.append(("Git: Log", self.app.open_log))
+                log_paths = tuple(path for path in self.selected if path.is_file())
+                items.append((_git_log_label(()),
+                              lambda: self.app.open_log((self.app.cwd,))))
+                if log_paths:
+                    items.append((_git_log_label(log_paths),
+                                  lambda paths=log_paths: self.app.open_log(paths)))
             items.append(("Git: Branches", self.git_branches))
         # clear the force-selected cursor file once the menu closes (whether an
         # action ran or it was cancelled); a real, user-made selection is kept
@@ -1260,27 +1278,51 @@ class ExplorerView:
             self.app.switch_mode("shell")
         asyncio.ensure_future(do())
 
-    def git_revert(self):
-        entry = self.current()
-        if entry is None or not self._require_repo():
+    def git_revert(self, paths=None):
+        if not self._require_repo():
             return
+        if paths == ():
+            selected = (Path("."),)
+        elif paths is not None:
+            selected = tuple(paths)
+        else:
+            selected = tuple(self.selected)
+        if not selected:
+            entry = self.current()
+            selected = (entry.path,) if entry is not None else ()
+        revert_paths = tuple(path for path in selected
+                             if path == Path(".")
+                             or self.app.git_status.code_for(path) != "?")
+        if not revert_paths:
+            self.app.set_message("nothing to revert")
+            return
+        scope = ("'.'" if revert_paths == (Path("."),)
+                 else (f"'{revert_paths[0].name}'" if len(revert_paths) == 1
+                       else f"{len(revert_paths)} files"))
         self.app.confirm(
-            f"Revert '{entry.name}'? Uncommitted changes will be lost.",
-            lambda ok: self._do_revert(entry, ok),
+            f"Revert {scope}? Uncommitted changes will be lost.",
+            lambda ok: self._do_revert(revert_paths, ok),
         )
 
-    def _do_revert(self, entry, ok):
+    def _do_revert(self, paths, ok):
         if not ok:
             self.app.set_message("revert cancelled")
             return
 
         async def do():
-            rc, out = await git.revert(entry.path, self.app.cwd)
-            if rc == 0:
-                self.app.set_message(f"reverted: {entry.name}")
+            done = 0
+            error = ""
+            for path in paths:
+                rc, out = await git.revert(path, self.app.cwd)
+                if rc == 0:
+                    done += 1
+                elif not error:
+                    error = out.strip()
+            if done == len(paths):
+                self.app.set_message(f"reverted: {done} file(s)")
             else:
-                self.app.set_message(f"revert failed: {out.strip()}")
-            self.refresh_listing(select_name=entry.name)  # file changed on disk
+                self.app.set_message(f"reverted {done}/{len(paths)}: {error}")
+            self.refresh_listing()
             await self.app.refresh_git()
         asyncio.ensure_future(do())
 
@@ -1572,3 +1614,17 @@ class ExplorerView:
         def handler(event):
             func()
         return handler
+
+
+def _git_log_label(paths):
+    """Action-menu label that distinguishes repository and file history."""
+    return _git_action_label("Git: Log", paths)
+
+
+def _git_action_label(action, paths):
+    """Label an action with its file scope, or ``.`` for directory scope."""
+    if len(paths) == 1:
+        return f"{action} {paths[0].name}"
+    if paths:
+        return f"{action} {len(paths)} files"
+    return f"{action} ."

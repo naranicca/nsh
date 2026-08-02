@@ -8,6 +8,7 @@ inert; jumping elsewhere (e.g. via a bookmark) leaves git mode automatically.
 """
 import asyncio
 import os
+from pathlib import Path
 
 from prompt_toolkit.data_structures import Point
 from prompt_toolkit.key_binding import DynamicKeyBindings, KeyBindings
@@ -20,6 +21,7 @@ from ..util import hangul
 from ..util.widgets import WheelScrollControl, visible_slice
 from ..util.width import text_width
 from . import git, model
+from .view import _git_action_label, _git_log_label
 
 
 class GitEntry:
@@ -202,13 +204,20 @@ class GitView:
         cur = self.current()
         gs = self.app.git_status
         items = []
+        revert_item = None
+        commit_paths = tuple(e.path for e in self.entries
+                             if e.path in self.selected)
         # file-specific actions (only when the cursor is on / there is a selection)
         if self.selected:
             target = f"{len(self.selected)} selected"
             items.append(("Git: Stage / Unstage", self.git_stage))
             # revert is offered when the selection has tracked changes to discard
-            if any(e.code != "?" for e in self.entries if e.path in self.selected):
-                items.append(("Git: Revert", self.git_revert))
+            revert_paths = tuple(e.path for e in self.entries
+                                 if e.path in self.selected and e.code != "?")
+            if revert_paths:
+                revert_item = (
+                    _git_action_label("Git: Revert", revert_paths),
+                    lambda paths=revert_paths: self.git_revert(paths))
         elif cur is not None:
             target = cur.rel
             if cur.code == "?":
@@ -219,15 +228,19 @@ class GitView:
                 if model.is_text_file(cur.path):
                     items.append(("Edit", self.edit))
                 items.append(("Git: Stage / Unstage", self.git_stage))
-                items.append(("Git: Revert", self.git_revert))
         else:
             target = "repo"  # no changed files: still offer the repo-wide actions
         # repo-level actions, available even when there are no changed files
         if gs and gs.dirty:
-            # with a selection this commits just those files; with none it
-            # commits the whole directory, so spell that out as "Commit all"
-            label = "Git: Commit" if self.selected else "Git: Commit all"
-            items.append((label, self.app.explorer.git_commit))
+            items.append((_git_action_label("Git: Commit", ()),
+                          self.app.explorer.git_commit_all))
+            if commit_paths:
+                items.append((_git_action_label("Git: Commit", commit_paths),
+                              self.app.explorer.git_commit))
+            items.append((_git_action_label("Git: Revert", ()),
+                          lambda: self.git_revert(())))
+            if revert_item is not None:
+                items.append(revert_item)
         # pull when there's an upstream; push when there are commits to push
         if gs and gs.can_pull:
             items.append(("Git: Pull", self.app.explorer.git_pull))
@@ -241,7 +254,13 @@ class GitView:
         if gs and gs.has_stash:
             items.append(("Git: Stashes…", self.app.explorer.git_stash_menu))
         if gs and gs.has_commits:
-            items.append(("Git: Log", self.app.open_log))
+            log_paths = tuple(e.path for e in self.entries
+                              if e.path in self.selected)
+            items.append((_git_log_label(()),
+                          lambda: self.app.open_log((self.app.cwd,))))
+            if log_paths:
+                items.append((_git_log_label(log_paths),
+                              lambda paths=log_paths: self.app.open_log(paths)))
         items.append(("Git: Branches", self.app.explorer.git_branches))
         self.app.open_menu(f"Actions · {target}", items, at_cursor=True)
 
@@ -258,23 +277,33 @@ class GitView:
             await self.app.refresh_git()
         asyncio.ensure_future(do())
 
-    def git_revert(self):
+    def git_revert(self, paths=None):
         # only tracked changes can be reverted (untracked files have no HEAD
         # version), so drop any "?" entries from the selection/cursor
-        if self.selected:
+        if paths is not None:
+            if paths:
+                targets = [e for e in self.entries if e.path in paths and e.code != "?"]
+            else:
+                targets = []  # empty means repository scope (./)
+        elif self.selected:
             entries = [e for e in self.entries if e.path in self.selected]
+            targets = [e for e in entries if e.code != "?"]
         else:
             cur = self.current()
             entries = [cur] if cur else []
-        targets = [e for e in entries if e.code != "?"]
-        if not targets:
+            targets = [e for e in entries if e.code != "?"]
+        if not targets and paths != ():
             self.app.set_message("nothing to revert")
             return
-        n = len(targets)
-        label = (f"Revert '{targets[0].rel}'? " if n == 1
-                 else f"Revert {n} files? ") + "Uncommitted changes will be lost."
-        paths = [e.path for e in targets]
-        self.app.confirm(label, lambda ok: self._do_revert(paths, ok))
+        if paths == ():
+            label = "Revert '.'? Uncommitted changes will be lost."
+            revert_paths = [Path(".")]
+        else:
+            n = len(targets)
+            label = (f"Revert '{targets[0].rel}'? " if n == 1
+                     else f"Revert {n} files? ") + "Uncommitted changes will be lost."
+            revert_paths = [e.path for e in targets]
+        self.app.confirm(label, lambda ok: self._do_revert(revert_paths, ok))
 
     def _do_revert(self, paths, ok):
         if not ok:

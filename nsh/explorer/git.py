@@ -337,10 +337,13 @@ _LOG_FORMAT = ("tformat:%x00%H%x00%C(auto)%h%C(reset)%C(auto)%d%C(reset) "
                "%s %C(dim)(%cr) %C(blue)%an%C(reset)")
 
 
-async def log_graph(cwd):
-    """Raw ``git log --graph`` text (ANSI-coloured) for the history view."""
-    return await _out(["-c", "core.quotepath=false", "log", "--graph",
-                       "--color=always", "--pretty=" + _LOG_FORMAT], cwd) or ""
+async def log_graph(cwd, paths=None):
+    """Raw ANSI-coloured history, optionally limited to selected file paths."""
+    args = ["-c", "core.quotepath=false", "log", "--graph",
+            "--color=always", "--pretty=" + _LOG_FORMAT]
+    if paths:
+        args += ["--", *(str(path) for path in paths)]
+    return await _out(args, cwd) or ""
 
 
 async def commit_show(commit, cwd):

@@ -8,6 +8,7 @@ the commits after it. Reword/squash rewrite history via a non-interactive
 rebase, so they require a clean working tree.
 """
 import asyncio
+import os
 import re
 
 from prompt_toolkit.data_structures import Point
@@ -47,6 +48,7 @@ class LogView:
         self.cursor = 0
         self._top = 0  # first rendered row (windowing); see util.widgets
         self._search_query = ""
+        self.path_filters = ()
 
         # DynamicKeyBindings so a live config reload (rebuild_keys) can swap the
         # remapped action keys without restarting nsh
@@ -74,7 +76,9 @@ class LogView:
 
     async def _load(self):
         prev = self.current_hash()  # keep the cursor on this commit across reloads
-        raw = await git.log_graph(self.app.cwd)
+        paths = tuple(os.path.relpath(path, self.app.cwd)
+                      for path in self.path_filters)
+        raw = await git.log_graph(self.app.cwd, paths)
         lines = []
         for ln in raw.splitlines():
             if "\x00" in ln:

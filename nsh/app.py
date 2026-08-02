@@ -1351,10 +1351,11 @@ class NshApp:
             return
         self.switch_mode(GIT)
 
-    def open_log(self):
+    def open_log(self, paths=None):
         if not self.git_status.is_repo:
             self.set_message("not a git repository")
             return
+        self.logview.path_filters = tuple(Path(path) for path in (paths or ()))
         self._log_return = self.mode if self.mode in (EXPLORER, GIT) else EXPLORER
         self.switch_mode(LOG)
 
