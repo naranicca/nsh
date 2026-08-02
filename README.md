@@ -23,8 +23,6 @@ Everything runs in **tabs**: each tab is its own explorer + shell pair, so you
 can keep several working directories — each with its own command-line session —
 open at once and switch between them with `F7`/`F8`.
 
-Recent changes are listed in [CHANGELOG.md](CHANGELOG.md).
-
 ## Install / run
 
 Requires Python 3.7+.
@@ -122,6 +120,14 @@ action menu when the directory is a repository. An untracked file can be staged
 — including the files inside a brand-new directory, which carry the untracked
 marker and so can be added too.
 
+Commit, Revert, and Log make their scope explicit in the action menu. The `.`
+entry targets the current directory, while a second entry targets the selected
+file or files (for example, `Git: Commit .`, `Git: Commit README.md`, or
+`Git: Commit 3 files`). Directory Git markers summarize tracked changes below a
+collapsed directory; the aggregate marker disappears when the directory is
+expanded. Untracked files do not mark their parent directory, and the synthetic
+`..` navigation row never shows a Git marker.
+
 Picking a branch opens a per-branch menu (Checkout, **Browse**, Delete). **Browse**
 pops a small centered dialog listing that branch's files without checking it out:
 `↑`/`↓` (or `j`/`k`) move, `↵` / `l` / `→` step into a directory and `⌫` / `h` /
@@ -164,19 +170,16 @@ it in (a new tab opens in your current mode, so `Ctrl+T` keeps your workflow).
 
 Each **tab** pairs this shell session with its own explorer (see [Tabs](#tabs)),
 so switching tabs swaps the whole working context. Entering a command while the
-current one is still running pops a centered dialog box — queue it (it runs in
-this tab once the running command, and anything queued ahead of it, finishes) or
-run it now in a new tab (rather than mixing the output); several commands can wait in line and
-run in order. Queued commands are listed in grey above the prompt, with a `⋯ N
-queued` count in the status bar. A tab bar marks each session's state — orange
+current one is still running queues it immediately in that tab; several commands
+can wait and run in order. Queued commands are listed in grey above the prompt,
+with a `⋯ N queued` count in the status bar. A tab bar marks each session's state — orange
 while a command is still running, red once one finishes with a non-zero exit
 (cleared when the next command runs).
 
 Built-ins handled internally: `cd`, `clear`/`cls`, `exit`/`quit`. The output pane
 grows with its content and goes full-screen once it fills up. Long lines wrap,
 the prompt shows each command's run time tinted by its exit status (and dims
-itself while a command is still running, since entering one then prompts to queue
-it or open a new tab), and
+itself while a command is still running), and
 interactive commands that need a real terminal — editors/pagers, plus network
 git (`push`/`pull`/`fetch`/`clone`) and `sudo` that may prompt for credentials
 — run with the UI briefly suspended. nsh echoes the prompt + command above their
@@ -185,12 +188,22 @@ continue …`) so it stays visible. Prefix any command with **`!`** to force it
 onto the real terminal this way — an escape hatch for a TUI nsh doesn't
 recognise on its own (e.g. `!htop`).
 
+Commands listed in the Preferences variable `external_commands` take the same
+real-terminal path without requiring `!`. Separate names with spaces or commas,
+for example `mc, ranger, lazygit`. Forced and configured external commands record
+their elapsed time and exit status just like commands captured in nsh's
+scrollback.
+
 ### Fuzzy search mode
 Type to filter, `↑`/`↓` to move, `↵` to select, `ESC` to cancel. Launched with
 `nsh search [WORD]` (prints the selection to stdout, e.g. `cd "$(nsh search)"`)
 or with `/` from the explorer. Build outputs (`build/`, `dist/`) are indexed too,
 so a built executable is findable; the skipped directories are configurable via
 `search_exclude` (see [Configuration](#configuration)).
+
+Search does not wait for a full tree index before becoming useful: matches from
+the current directory appear first, then indexed results are added as background
+indexing progresses. Remote search follows the same visible-results-first model.
 
 ### Network mode (FTP / SSH-SFTP)
 
@@ -342,6 +355,7 @@ honoured). On first run nsh seeds a commented template. It is a simple INI file:
 editor = code -w
 two_pane = false                     # start with two explorer panes side by side
 search_exclude = .git node_modules   # directories fuzzy search skips
+external_commands = mc, lazygit      # run these on the real terminal without !
 
 [colors]
 # <style-class> = <prompt_toolkit style>
@@ -358,10 +372,10 @@ quit   = q
 ```
 
 `[general]` sets the **Edit** editor (Tab menu, text files only), whether to
-start in `two_pane` view, and `search_exclude` — the directories fuzzy search
-skips (seeded with the defaults, so edit it to add a noisy `build/` or remove a
-name to search it). `[colors]` overrides any UI style class; `[keys]` remaps the
-explorer action keys. Invalid entries are ignored, never fatal.
+start in `two_pane` view, `search_exclude` (the directories fuzzy search skips),
+and `external_commands` (commands that always receive a real terminal).
+`[colors]` overrides any UI style class; `[keys]` remaps the explorer action
+keys. Invalid entries are ignored, never fatal.
 
 Bookmarks (the `b` key) are saved one path per line in `~/.config/nsh/bookmarks`.
 
@@ -373,6 +387,9 @@ nsh/
   network/
     backend.py         FTP/SFTP connection and remote filesystem operations
     view.py            remote browser, transfers and action bindings
+    shell.py           command shell over the active SSH connection
+  preferences/
+    view.py            searchable variables/colors/shortcuts editor
   config.py           styles, icons, key map, nshrc loading
   util/
     width.py          wcwidth-based truncate/pad (CJK-correct columns)
@@ -384,6 +401,7 @@ nsh/
     model.py          os.scandir directory listing
     git.py            async git status / branch / stage / commit / diff
     gitview.py        git mode: flat changed-file list (Ctrl+G)
+    logview.py        scoped directory/file history and commit actions
     fileops.py        copy / move / delete / rename / mkdir (threaded)
     preview.py        side preview pane (text / dir / image dims / hexdump / diff)
     view.py           file-list rendering, navigation, multi-select, action menu
