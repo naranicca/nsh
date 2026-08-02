@@ -270,7 +270,10 @@ class ExplorerView:
             e = self.entries[i]
             on = cursor_shown and (i == self.cursor)
             sel = e.path in self.selected
-            code = gs.code_for(e.path) if (gs and gs.is_repo) else None
+            code = (gs.display_code(
+                e.path, is_dir=e.is_dir, expanded=e.path in self.expanded,
+                is_parent=e.is_parent)
+                if (gs and gs.is_repo) else None)
             marker = config.GIT_SYMBOL.get(code, " ")
             mstyle = config.GIT_STYLE.get(code, "")
             estyle = "class:explorer.selected" if sel else config.entry_style(e)

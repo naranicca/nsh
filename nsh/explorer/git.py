@@ -21,6 +21,10 @@ class GitStatus:
     root: Optional[Path] = None
     # normalised abspath -> porcelain code in {"M","S","?","C"}
     files: Dict[str, str] = field(default_factory=dict)
+    # normalised directory path -> aggregate status of changed descendants.
+    # Git porcelain normally lists only the files, while Explorer renders their
+    # parent directories too; this map lets those rows carry a marker.
+    directories: Dict[str, str] = field(default_factory=dict)
     # changed files in original case/order: [(abspath Path, code)] — used by git
     # mode, which displays real paths (``files`` keys are normcased for matching)
     entries: list = field(default_factory=list)
@@ -58,7 +62,7 @@ class GitStatus:
         about new upstream commits.)"""
         return self.has_upstream
 
-    def code_for(self, path) -> Optional[str]:
+    def code_for(self, path, include_descendants=True) -> Optional[str]:
         """Porcelain code for ``path`` — a direct match, else inherited from an
         untracked ancestor directory.
 
@@ -67,10 +71,18 @@ class GitStatus:
         When the path isn't listed directly, walk up toward the repo root: if it
         sits under one of the untracked directories, report it as untracked
         ('?'). This is what makes the marker (and the Add action) show for files
-        in a brand-new directory."""
+        in a brand-new directory.
+
+        ``include_descendants=False`` hides only the status aggregated from
+        child files. Explorer uses it for expanded directories because those
+        child markers are already visible."""
         code = self.files.get(norm(path))
         if code is not None:
             return code
+        if include_descendants:
+            code = self.directories.get(norm(path))
+            if code is not None:
+                return code
         if self.untracked_dirs:
             root_key = norm(self.root) if self.root is not None else None
             for parent in Path(path).parents:
@@ -80,6 +92,32 @@ class GitStatus:
                 if pk in self.untracked_dirs:
                     return "?"
         return None
+
+    def add_file(self, path, code):
+        """Record a changed path and aggregate its status into repo parents."""
+        path = Path(path)
+        self.files[norm(path)] = code
+        # Do not propagate untracked state to directories: a '?' beside a
+        # folder misleadingly suggests that the whole folder is untracked.
+        # Individual files still inherit '?' from Git's collapsed dir/ entry.
+        if code == "?":
+            return
+        priority = {"?": 0, "S": 1, "M": 2, "C": 3}
+        root_key = norm(self.root) if self.root is not None else None
+        for parent in path.parents:
+            key = norm(parent)
+            current = self.directories.get(key)
+            if current is None or priority.get(code, 0) > priority.get(current, 0):
+                self.directories[key] = code
+            if key == root_key:
+                break
+
+    def display_code(self, path, is_dir=False, expanded=False, is_parent=False):
+        """Status marker for an Explorer row rather than an action target."""
+        if is_parent:
+            return None  # ``..`` is navigation, not a directory status row
+        code = self.code_for(path, include_descendants=not (is_dir and expanded))
+        return None if is_dir and code == "?" else code
 
 
 async def run_git(args, cwd, env=None):
@@ -161,7 +199,7 @@ async def query(directory) -> GitStatus:
                 c = "S" if y == " " else "M"  # staged vs. staged+modified
             else:
                 c = "M"
-            st.files[norm(abspath)] = c
+            st.add_file(abspath, c)
             st.entries.append((abspath, c))
             if c == "?" and is_dir_entry:
                 st.untracked_dirs.add(norm(abspath))
