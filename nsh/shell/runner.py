@@ -601,6 +601,7 @@ class CommandRunner:
 
         Returns the command's exit code (``None`` if it could not be launched).
         """
+        self._started_at = time.monotonic()
         cwd = str(self.app.cwd)
         env = self._child_env()  # carry the user's shell variables in too
         # Invoke POSIX shells and PowerShell explicitly.  Going through
@@ -647,5 +648,14 @@ class CommandRunner:
         # never really takes the terminal — it sits there until Ctrl-C. Off the
         # loop thread it gets the tty cleanly (input is detached and the terminal
         # is in cooked mode around it either way).
-        await run_in_terminal(_run, in_executor=True)
+        try:
+            await run_in_terminal(_run, in_executor=True)
+        finally:
+            # Interactive/forced commands bypass run(), so record their result
+            # here as well. This feeds the same elapsed-time badge shown before
+            # the next prompt for ordinary streamed commands.
+            self._last_duration = time.monotonic() - self._started_at
+            self._last_rc = result["rc"]
+            self._started_at = None
+            self.app.invalidate()
         return result["rc"]

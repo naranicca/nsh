@@ -199,3 +199,20 @@ class PreferenceTests(unittest.TestCase):
             expected = "space" if value == " " else value
             self.assertEqual(config.validate_preference("keys", name, expected),
                              expected)
+
+    def test_external_commands_is_exposed_as_a_general_preference(self):
+        self.assertIn("external_commands", config.DEFAULT_SETTINGS)
+        self.assertEqual(
+            config.validate_preference(
+                "general", "external_commands", "  mc, lazygit  "),
+            "mc, lazygit",
+        )
+
+    def test_configured_external_command_matches_executable_only(self):
+        app = object.__new__(NshApp)
+        app.settings = {"external_commands": "mc, lazygit foo.exe"}
+
+        self.assertTrue(app._external_command("mc --help"))
+        self.assertTrue(app._external_command("lazygit -p repo"))
+        self.assertTrue(app._external_command(r'C:\\tools\\foo.exe --bar'))
+        self.assertFalse(app._external_command("echo mc"))

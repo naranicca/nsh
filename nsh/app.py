@@ -1545,8 +1545,9 @@ class NshApp:
         """Actually run ``cmd`` in ``session`` (no busy check). When a builtin
         finishes synchronously, drain the next queued command right away; an
         async command drains its queue from :meth:`_exec` on completion."""
-        force_term = cmd.lstrip().startswith("!")
-        if force_term:
+        explicit_bang = cmd.lstrip().startswith("!")
+        force_term = explicit_bang or self._external_command(cmd)
+        if explicit_bang:
             cmd = cmd.lstrip()[1:].strip()
             if not cmd:
                 self._drain_pending(session)
@@ -1567,6 +1568,28 @@ class NshApp:
             asyncio.ensure_future(self._exec(session, cmd))
         else:
             self._drain_pending(session)  # builtin done; run the next queued one
+
+    def _external_command(self, command):
+        """Whether ``command`` is configured to run on the real terminal.
+
+        ``external_commands`` accepts command names separated by whitespace or
+        commas. Only the executable token is compared, so options and arguments
+        do not affect the match; paths such as ``C:\\tools\\foo.exe`` match
+        ``foo.exe``.
+        """
+        configured = self.settings.get("external_commands", "")
+        names = {name.casefold() for name in configured.replace(",", " ").split()
+                 if name}
+        if not names:
+            return False
+        try:
+            parts = shlex.split(command, posix=os.name != "nt")
+        except ValueError:  # incomplete quote: let the shell report the error
+            parts = command.strip().split(maxsplit=1)
+        if not parts:
+            return False
+        executable = parts[0].strip("\"'")
+        return os.path.basename(executable).casefold() in names
 
     def _drain_pending(self, session):
         """Start the next queued command for ``session``, if the tab is now

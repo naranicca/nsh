@@ -266,6 +266,9 @@ DEFAULT_SETTINGS = {
     # directory names skipped in fuzzy file search (comma/space separated). This
     # is the full list (not additive), so it can be edited to add or remove names
     "search_exclude": _DEFAULT_SEARCH_EXCLUDE,
+    # commands that always run on the real terminal, as if prefixed with `!`;
+    # names may be separated by spaces or commas
+    "external_commands": "",
 }
 
 DEFAULT_NSHRC = """\
@@ -300,6 +303,10 @@ DEFAULT_NSHRC = """\
 # names (to search them); clear it to search everything. build/ and dist/ are
 # searched by default. The default is:
 # search_exclude = {search_defaults}
+
+# Commands that should always run on the real terminal without a leading '!'.
+# Separate command names with spaces or commas (for example: mc ranger lazygit).
+# external_commands =
 
 [colors]
 # explorer.dir = #5fafff bold
