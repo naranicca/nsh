@@ -339,6 +339,26 @@ async def stage_hunk(patch, cwd, staged=False):
     return await run_git(args + ["-"], cwd, input_data=patch)
 
 
+async def conflict_index(path, cwd):
+    """Capture the unmerged index stages so a resolved block can be undone."""
+    rc, out = await run_git(
+        ["ls-files", "-u", "--", str(path)], cwd)
+    return out if rc == 0 else ""
+
+
+async def stage_resolved_file(path, cwd):
+    return await run_git(["add", "--", str(path)], cwd)
+
+
+async def restore_conflict_index(path, cwd, index_info):
+    """Replace a stage-0 entry with its saved stage 1/2/3 conflict entries."""
+    rc, out = await run_git(["update-index", "--force-remove", "--", str(path)], cwd)
+    if rc:
+        return rc, out
+    return await run_git(
+        ["update-index", "--index-info"], cwd, input_data=index_info)
+
+
 async def add_paths(paths, cwd):
     """Stage the given paths, so an explicitly selected untracked file can be
     committed by pathspec (``git commit -- <path>`` rejects untracked files)."""

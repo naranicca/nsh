@@ -72,6 +72,41 @@ class GitStatusTests(unittest.TestCase):
             self.assertIn("+altered", remaining)
             self.assertEqual(staged, "")
 
+    @unittest.skipUnless(shutil.which("git"), "git executable required")
+    def test_resolved_file_can_restore_its_conflict_index(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.email", "nsh@test.invalid"],
+                           cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.name", "nsh test"],
+                           cwd=repo, check=True)
+            path = repo / "sample.txt"
+            path.write_text("base\n", encoding="utf-8")
+            subprocess.run(["git", "add", "sample.txt"], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-qm", "base"], cwd=repo, check=True)
+            subprocess.run(["git", "checkout", "-qb", "topic"], cwd=repo, check=True)
+            path.write_text("theirs\n", encoding="utf-8")
+            subprocess.run(["git", "commit", "-qam", "theirs"], cwd=repo, check=True)
+            subprocess.run(["git", "checkout", "-q", "-"], cwd=repo, check=True)
+            path.write_text("ours\n", encoding="utf-8")
+            subprocess.run(["git", "commit", "-qam", "ours"], cwd=repo, check=True)
+            subprocess.run(["git", "merge", "topic"], cwd=repo,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+            index_info = asyncio.run(git.conflict_index(path, repo))
+            self.assertIn(" 2\t", index_info)
+            self.assertIn(" 3\t", index_info)
+            path.write_text("ours\n", encoding="utf-8")
+            rc, output = asyncio.run(git.stage_resolved_file(path, repo))
+            self.assertEqual(rc, 0, output)
+            self.assertEqual(asyncio.run(git.conflict_index(path, repo)), "")
+
+            rc, output = asyncio.run(
+                git.restore_conflict_index(path, repo, index_info))
+            self.assertEqual(rc, 0, output)
+            self.assertIn(" 2\t", asyncio.run(git.conflict_index(path, repo)))
+
     def test_modified_file_marks_all_parent_directories_modified(self):
         root = Path("repo").resolve()
         status = GitStatus(is_repo=True, root=root)

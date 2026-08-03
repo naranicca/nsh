@@ -151,6 +151,10 @@ Files with both kinds of changes show separate **Unstaged changes** and
 **Staged changes** sections; change navigation and `s` continue across both.
 Selected staged blocks use a separate soft-green background configured as
 `preview-hunk-staged-selected`, while unstaged blocks retain the gray background.
+For an unmerged file, the same navigation selects one `<<<<<<<` / `>>>>>>>`
+conflict block. Press `s` to accept ours, theirs, or both from a menu. Resolving
+the last block stages the file; `u` restores the most recently resolved block
+and its unmerged Git index state.
 
 Picking a branch opens a per-branch menu (Checkout, **Browse**, Delete). **Browse**
 pops a small centered dialog listing that branch's files without checking it out:
@@ -202,8 +206,10 @@ while a command is still running, red once one finishes with a non-zero exit
 (cleared when the next command runs).
 
 Built-ins handled internally: `cd`, `clear`/`cls`, `exit`/`quit`. The output pane
-grows with its content and goes full-screen once it fills up. Long lines wrap,
-the prompt shows each command's run time tinted by its exit status (and dims
+grows with its content and goes full-screen once it fills up. Long lines wrap.
+Manually typed PowerShell home paths are expanded before execution while
+retaining wildcards (for example, `mv ~/Desktop/*.jpg .`). The prompt shows
+each command's run time tinted by its exit status (and dims
 itself while a command is still running), and
 interactive commands that need a real terminal — editors/pagers, plus network
 git (`push`/`pull`/`fetch`/`clone`) and `sudo` that may prompt for credentials

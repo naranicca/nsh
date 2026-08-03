@@ -279,6 +279,31 @@ class CommandRunner:
     def is_running(self) -> bool:
         return self._proc is not None and self._proc.returncode is None
 
+    def _prepare_command(self, command):
+        """Expand PowerShell home paths without consuming their wildcards.
+
+        PowerShell 5 can leave ``~/dir/*.jpg`` unresolved in commands launched
+        through ``-Command``. Tab completion already expands this form, but a
+        manually typed path must behave the same way. Only a tilde at the start
+        of a shell word (optionally just inside a quote) is touched; POSIX keeps
+        its native tilde expansion semantics.
+        """
+        if not self._is_powershell:
+            return command
+        home = os.path.expanduser("~")
+        out = []
+        for i, char in enumerate(command):
+            if char == "~" and i + 1 < len(command) and command[i + 1] in "/\\":
+                prev = command[i - 1] if i else ""
+                quoted_start = (prev in "\"'" and
+                                (i == 1 or command[i - 2].isspace()
+                                 or command[i - 2] in "=,(;|&"))
+                if i == 0 or prev.isspace() or prev in "=,(;|&" or quoted_start:
+                    out.append(home)
+                    continue
+            out.append(char)
+        return "".join(out)
+
     def elapsed(self):
         """Seconds the current streaming command has been running, or ``None``."""
         if self._started_at is None or not self.is_running():
@@ -534,7 +559,7 @@ class CommandRunner:
         self._started_at = time.monotonic()
         self._tail = ""
         # bring any `source`d scripts' functions/aliases/vars into scope first
-        command = self.sourced_prefix() + command
+        command = self.sourced_prefix() + self._prepare_command(command)
         kwargs = dict(
             cwd=str(self.app.cwd),
             env=self._child_env(allow_prompt=allow_prompt),
@@ -608,7 +633,7 @@ class CommandRunner:
         # shell=True may route the command via cmd.exe instead of the detected
         # PowerShell, which would also lose the user's profile functions.
         if self._is_posix or self._is_powershell:
-            sourced = self.sourced_prefix() + command  # sourced funcs in scope
+            sourced = self.sourced_prefix() + self._prepare_command(command)
             argv, kwargs = [self.shell, *self.shell_args, sourced], {}
         else:
             argv, kwargs = command, {"shell": True}

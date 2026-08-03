@@ -123,6 +123,7 @@ class PreviewView:
         self._inflight = set()
         self._diff_hunks = {}
         self._hunk_selection = {}
+        self._conflict_undo = {}
         self._scroll = 0          # top visible line when the pane is focused
         self._scroll_id = None    # identity of what's scrolled (reset on change)
         self._sb_total = 0        # full document line count (for the scrollbar)
@@ -482,6 +483,10 @@ class PreviewView:
         return hunks[selected]
 
     def confirm_revert_hunk(self):
+        path = self._current_preview_path()
+        if path is not None and self._conflict_undo.get(norm(path)):
+            self._undo_conflict(path)
+            return
         hunk = self._current_hunk()
         if hunk is None:
             self.app.set_message("no change to revert")
@@ -511,10 +516,22 @@ class PreviewView:
             await self.app.refresh_git()
         asyncio.ensure_future(do())
 
+    def _current_preview_path(self):
+        if self.app.mode == "git":
+            entry = self.app.gitview.current()
+        elif self.app.mode == "explorer":
+            entry = self.app.explorer.current()
+        else:
+            entry = None
+        return entry.path if entry is not None else None
+
     def stage_current_hunk(self):
         hunk = self._current_hunk()
         if hunk is None:
             self.app.set_message("no change to stage")
+            return
+        if hunk.get("kind") == "conflict":
+            self._open_conflict_menu(hunk)
             return
         # This action starts in the preview and has no dialog, so retain focus
         # while Git and the refreshed diff are loaded asynchronously.
@@ -532,6 +549,77 @@ class PreviewView:
             self.app.set_message(f"change {action}")
             await self.app.refresh_git()
             self.focus()
+        asyncio.ensure_future(do())
+
+    def _open_conflict_menu(self, hunk):
+        self.app.open_menu("Resolve conflict", [
+            ("Accept ours", lambda: self._resolve_conflict(hunk, "ours")),
+            ("Accept theirs", lambda: self._resolve_conflict(hunk, "theirs")),
+            ("Accept both", lambda: self._resolve_conflict(hunk, "both")),
+        ], on_close=self.focus)
+
+    def _resolve_conflict(self, hunk, choice):
+        self.focus()
+
+        async def do():
+            try:
+                content = await run_in_thread(hunk["path"].read_bytes)
+                if hunk["original"] not in content:
+                    self.app.set_message("conflict block changed; reload the preview")
+                    return
+                index_info = await git.conflict_index(hunk["path"], hunk["cwd"])
+                replacement = hunk[choice]
+                updated = content.replace(hunk["original"], replacement, 1)
+                await run_in_thread(hunk["path"].write_bytes, updated)
+                record = {**hunk, "replacement": replacement,
+                          "content_before": content, "content_after": updated,
+                          "index_info": index_info}
+                self._conflict_undo.setdefault(norm(hunk["path"]), []).append(record)
+                if b"<<<<<<<" not in updated:
+                    rc, out = await git.stage_resolved_file(hunk["path"], hunk["cwd"])
+                    if rc:
+                        self.app.set_message(
+                            "conflicts resolved but staging failed: " + out.strip())
+                    else:
+                        self.app.set_message("all conflicts resolved and file staged")
+                else:
+                    self.app.set_message(f"accepted {choice}")
+                self.clear()
+                await self.app.refresh_git()
+                self.focus()
+            except OSError as exc:
+                self.app.set_message(f"cannot resolve conflict: {exc}")
+        asyncio.ensure_future(do())
+
+    def _undo_conflict(self, path):
+        self.focus()
+        records = self._conflict_undo.get(norm(path), [])
+        if not records:
+            self.app.set_message("no resolved conflict to restore")
+            return
+        record = records[-1]
+
+        async def do():
+            try:
+                content = await run_in_thread(path.read_bytes)
+                if content != record["content_after"]:
+                    self.app.set_message("resolved block changed; cannot restore it")
+                    return
+                updated = record["content_before"]
+                await run_in_thread(path.write_bytes, updated)
+                if record["index_info"]:
+                    rc, out = await git.restore_conflict_index(
+                        path, record["cwd"], record["index_info"])
+                    if rc:
+                        self.app.set_message("cannot restore conflict index: " + out.strip())
+                        return
+                records.pop()
+                self.clear()
+                self.app.set_message("conflict block restored")
+                await self.app.refresh_git()
+                self.focus()
+            except OSError as exc:
+                self.app.set_message(f"cannot restore conflict: {exc}")
         asyncio.ensure_future(do())
 
     def _key(self, entry):
@@ -642,6 +730,13 @@ class PreviewView:
         try:
             if entry.code == "?":  # untracked: git diff is empty, show the content
                 frags = await run_in_thread(self._build_untracked, entry)
+            elif entry.code == "C":
+                cwd = getattr(entry, "git_cwd", self.app.cwd)
+                content = await run_in_thread(entry.path.read_bytes)
+                hunks, lines = self._parse_conflicts(content, entry, cwd)
+                self._diff_hunks[key] = hunks
+                self._hunk_selection[key] = 0
+                frags = self._build_conflicts(entry, lines)
             else:
                 cwd = getattr(entry, "git_cwd", self.app.cwd)
                 (unstaged, staged), (unstaged_zero, staged_zero) = await asyncio.gather(
@@ -656,6 +751,60 @@ class PreviewView:
         self._cache[key] = frags
         self._inflight.discard(key)
         self.app.invalidate()
+
+    @staticmethod
+    def _parse_conflicts(content, entry, cwd):
+        """Return selectable conflict blocks and the file's display lines."""
+        raw_lines = content.splitlines(keepends=True)
+        hunks = []
+        i = 0
+        while i < len(raw_lines):
+            if not raw_lines[i].startswith(b"<<<<<<<"):
+                i += 1
+                continue
+            start = i
+            middle = base = end = None
+            i += 1
+            while i < len(raw_lines):
+                if raw_lines[i].startswith(b"|||||||") and base is None:
+                    base = i
+                elif raw_lines[i].startswith(b"======="):
+                    middle = i
+                elif raw_lines[i].startswith(b">>>>>>>"):
+                    end = i
+                    break
+                i += 1
+            if middle is None or end is None:
+                break
+            ours_end = base if base is not None else middle
+            original = b"".join(raw_lines[start:end + 1])
+            ours = b"".join(raw_lines[start + 1:ours_end])
+            theirs = b"".join(raw_lines[middle + 1:end])
+            hunks.append({
+                # blank body row + the "Conflicts" section title precede file.
+                "line": start + 2, "end": end + 3,
+                "kind": "conflict", "staged": False,
+                "path": entry.path, "cwd": cwd, "name": entry.rel,
+                "original": original, "ours": ours, "theirs": theirs,
+                "both": ours + theirs,
+            })
+            i = end + 1
+        display = [line.decode("utf-8", "replace").rstrip("\r\n")
+                   for line in raw_lines]
+        return hunks, display
+
+    def _build_conflicts(self, entry, lines):
+        frags = self._diff_header(entry)
+        frags.append(("class:git.conflict bold", " ── Conflicts ──\n"))
+        if not lines:
+            return frags + [("class:preview.dim", " (empty file)\n")]
+        for line in lines:
+            if line.startswith(("<<<<<<<", "=======", ">>>>>>>", "|||||||")):
+                style = "class:git.conflict bold"
+            else:
+                style = "class:preview"
+            frags.append((style, _sanitize(line) + "\n"))
+        return frags
 
     @staticmethod
     def _parse_hunks(unstaged, staged, entry, cwd,

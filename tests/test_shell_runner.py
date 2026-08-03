@@ -9,6 +9,30 @@ from nsh.shell.runner import CommandRunner
 
 
 class ShellRunnerTests(unittest.TestCase):
+    def test_powershell_expands_manual_tilde_path_and_preserves_wildcard(self):
+        runner = object.__new__(CommandRunner)
+        runner._is_powershell = True
+        with mock.patch("nsh.shell.runner.os.path.expanduser",
+                        return_value=r"C:\Users\name"):
+            command = runner._prepare_command("mv ~/Desktop/*.jpg .")
+
+        self.assertEqual(command, r"mv C:\Users\name/Desktop/*.jpg .")
+
+    def test_powershell_expands_quoted_manual_tilde_path(self):
+        runner = object.__new__(CommandRunner)
+        runner._is_powershell = True
+        with mock.patch("nsh.shell.runner.os.path.expanduser",
+                        return_value=r"C:\Users\name"):
+            command = runner._prepare_command('mv "~/Desktop/a b.jpg" .')
+
+        self.assertEqual(command, r'mv "C:\Users\name/Desktop/a b.jpg" .')
+
+    def test_posix_leaves_tilde_for_the_shell(self):
+        runner = object.__new__(CommandRunner)
+        runner._is_powershell = False
+        self.assertEqual(runner._prepare_command("mv ~/Desktop/*.jpg ."),
+                         "mv ~/Desktop/*.jpg .")
+
     def test_terminal_command_records_duration_and_exit_code(self):
         app = SimpleNamespace(
             cwd=Path.cwd(), shell_vars={}, sourced_files=[],

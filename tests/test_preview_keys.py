@@ -196,6 +196,30 @@ class PreviewKeyTests(unittest.TestCase):
             PreviewView._selected_hunk_style({"staged": True}),
             "class:preview-hunk-staged-selected")
 
+    def test_conflict_markers_are_selectable_blocks(self):
+        content = (b"before\n<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> topic\n"
+                   b"middle\n<<<<<<< HEAD\na\n=======\nb\n>>>>>>> topic\nafter\n")
+        entry = SimpleNamespace(path=Path("a.txt"), rel="a.txt")
+
+        hunks, lines = PreviewView._parse_conflicts(content, entry, Path("repo"))
+
+        self.assertEqual(len(hunks), 2)
+        self.assertEqual(hunks[0]["ours"], b"ours\n")
+        self.assertEqual(hunks[0]["theirs"], b"theirs\n")
+        self.assertEqual(hunks[0]["both"], b"ours\ntheirs\n")
+        self.assertEqual(lines[0], "before")
+
+    def test_s_opens_resolution_menu_for_conflict_block(self):
+        view = object.__new__(PreviewView)
+        hunk = {"kind": "conflict"}
+        view._current_hunk = mock.Mock(return_value=hunk)
+        view._open_conflict_menu = mock.Mock()
+        view.app = SimpleNamespace(set_message=mock.Mock())
+
+        view.stage_current_hunk()
+
+        view._open_conflict_menu.assert_called_once_with(hunk)
+
 
 if __name__ == "__main__":
     unittest.main()
