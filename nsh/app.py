@@ -1153,7 +1153,7 @@ class NshApp:
                 ("↑↓", "scroll"), ("PgUp/PgDn", "page"), ("g/G", "top/bottom"),
                 (zk, "zoom", self.toggle_zoom),
                 (":", "cmd", lambda: self.switch_mode(SHELL)),
-                ("ESC", "list", self.focus_active_list),
+                ("h/ESC", "list", self.focus_active_list),
             ]
         elif self.mode == EXPLORER:
             hints = [
@@ -1795,12 +1795,19 @@ class NshApp:
         # reset the active pane while its query runs; the other pane keeps its
         # current markers until its own query returns (no flicker on nav)
         self.explorer.git_status = git.GitStatus()
-        targets = [(ex, ex.cwd) for ex in self._git_panes()]
+        targets = [(ex, ex.cwd, self._child_directories(ex))
+                   for ex in self._git_panes()]
         self._git_task = asyncio.ensure_future(self._git_worker(targets))
 
+    @staticmethod
+    def _child_directories(explorer):
+        """Real directories currently visible, including expanded descendants."""
+        return tuple(entry.path for entry in explorer.entries
+                     if entry.is_dir and not entry.is_parent)
+
     async def _git_worker(self, targets):
-        for ex, path in targets:
-            status = await git.query(path)
+        for ex, path, children in targets:
+            status = await git.query(path, children)
             if path == ex.cwd:  # ignore results for a directory the pane left
                 ex.git_status = status
         self.gitview.on_status_changed()
@@ -1810,7 +1817,7 @@ class NshApp:
         # refresh every visible pane (a two-pane copy/move changes the other
         # pane's directory too)
         for ex in self._git_panes():
-            ex.git_status = await git.query(ex.cwd)
+            ex.git_status = await git.query(ex.cwd, self._child_directories(ex))
         self.gitview.on_status_changed()
         self.invalidate()
 

@@ -128,6 +128,17 @@ collapsed directory; the aggregate marker disappears when the directory is
 expanded. Untracked files do not mark their parent directory, and the synthetic
 `..` navigation row never shows a Git marker.
 
+Outside a Git repository, visible child directories—including directories
+revealed through inline expansion—that are themselves Git repository roots get
+a blank colour marker: green for a clean repository and
+red when it has staged, modified, conflicted, or untracked changes. The colour
+marker remains on an expanded repository while the usual `M`/`S`/`!` markers
+also appear on its changed files and collapsed subdirectories.
+
+When the Explorer cursor is on a tracked modified, staged, or conflicted file,
+the preview shows that file's Git diff instead of its complete contents. Clean
+and untracked files keep the normal file preview.
+
 Picking a branch opens a per-branch menu (Checkout, **Browse**, Delete). **Browse**
 pops a small centered dialog listing that branch's files without checking it out:
 `↑`/`↓` (or `j`/`k`) move, `↵` / `l` / `→` step into a directory and `⌫` / `h` /
@@ -143,10 +154,11 @@ tree). `↑`/`↓` move, `Space` multi-selects, and the preview pane shows the f
 diff (untracked files show their new content). `Tab` opens an action menu
 (stage / unstage — applied to the whole selection — commit, edit, branches).
 There is no directory hierarchy, so `→`/`l` steps into the diff preview to
-scroll it (`Esc` returns to the list) while the other left/right keys are inert;
+scroll it (`h` or `Esc` returns to the list) while the other left/right keys are inert;
 `Ctrl+G` or `ESC` returns to the explorer, and jumping elsewhere (e.g. via a
 bookmark) leaves git mode automatically. The git log (from the `Tab` action
-menu) works the same way — `→`/`l` focuses the commit-detail/diff preview.
+menu) works the same way — `→`/`l` focuses the commit-detail/diff preview and
+`h` returns to the log list.
 
 Git mode and the git log are per-tab — each tab keeps its own changed-file list
 and history (cursor, selection and search) — so `F7`/`F8` (or `Alt+←`/`Alt+→`)

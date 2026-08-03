@@ -234,6 +234,14 @@ class ExplorerView:
     def _cursor_style(base, on_cursor):
         return (base + " reverse").strip() if on_cursor else base
 
+    @classmethod
+    def _git_marker_style(cls, code, marker_style, row_style, on_cursor):
+        # RC/RD are blank cells whose background *is* the marker. Reversing that
+        # style on the cursor row turns the colour into an invisible foreground.
+        if code in ("RC", "RD"):
+            return marker_style
+        return cls._cursor_style(marker_style or row_style, on_cursor)
+
     def _cursor_visible(self):
         visible = self.app.mode != "shell" and self is self.app.explorer
         if self.app.mode == "network":
@@ -270,10 +278,7 @@ class ExplorerView:
             e = self.entries[i]
             on = cursor_shown and (i == self.cursor)
             sel = e.path in self.selected
-            code = (gs.display_code(
-                e.path, is_dir=e.is_dir, expanded=e.path in self.expanded,
-                is_parent=e.is_parent)
-                if (gs and gs.is_repo) else None)
+            code = self._entry_git_code(e)
             marker = config.GIT_SYMBOL.get(code, " ")
             mstyle = config.GIT_STYLE.get(code, "")
             estyle = "class:explorer.selected" if sel else config.entry_style(e)
@@ -316,7 +321,7 @@ class ExplorerView:
                 # no mark it falls back to the row style so the cursor-row
                 # "reverse" doesn't leave a near-white blank cell. The trailing
                 # gap uses the row style too, so the mark colour doesn't bleed.
-                (self._cursor_style(mstyle or estyle, on), marker),
+                (self._git_marker_style(code, mstyle, estyle, on), marker),
                 (self._cursor_style(estyle, on), " " + indent),
                 (self._cursor_style(estyle, on), f"{icon} "),
                 *name_frags,
@@ -327,6 +332,15 @@ class ExplorerView:
             if i != end - 1:
                 result.append(("", "\n"))
         return result
+
+    def _entry_git_code(self, entry):
+        """Display status for repo contents or child repos outside a repo."""
+        gs = self.git_status
+        if gs is None:
+            return None
+        return gs.display_code(
+            entry.path, is_dir=entry.is_dir,
+            expanded=entry.path in self.expanded, is_parent=entry.is_parent)
 
     # -- navigation -----------------------------------------------------------
     def move(self, delta):
@@ -394,6 +408,7 @@ class ExplorerView:
         # rebuild the flattened listing, keeping the cursor on this directory
         self._apply_listing(self._list())
         self.app.preview.clear()
+        self.app.schedule_git()  # newly visible nested directories may be repos
         self.app.invalidate()
 
     def collapse_or_up(self):
@@ -409,6 +424,7 @@ class ExplorerView:
             self.expanded.discard(entry.path)
             self._apply_listing(self._list())  # cursor stays on this directory
             self.app.preview.clear()
+            self.app.schedule_git()
             self.app.invalidate()
             return
         if entry is not None and entry.depth > 0:

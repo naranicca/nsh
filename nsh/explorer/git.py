@@ -25,6 +25,11 @@ class GitStatus:
     # Git porcelain normally lists only the files, while Explorer renders their
     # parent directories too; this map lets those rows carry a marker.
     directories: Dict[str, str] = field(default_factory=dict)
+    # immediate child repositories when the displayed cwd itself is not a repo;
+    # values are RC (clean) or RD (dirty)
+    child_repos: Dict[str, str] = field(default_factory=dict)
+    # full file status for those child repositories, used when one is expanded
+    child_statuses: Dict[str, object] = field(default_factory=dict)
     # changed files in original case/order: [(abspath Path, code)] — used by git
     # mode, which displays real paths (``files`` keys are normcased for matching)
     entries: list = field(default_factory=list)
@@ -116,8 +121,70 @@ class GitStatus:
         """Status marker for an Explorer row rather than an action target."""
         if is_parent:
             return None  # ``..`` is navigation, not a directory status row
+        if not self.is_repo:
+            key = norm(path)
+            child = self.child_statuses.get(key)
+            if child is not None:  # the child repository's own row
+                return self.child_repos.get(key)
+            # An expanded repository exposes its files in this Explorer tree.
+            # Walk upward to find which immediate child repository owns the row.
+            for parent in Path(path).parents:
+                child = self.child_statuses.get(norm(parent))
+                if child is not None:
+                    return child.display_code(
+                        path, is_dir=is_dir, expanded=expanded)
+            return None
         code = self.code_for(path, include_descendants=not (is_dir and expanded))
         return None if is_dir and code == "?" else code
+
+
+async def child_repositories(directories):
+    """Return GitStatus objects for directories that are repository roots."""
+    semaphore = asyncio.Semaphore(8)
+
+    async def inspect(path):
+        async with semaphore:
+            root = await _out(["rev-parse", "--show-toplevel"], path)
+            if root is None or norm(root.strip()) != norm(path):
+                return None
+            porcelain = await _out(
+                ["-c", "core.quotepath=false", "status", "--porcelain"], path)
+            if porcelain is None:
+                return None
+            status = GitStatus(is_repo=True, root=Path(root.strip()))
+            _parse_porcelain(status, porcelain)
+            return norm(path), status
+
+    found = await asyncio.gather(*(inspect(Path(path)) for path in directories))
+    return dict(item for item in found if item is not None)
+
+
+def _parse_porcelain(status, porcelain):
+    """Populate file status from ``git status --porcelain`` output."""
+    if not porcelain:
+        return
+    for line in porcelain.splitlines():
+        if len(line) < 4:
+            continue
+        code, path = line[:2], line[3:]
+        if " -> " in path:  # rename: keep the destination
+            path = path.split(" -> ", 1)[1]
+        path = path.strip().strip('"')
+        is_dir_entry = path.endswith("/")
+        abspath = status.root / path.rstrip("/")
+        x, y = code[0], code[1]
+        if "U" in code or code in ("AA", "DD"):
+            value = "C"
+        elif code == "??":
+            value = "?"
+        elif x not in (" ", "?"):
+            value = "S" if y == " " else "M"
+        else:
+            value = "M"
+        status.add_file(abspath, value)
+        status.entries.append((abspath, value))
+        if value == "?" and is_dir_entry:
+            status.untracked_dirs.add(norm(abspath))
 
 
 async def run_git(args, cwd, env=None):
@@ -145,11 +212,16 @@ async def _out(args, cwd):
     return out if rc == 0 else None
 
 
-async def query(directory) -> GitStatus:
+async def query(directory, child_directories=()) -> GitStatus:
     """Detect the repo, current branch and per-file status for ``directory``."""
     st = GitStatus()
     root = await _out(["rev-parse", "--show-toplevel"], directory)
     if root is None:
+        st.child_statuses = await child_repositories(child_directories)
+        st.child_repos = {
+            path: "RD" if status.files else "RC"
+            for path, status in st.child_statuses.items()
+        }
         return st
     st.is_repo = True
     st.root = Path(root.strip())
@@ -180,29 +252,7 @@ async def query(directory) -> GitStatus:
     porcelain = await _out(
         ["-c", "core.quotepath=false", "status", "--porcelain"], directory
     )
-    if porcelain:
-        for line in porcelain.splitlines():
-            if len(line) < 4:
-                continue
-            code, path = line[:2], line[3:]
-            if " -> " in path:  # rename: keep the destination
-                path = path.split(" -> ", 1)[1]
-            path = path.strip().strip('"')
-            is_dir_entry = path.endswith("/")  # git marks an untracked dir "dir/"
-            abspath = st.root / path.rstrip("/")
-            x, y = code[0], code[1]
-            if "U" in code or code in ("AA", "DD"):
-                c = "C"
-            elif code == "??":
-                c = "?"
-            elif x not in (" ", "?"):
-                c = "S" if y == " " else "M"  # staged vs. staged+modified
-            else:
-                c = "M"
-            st.add_file(abspath, c)
-            st.entries.append((abspath, c))
-            if c == "?" and is_dir_entry:
-                st.untracked_dirs.add(norm(abspath))
+    _parse_porcelain(st, porcelain)
     return st
 
 

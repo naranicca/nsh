@@ -9,6 +9,7 @@ scrolling the listing never blocks the UI.
 import asyncio
 import os
 import stat
+from types import SimpleNamespace
 import struct
 from datetime import datetime
 
@@ -388,7 +389,8 @@ class PreviewView:
                 return
             self.app.focus_active_list()
 
-        # Shift+H steps back to the list (the mirror of Shift+L stepping in).
+        # h/Shift+H step back to the list (the mirror of l/Shift+L stepping in).
+        @kb.add("h")
         @kb.add("H")
         def _(event):
             self.app.focus_active_list()
@@ -428,6 +430,15 @@ class PreviewView:
         entry = self.app.explorer.current()
         if entry is None:
             return [("class:preview.dim", " (nothing selected)")]
+        git_entry = self._explorer_git_entry(entry)
+        if git_entry is not None:
+            key = self._git_key(git_entry)
+            if key in self._cache:
+                return self._cache[key]
+            if key not in self._inflight:
+                self._inflight.add(key)
+                asyncio.ensure_future(self._load_git(git_entry, key))
+            return [("class:preview.dim", " loading diff…")]
         key = self._key(entry)
         if key in self._cache:
             return self._cache[key]
@@ -435,6 +446,20 @@ class PreviewView:
             self._inflight.add(key)
             asyncio.ensure_future(self._load(entry, key))
         return [("class:preview.dim", " loading…")]
+
+    def _explorer_git_entry(self, entry):
+        """Adapt a tracked changed Explorer file to the Git diff preview."""
+        if entry.is_dir:
+            return None
+        status = getattr(self.app.explorer, "git_status", None)
+        code = status.files.get(norm(entry.path)) if status and status.is_repo else None
+        if code not in ("M", "S", "C"):
+            return None
+        try:
+            rel = os.path.relpath(entry.path, self.app.cwd).replace(os.sep, "/")
+        except ValueError:
+            rel = entry.name
+        return SimpleNamespace(path=entry.path, code=code, rel=rel)
 
     # -- git-mode diff preview ------------------------------------------------
     def _git_text(self):

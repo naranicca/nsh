@@ -52,6 +52,10 @@ STYLE_DEFAULTS = {
         "git.staged": "#5fff5f",
         "git.untracked": "#808080",
         "git.conflict": "#ff005f bold",
+        # child repositories shown while browsing a non-repository directory;
+        # the marker is deliberately a blank cell with a coloured background
+        "git.repo.clean": "bg:#00af00",
+        "git.repo.dirty": "bg:#d70000",
         # preview pane
         "preview": "#c0c0c0",
         "preview.header": "#87d7ff bold",
@@ -220,12 +224,15 @@ ICONS = {
 }
 
 # git porcelain code -> (symbol, style)
-GIT_SYMBOL = {"M": "M", "S": "S", "?": "?", "C": "!"}
+GIT_SYMBOL = {"M": "M", "S": "S", "?": "?", "C": "!",
+              "RC": " ", "RD": " "}
 GIT_STYLE = {
     "M": "class:git.modified",
     "S": "class:git.staged",
     "?": "class:git.untracked",
     "C": "class:git.conflict",
+    "RC": "class:git.repo.clean",
+    "RD": "class:git.repo.dirty",
 }
 
 
