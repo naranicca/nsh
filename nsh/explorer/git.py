@@ -331,6 +331,14 @@ async def apply_hunk(patch, cwd, staged=False):
     return rc, out
 
 
+async def stage_hunk(patch, cwd, staged=False):
+    """Stage one change block, or unstage it when it is already staged."""
+    args = ["apply", "--cached", "--unidiff-zero", "--whitespace=nowarn"]
+    if staged:
+        args.append("--reverse")
+    return await run_git(args + ["-"], cwd, input_data=patch)
+
+
 async def add_paths(paths, cwd):
     """Stage the given paths, so an explicitly selected untracked file can be
     committed by pathspec (``git commit -- <path>`` rejects untracked files)."""

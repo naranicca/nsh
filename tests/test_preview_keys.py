@@ -123,6 +123,16 @@ class PreviewKeyTests(unittest.TestCase):
 
         view.confirm_revert_hunk.assert_called_once_with()
 
+    def test_s_stages_current_change(self):
+        view = object.__new__(PreviewView)
+        view.app = SimpleNamespace(keys={})
+        view.stage_current_hunk = mock.Mock()
+        bindings = view._kb()
+
+        bindings.get_bindings_for_keys(("s",))[0].handler(SimpleNamespace())
+
+        view.stage_current_hunk.assert_called_once_with()
+
     def test_revert_confirmation_keeps_focus_in_preview(self):
         view = object.__new__(PreviewView)
         view.focus = mock.Mock()
@@ -159,9 +169,32 @@ class PreviewKeyTests(unittest.TestCase):
             display, "", SimpleNamespace(rel="a.txt"), Path("repo"), zero, "")
 
         self.assertEqual(len(hunks), 2)
-        self.assertEqual((hunks[0]["line"], hunks[0]["end"]), (6, 8))
-        self.assertEqual((hunks[1]["line"], hunks[1]["end"]), (9, 11))
+        self.assertEqual((hunks[0]["line"], hunks[0]["end"]), (7, 9))
+        self.assertEqual((hunks[1]["line"], hunks[1]["end"]), (10, 12))
         self.assertNotIn("old two", hunks[0]["patch"])
+
+    def test_mixed_diff_has_separate_unstaged_and_staged_sections(self):
+        view = object.__new__(PreviewView)
+        entry = SimpleNamespace(rel="a.txt", code="M")
+        unstaged = "@@ -1 +1 @@\n-old\n+working\n"
+        staged = "@@ -3 +3 @@\n-before\n+indexed\n"
+
+        frags = view._build_diff(entry, unstaged, staged)
+        rendered = "".join(text for _style, text in frags)
+        styles = {text.strip(): style for style, text in frags}
+
+        self.assertLess(rendered.index("Unstaged changes"),
+                        rendered.index("Staged changes"))
+        self.assertIn("class:git.modified", styles["── Unstaged changes ──"])
+        self.assertIn("class:git.staged", styles["── Staged changes ──"])
+
+    def test_staged_and_unstaged_selections_use_different_backgrounds(self):
+        self.assertEqual(
+            PreviewView._selected_hunk_style({"staged": False}),
+            "class:preview-hunk-selected")
+        self.assertEqual(
+            PreviewView._selected_hunk_style({"staged": True}),
+            "class:preview-hunk-staged-selected")
 
 
 if __name__ == "__main__":

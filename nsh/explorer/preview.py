@@ -337,16 +337,17 @@ class PreviewView:
         if focused:
             hunk = self._current_hunk()
             if hunk is not None:
+                selected_style = self._selected_hunk_style(hunk)
                 for line_no in range(hunk["line"], min(hunk["end"], len(body))):
                     line = body[line_no]
                     body[line_no] = [
-                        ((style + " class:preview-hunk-selected").strip(), text)
+                        ((style + " " + selected_style).strip(), text)
                         for style, text in line
                     ]
                     used = sum(text_width(text) for _, text in line)
                     if used < width:
                         body[line_no].append(
-                            ("class:preview-hunk-selected", " " * (width - used)))
+                            (selected_style, " " * (width - used)))
         header_lines = []
         for i, ln in enumerate(header):
             if i == 0:
@@ -360,6 +361,11 @@ class PreviewView:
                 header_lines.append(ln)
         shown = header_lines + body[self._scroll:self._scroll + body_h]
         return self._flatten_lines(shown)
+
+    @staticmethod
+    def _selected_hunk_style(hunk):
+        return ("class:preview-hunk-staged-selected" if hunk["staged"]
+                else "class:preview-hunk-selected")
 
     def _kb(self):
         kb = KeyBindings()
@@ -379,6 +385,10 @@ class PreviewView:
         @kb.add("u")
         def _(event):
             self.confirm_revert_hunk()
+
+        @kb.add("s")
+        def _(event):
+            self.stage_current_hunk()
 
         @kb.add("pagedown")
         @kb.add(" ")
@@ -501,6 +511,29 @@ class PreviewView:
             await self.app.refresh_git()
         asyncio.ensure_future(do())
 
+    def stage_current_hunk(self):
+        hunk = self._current_hunk()
+        if hunk is None:
+            self.app.set_message("no change to stage")
+            return
+        # This action starts in the preview and has no dialog, so retain focus
+        # while Git and the refreshed diff are loaded asynchronously.
+        self.focus()
+
+        async def do():
+            rc, out = await git.stage_hunk(
+                hunk["patch"], hunk["cwd"], hunk["staged"])
+            if rc:
+                detail = out.strip().splitlines()[-1] if out.strip() else "git apply failed"
+                self.app.set_message(f"cannot stage change: {detail}")
+                return
+            action = "unstaged" if hunk["staged"] else "staged"
+            self.clear()
+            self.app.set_message(f"change {action}")
+            await self.app.refresh_git()
+            self.focus()
+        asyncio.ensure_future(do())
+
     def _key(self, entry):
         try:
             st = entry.path.stat()
@@ -614,11 +647,10 @@ class PreviewView:
                 (unstaged, staged), (unstaged_zero, staged_zero) = await asyncio.gather(
                     git.diff_parts(entry.path, cwd),
                     git.diff_parts(entry.path, cwd, unified=0))
-                text = unstaged + staged
                 self._diff_hunks[key] = self._parse_hunks(
                     unstaged, staged, entry, cwd, unstaged_zero, staged_zero)
                 self._hunk_selection[key] = 0
-                frags = self._build_diff(entry, text)
+                frags = self._build_diff(entry, unstaged, staged)
         except Exception as exc:  # noqa: BLE001 - shown in the pane
             frags = [("class:preview.dim", f" diff error: {exc}")]
         self._cache[key] = frags
@@ -630,13 +662,18 @@ class PreviewView:
                      unstaged_zero=None, staged_zero=None):
         """Map each contiguous +/- block to an independently applicable patch."""
         result = []
-        line_offset = 0
+        # body line zero is the blank separator after the pinned file header.
+        line_offset = 1
         sources = (
             (unstaged, unstaged if unstaged_zero is None else unstaged_zero, False),
             (staged, staged if staged_zero is None else staged_zero, True),
         )
         for text, zero_text, is_staged in sources:
             lines = text.splitlines()
+            if not lines:
+                continue
+            # Each non-empty section has one visible Staged/Unstaged title.
+            line_offset += 1
             patches = PreviewView._diff_patch_hunks(zero_text)
             blocks = []
             i = 0
@@ -655,9 +692,8 @@ class PreviewView:
                 blocks.append((start, i))
             for (start, end), patch in zip(blocks, patches):
                 result.append({
-                    # _visible_text keeps the blank separator as body line zero.
-                    "line": line_offset + start + 1,
-                    "end": line_offset + end + 1,
+                    "line": line_offset + start,
+                    "end": line_offset + end,
                     "patch": patch,
                     "staged": is_staged,
                     "cwd": cwd,
@@ -694,10 +730,21 @@ class PreviewView:
         return [("class:preview.header", f" {entry.rel}"),
                 ("class:preview.dim", f"  [{label}]\n\n")]
 
-    def _build_diff(self, entry, text):
+    def _build_diff(self, entry, unstaged, staged=""):
         frags = self._diff_header(entry)
-        if not text:
+        if not unstaged and not staged:
             return frags + [("class:preview.dim", " (no diff)\n")]
+        for title, text, title_style in (
+                ("Unstaged changes", unstaged, "class:git.modified"),
+                ("Staged changes", staged, "class:git.staged")):
+            if not text:
+                continue
+            frags.append((title_style + " bold", f" ── {title} ──\n"))
+            self._append_diff_lines(frags, text)
+        return frags
+
+    @staticmethod
+    def _append_diff_lines(frags, text):
         for line in text.splitlines():
             if line.startswith("+"):
                 style = "class:git.staged"     # additions: green
@@ -710,7 +757,6 @@ class PreviewView:
             else:
                 style = "class:preview"
             frags.append((style, _sanitize(line) + "\n"))
-        return frags
 
     def _build_untracked(self, entry):
         try:

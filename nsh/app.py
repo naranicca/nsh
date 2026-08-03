@@ -1158,6 +1158,7 @@ class NshApp:
             if self.preview.has_diff_hunks():
                 hints[0] = (hints[0][0], "change")
                 hints.insert(1, ("u", "revert change"))
+                hints.insert(1, ("s", "stage/unstage"))
         elif self.mode == EXPLORER:
             hints = [
                 ("↵", "open", ex.open), ("Space", "select", ex.toggle_select),

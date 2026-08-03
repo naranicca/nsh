@@ -67,6 +67,7 @@ STYLE_DEFAULTS = {
         # Keep this class non-hierarchical: a preview.* class also inherits the
         # preview foreground and would hide the diff's red/green text colours.
         "preview-hunk-selected": "bg:#585858",
+        "preview-hunk-staged-selected": "bg:#345f45",
         "preview.border": "#444444",
         # fuzzy search
         # prompt_toolkit ships a built-in "search" class (its incremental-search

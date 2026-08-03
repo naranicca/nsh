@@ -194,10 +194,16 @@ class PreferenceTests(unittest.TestCase):
     def test_all_default_colors_and_shortcuts_are_valid_preferences(self):
         self.assertEqual(config.STYLE_DEFAULTS["preview-hunk-selected"],
                          "bg:#585858")
+        self.assertEqual(config.STYLE_DEFAULTS["preview-hunk-staged-selected"],
+                         "bg:#345f45")
         attrs = config.build_style().get_attrs_for_style_str(
             "class:git.staged class:preview-hunk-selected")
         self.assertEqual(attrs.color, "5fff5f")
         self.assertEqual(attrs.bgcolor, "585858")
+        staged_attrs = config.build_style().get_attrs_for_style_str(
+            "class:git.staged class:preview-hunk-staged-selected")
+        self.assertEqual(staged_attrs.color, "5fff5f")
+        self.assertEqual(staged_attrs.bgcolor, "345f45")
         for name, value in config.STYLE_DEFAULTS.items():
             self.assertEqual(config.validate_preference("colors", name, value),
                              value)

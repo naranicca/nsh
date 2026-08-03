@@ -11,6 +11,7 @@ from nsh import config
 from nsh.app import NshApp
 from nsh.explorer import git
 from nsh.explorer.git import GitStatus
+from nsh.explorer.preview import PreviewView
 from nsh.explorer.view import ExplorerView
 
 
@@ -37,6 +38,39 @@ class GitStatusTests(unittest.TestCase):
             self.assertEqual(rc, 0, output)
             self.assertEqual(path.read_text(encoding="utf-8"),
                              "one\ntwo\nthree\n")
+
+    @unittest.skipUnless(shutil.which("git"), "git executable required")
+    def test_zero_context_change_patch_can_be_staged_and_unstaged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.email", "nsh@test.invalid"],
+                           cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.name", "nsh test"],
+                           cwd=repo, check=True)
+            path = repo / "sample.txt"
+            path.write_text("one\ntwo\nthree\n", encoding="utf-8")
+            subprocess.run(["git", "add", "sample.txt"], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-qm", "initial"],
+                           cwd=repo, check=True)
+            path.write_text("one\nchanged\nthree\nfour\naltered\n", encoding="utf-8")
+            unstaged, _ = asyncio.run(git.diff_parts(path, repo, unified=0))
+            first_patch = PreviewView._diff_patch_hunks(unstaged)[0]
+
+            rc, output = asyncio.run(git.stage_hunk(first_patch, repo))
+            self.assertEqual(rc, 0, output)
+            remaining, staged = asyncio.run(git.diff_parts(path, repo, unified=0))
+            self.assertIn("+altered", remaining)
+            self.assertNotIn("+changed", remaining)
+            self.assertIn("+changed", staged)
+            self.assertNotIn("+altered", staged)
+
+            rc, output = asyncio.run(git.stage_hunk(staged, repo, staged=True))
+            self.assertEqual(rc, 0, output)
+            remaining, staged = asyncio.run(git.diff_parts(path, repo, unified=0))
+            self.assertIn("+changed", remaining)
+            self.assertIn("+altered", remaining)
+            self.assertEqual(staged, "")
 
     def test_modified_file_marks_all_parent_directories_modified(self):
         root = Path("repo").resolve()
