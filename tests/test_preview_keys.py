@@ -65,6 +65,8 @@ class PreviewKeyTests(unittest.TestCase):
             invalidate=mock.Mock())
         view._cache = {}
         view._inflight = set()
+        view._diff_hunks = {}
+        view._hunk_selection = {}
         entry = SimpleNamespace(path=path, name="app.py", is_dir=False)
 
         adapted = view._explorer_git_entry(entry)
@@ -73,10 +75,93 @@ class PreviewKeyTests(unittest.TestCase):
         self.assertEqual(adapted.rel, "src/app.py")
         self.assertEqual(adapted.git_cwd, repo)
         key = ("test",)
-        with mock.patch("nsh.explorer.preview.git.diff",
-                        new=mock.AsyncMock(return_value="")) as diff:
+        with mock.patch("nsh.explorer.preview.git.diff_parts",
+                        new=mock.AsyncMock(return_value=("", ""))) as diff:
             asyncio.run(view._load_git(adapted, key))
-        diff.assert_awaited_once_with(path, repo)
+        self.assertEqual(diff.await_count, 2)
+        diff.assert_any_await(path, repo)
+        diff.assert_any_await(path, repo, unified=0)
+
+    def test_diff_arrows_jump_between_hunks(self):
+        view = object.__new__(PreviewView)
+        view._scroll = 0
+        view._current_diff_key = mock.Mock(return_value=("git",))
+        view._diff_hunks = {
+            ("git",): [{"line": 4}, {"line": 12}, {"line": 25}]}
+        view._hunk_selection = {}
+        view.app = SimpleNamespace(invalidate=mock.Mock())
+
+        self.assertTrue(view.jump_hunk(1))
+        self.assertEqual(view._scroll, 12)
+        view.jump_hunk(1)
+        self.assertEqual(view._scroll, 25)
+        view.jump_hunk(-1)
+        self.assertEqual(view._scroll, 12)
+
+    def test_j_and_k_use_the_same_change_navigation_as_arrows(self):
+        view = object.__new__(PreviewView)
+        view.app = SimpleNamespace(keys={})
+        view.jump_hunk = mock.Mock(return_value=True)
+        view.scroll = mock.Mock()
+        bindings = view._kb()
+
+        bindings.get_bindings_for_keys(("j",))[0].handler(SimpleNamespace())
+        bindings.get_bindings_for_keys(("k",))[0].handler(SimpleNamespace())
+
+        self.assertEqual(view.jump_hunk.call_args_list,
+                         [mock.call(1), mock.call(-1)])
+        view.scroll.assert_not_called()
+
+    def test_lowercase_u_reverts_current_change(self):
+        view = object.__new__(PreviewView)
+        view.app = SimpleNamespace(keys={})
+        view.confirm_revert_hunk = mock.Mock()
+        bindings = view._kb()
+
+        self.assertEqual(len(bindings.get_bindings_for_keys(("U",))), 0)
+        bindings.get_bindings_for_keys(("u",))[0].handler(SimpleNamespace())
+
+        view.confirm_revert_hunk.assert_called_once_with()
+
+    def test_revert_confirmation_keeps_focus_in_preview(self):
+        view = object.__new__(PreviewView)
+        view.focus = mock.Mock()
+        view.app = SimpleNamespace(set_message=mock.Mock())
+
+        view._do_revert_hunk({}, False)
+
+        view.focus.assert_called_once_with()
+        view.app.set_message.assert_called_once_with("change revert cancelled")
+
+    def test_parse_hunks_keeps_each_patch_independent(self):
+        text = ("diff --git a/a.txt b/a.txt\nindex 111..222 100644\n"
+                "--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-old\n+new\n"
+                "@@ -5 +5 @@\n-before\n+after\n")
+        entry = SimpleNamespace(rel="a.txt")
+
+        hunks = PreviewView._parse_hunks(text, "", entry, Path("repo"))
+
+        self.assertEqual(len(hunks), 2)
+        self.assertIn("@@ -1 +1 @@", hunks[0]["patch"])
+        self.assertNotIn("@@ -5 +5 @@", hunks[0]["patch"])
+        self.assertTrue(hunks[1]["patch"].startswith("diff --git"))
+        self.assertFalse(hunks[0]["staged"])
+
+    def test_selection_is_one_contiguous_change_block_not_whole_hunk(self):
+        display = ("diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n"
+                   "@@ -1,5 +1,5 @@\n same\n-old one\n+new one\n middle\n"
+                   "-old two\n+new two\n")
+        zero = ("diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n"
+                "@@ -2 +2 @@\n-old one\n+new one\n"
+                "@@ -4 +4 @@\n-old two\n+new two\n")
+
+        hunks = PreviewView._parse_hunks(
+            display, "", SimpleNamespace(rel="a.txt"), Path("repo"), zero, "")
+
+        self.assertEqual(len(hunks), 2)
+        self.assertEqual((hunks[0]["line"], hunks[0]["end"]), (6, 8))
+        self.assertEqual((hunks[1]["line"], hunks[1]["end"]), (9, 11))
+        self.assertNotIn("old two", hunks[0]["patch"])
 
 
 if __name__ == "__main__":

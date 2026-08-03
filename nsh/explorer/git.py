@@ -205,7 +205,7 @@ def _parse_porcelain(status, porcelain):
             status.untracked_dirs.add(norm(abspath))
 
 
-async def run_git(args, cwd, env=None):
+async def run_git(args, cwd, env=None, input_data=None):
     """Run ``git <args>`` in ``cwd``; return ``(returncode, combined_output)``.
 
     ``env`` overrides the child environment (used by the scripted rebase below);
@@ -216,12 +216,15 @@ async def run_git(args, cwd, env=None):
             "git", *args,
             cwd=str(cwd),
             env=env,
+            stdin=(asyncio.subprocess.PIPE if input_data is not None else None),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
         )
     except (FileNotFoundError, NotADirectoryError, OSError):
         return 127, ""
-    out, _ = await proc.communicate()
+    if isinstance(input_data, str):
+        input_data = input_data.encode("utf-8")
+    out, _ = await proc.communicate(input_data)
     return proc.returncode, out.decode("utf-8", "replace")
 
 
@@ -293,13 +296,39 @@ async def revert(path, cwd):
 
 async def diff(path, cwd):
     """Return the combined unstaged + staged diff text for ``path``."""
+    unstaged, staged = await diff_parts(path, cwd)
+    return (unstaged + staged).strip()
+
+
+async def diff_parts(path, cwd, unified=None):
+    """Return ``(unstaged, staged)`` diff text separately for hunk actions."""
+    context = [] if unified is None else [f"--unified={unified}"]
     _, unstaged = await run_git(
-        ["-c", "color.ui=never", "diff", "--", str(path)], cwd
+        ["-c", "color.ui=never", "diff"] + context + ["--", str(path)], cwd
     )
     _, staged = await run_git(
-        ["-c", "color.ui=never", "diff", "--cached", "--", str(path)], cwd
+        ["-c", "color.ui=never", "diff", "--cached"] + context
+        + ["--", str(path)], cwd
     )
-    return (unstaged + staged).strip()
+    return unstaged, staged
+
+
+async def apply_hunk(patch, cwd, staged=False):
+    """Reverse one unified-diff hunk, including the index when it is staged."""
+    # Selection patches come from ``git diff --unified=0``. Git deliberately
+    # rejects zero-context patches unless --unidiff-zero is explicit.
+    base = ["apply", "--reverse", "--unidiff-zero", "--whitespace=nowarn"]
+    if not staged:
+        return await run_git(base + ["-"], cwd, input_data=patch)
+    rc, out = await run_git(base + ["--cached", "-"], cwd, input_data=patch)
+    if rc:
+        return rc, out
+    rc, out = await run_git(base + ["-"], cwd, input_data=patch)
+    if rc:
+        await run_git(["apply", "--unidiff-zero", "--whitespace=nowarn",
+                       "--cached", "-"], cwd,
+                      input_data=patch)
+    return rc, out
 
 
 async def add_paths(paths, cwd):

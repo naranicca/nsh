@@ -63,6 +63,10 @@ STYLE_DEFAULTS = {
         "preview.header.focus": "bg:#005f87",
         "preview.dim": "#808080 italic",
         "preview.meta": "#5fafff bold",
+        # currently selected Git diff hunk (customizable in Preferences)
+        # Keep this class non-hierarchical: a preview.* class also inherits the
+        # preview foreground and would hide the diff's red/green text colours.
+        "preview-hunk-selected": "bg:#585858",
         "preview.border": "#444444",
         # fuzzy search
         # prompt_toolkit ships a built-in "search" class (its incremental-search

@@ -1,5 +1,8 @@
 import unittest
 import asyncio
+import shutil
+import subprocess
+import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -12,6 +15,29 @@ from nsh.explorer.view import ExplorerView
 
 
 class GitStatusTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("git"), "git executable required")
+    def test_zero_context_change_patch_can_be_reverted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.email", "nsh@test.invalid"],
+                           cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.name", "nsh test"],
+                           cwd=repo, check=True)
+            path = repo / "sample.txt"
+            path.write_text("one\ntwo\nthree\n", encoding="utf-8")
+            subprocess.run(["git", "add", "sample.txt"], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-qm", "initial"],
+                           cwd=repo, check=True)
+            path.write_text("one\nchanged\nthree\n", encoding="utf-8")
+
+            unstaged, _ = asyncio.run(git.diff_parts(path, repo, unified=0))
+            rc, output = asyncio.run(git.apply_hunk(unstaged, repo))
+
+            self.assertEqual(rc, 0, output)
+            self.assertEqual(path.read_text(encoding="utf-8"),
+                             "one\ntwo\nthree\n")
+
     def test_modified_file_marks_all_parent_directories_modified(self):
         root = Path("repo").resolve()
         status = GitStatus(is_repo=True, root=root)

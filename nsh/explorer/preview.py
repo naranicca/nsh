@@ -121,6 +121,8 @@ class PreviewView:
         self.app = app
         self._cache = {}
         self._inflight = set()
+        self._diff_hunks = {}
+        self._hunk_selection = {}
         self._scroll = 0          # top visible line when the pane is focused
         self._scroll_id = None    # identity of what's scrolled (reset on change)
         self._sb_total = 0        # full document line count (for the scrollbar)
@@ -332,6 +334,19 @@ class PreviewView:
         # tint the pinned header only while focused so the focus state reads at a
         # glance; the first header line always carries the [-]/[+] zoom button.
         width = self._content_width()
+        if focused:
+            hunk = self._current_hunk()
+            if hunk is not None:
+                for line_no in range(hunk["line"], min(hunk["end"], len(body))):
+                    line = body[line_no]
+                    body[line_no] = [
+                        ((style + " class:preview-hunk-selected").strip(), text)
+                        for style, text in line
+                    ]
+                    used = sum(text_width(text) for _, text in line)
+                    if used < width:
+                        body[line_no].append(
+                            ("class:preview-hunk-selected", " " * (width - used)))
         header_lines = []
         for i, ln in enumerate(header):
             if i == 0:
@@ -352,12 +367,18 @@ class PreviewView:
         @kb.add("down")
         @kb.add("j")
         def _(event):
-            self.scroll(1)
+            if not self.jump_hunk(1):
+                self.scroll(1)
 
         @kb.add("up")
         @kb.add("k")
         def _(event):
-            self.scroll(-1)
+            if not self.jump_hunk(-1):
+                self.scroll(-1)
+
+        @kb.add("u")
+        def _(event):
+            self.confirm_revert_hunk()
 
         @kb.add("pagedown")
         @kb.add(" ")
@@ -413,6 +434,72 @@ class PreviewView:
     # -- cache ----------------------------------------------------------------
     def clear(self):
         self._cache.clear()
+        self._diff_hunks.clear()
+        self._hunk_selection.clear()
+
+    def _current_diff_key(self):
+        if self.app.mode == "git":
+            entry = self.app.gitview.current()
+        elif self.app.mode == "explorer":
+            current = self.app.explorer.current()
+            entry = self._explorer_git_entry(current) if current else None
+        else:
+            entry = None
+        return self._git_key(entry) if entry is not None else None
+
+    def has_diff_hunks(self):
+        return bool(self._diff_hunks.get(self._current_diff_key()))
+
+    def jump_hunk(self, direction):
+        key = self._current_diff_key()
+        hunks = self._diff_hunks.get(key, ())
+        if not hunks:
+            return False
+        current = self._hunk_selection.get(key, 0)
+        current = max(0, min(len(hunks) - 1, current + direction))
+        self._hunk_selection[key] = current
+        self._scroll = hunks[current]["line"]
+        self.app.invalidate()
+        return True
+
+    def _current_hunk(self):
+        key = self._current_diff_key()
+        hunks = self._diff_hunks.get(key, ())
+        if not hunks:
+            return None
+        selected = max(0, min(len(hunks) - 1,
+                              self._hunk_selection.get(key, 0)))
+        return hunks[selected]
+
+    def confirm_revert_hunk(self):
+        hunk = self._current_hunk()
+        if hunk is None:
+            self.app.set_message("no change to revert")
+            return
+        self.app.confirm(
+            f"Revert this change in '{hunk['name']}'?",
+            lambda ok: self._do_revert_hunk(hunk, ok))
+
+    def _do_revert_hunk(self, hunk, ok):
+        # ConfirmDialog restores the mode's default focus (the left list) before
+        # invoking its result callback. A hunk action originates in the preview,
+        # so put focus back here for both confirmation and cancellation.
+        self.focus()
+        if not ok:
+            self.app.set_message("change revert cancelled")
+            return
+
+        async def do():
+            rc, out = await git.apply_hunk(
+                hunk["patch"], hunk["cwd"], hunk["staged"])
+            if rc:
+                detail = out.strip().splitlines()[-1] if out.strip() else "git apply failed"
+                self.app.set_message(f"cannot revert change: {detail}")
+                return
+            self.clear()
+            self.app.set_message("change reverted")
+            await self.app.refresh_git()
+        asyncio.ensure_future(do())
 
     def _key(self, entry):
         try:
@@ -523,14 +610,82 @@ class PreviewView:
             if entry.code == "?":  # untracked: git diff is empty, show the content
                 frags = await run_in_thread(self._build_untracked, entry)
             else:
-                text = await git.diff(
-                    entry.path, getattr(entry, "git_cwd", self.app.cwd))
+                cwd = getattr(entry, "git_cwd", self.app.cwd)
+                (unstaged, staged), (unstaged_zero, staged_zero) = await asyncio.gather(
+                    git.diff_parts(entry.path, cwd),
+                    git.diff_parts(entry.path, cwd, unified=0))
+                text = unstaged + staged
+                self._diff_hunks[key] = self._parse_hunks(
+                    unstaged, staged, entry, cwd, unstaged_zero, staged_zero)
+                self._hunk_selection[key] = 0
                 frags = self._build_diff(entry, text)
         except Exception as exc:  # noqa: BLE001 - shown in the pane
             frags = [("class:preview.dim", f" diff error: {exc}")]
         self._cache[key] = frags
         self._inflight.discard(key)
         self.app.invalidate()
+
+    @staticmethod
+    def _parse_hunks(unstaged, staged, entry, cwd,
+                     unstaged_zero=None, staged_zero=None):
+        """Map each contiguous +/- block to an independently applicable patch."""
+        result = []
+        line_offset = 0
+        sources = (
+            (unstaged, unstaged if unstaged_zero is None else unstaged_zero, False),
+            (staged, staged if staged_zero is None else staged_zero, True),
+        )
+        for text, zero_text, is_staged in sources:
+            lines = text.splitlines()
+            patches = PreviewView._diff_patch_hunks(zero_text)
+            blocks = []
+            i = 0
+            while i < len(lines):
+                # ---/+++ are file headers, not deleted/added content.
+                if (not lines[i].startswith(("+", "-"))
+                        or lines[i].startswith(("+++ ", "--- "))):
+                    i += 1
+                    continue
+                start = i
+                i += 1
+                while i < len(lines) and (
+                        lines[i].startswith(("+", "-"))
+                        or lines[i].startswith("\\ No newline")):
+                    i += 1
+                blocks.append((start, i))
+            for (start, end), patch in zip(blocks, patches):
+                result.append({
+                    # _visible_text keeps the blank separator as body line zero.
+                    "line": line_offset + start + 1,
+                    "end": line_offset + end + 1,
+                    "patch": patch,
+                    "staged": is_staged,
+                    "cwd": cwd,
+                    "name": entry.rel,
+                })
+            line_offset += len(lines)
+        return result
+
+    @staticmethod
+    def _diff_patch_hunks(text):
+        """Split a zero-context file diff into single-hunk patches."""
+        lines = text.splitlines()
+        header = []
+        i = 0
+        while i < len(lines) and not lines[i].startswith("@@"):
+            header.append(lines[i])
+            i += 1
+        patches = []
+        while i < len(lines):
+            if not lines[i].startswith("@@"):
+                i += 1
+                continue
+            start = i
+            i += 1
+            while i < len(lines) and not lines[i].startswith("@@"):
+                i += 1
+            patches.append("\n".join(header + lines[start:i]) + "\n")
+        return patches
 
     _DIFF_LABEL = {"M": "modified", "S": "staged", "C": "conflict", "?": "untracked"}
 

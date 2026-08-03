@@ -139,6 +139,13 @@ also appear on its changed files and collapsed subdirectories.
 When the Explorer cursor is on a tracked modified, staged, or conflicted file,
 the preview shows that file's Git diff instead of its complete contents. Clean
 and untracked files keep the normal file preview.
+With focus in a Git diff preview, `Up`/`Down` jump between contiguous `-`/`+`
+change blocks and `u` reverts only the current block after confirmation;
+`j`/`k` move between change blocks just like the arrow keys. The current block
+has a soft gray background,
+configurable as
+`preview-hunk-selected` under Preferences colors. This background-only style
+keeps the diff's original addition, deletion, and metadata text colors.
 
 Picking a branch opens a per-branch menu (Checkout, **Browse**, Delete). **Browse**
 pops a small centered dialog listing that branch's files without checking it out:
