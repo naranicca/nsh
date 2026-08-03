@@ -137,6 +137,24 @@ class GitStatus:
         code = self.code_for(path, include_descendants=not (is_dir and expanded))
         return None if is_dir and code == "?" else code
 
+    def direct_file_code(self, path):
+        """Direct file status in this repo or an expanded child repository."""
+        context = self.direct_file_context(path)
+        return context[0] if context is not None else None
+
+    def direct_file_context(self, path):
+        """Return ``(code, repository_root)`` for a directly changed file."""
+        key = norm(path)
+        if self.is_repo:
+            code = self.files.get(key)
+            return (code, self.root) if code is not None else None
+        for parent in Path(path).parents:
+            child = self.child_statuses.get(norm(parent))
+            if child is not None:
+                code = child.files.get(key)
+                return (code, child.root) if code is not None else None
+        return None
+
 
 async def child_repositories(directories):
     """Return GitStatus objects for directories that are repository roots."""
@@ -219,7 +237,7 @@ async def query(directory, child_directories=()) -> GitStatus:
     if root is None:
         st.child_statuses = await child_repositories(child_directories)
         st.child_repos = {
-            path: "RD" if status.files else "RC"
+            path: "RD" if status.dirty else "RC"
             for path, status in st.child_statuses.items()
         }
         return st

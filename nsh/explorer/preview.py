@@ -452,14 +452,16 @@ class PreviewView:
         if entry.is_dir:
             return None
         status = getattr(self.app.explorer, "git_status", None)
-        code = status.files.get(norm(entry.path)) if status and status.is_repo else None
+        context = status.direct_file_context(entry.path) if status else None
+        code, repo_root = context if context is not None else (None, None)
         if code not in ("M", "S", "C"):
             return None
         try:
-            rel = os.path.relpath(entry.path, self.app.cwd).replace(os.sep, "/")
+            rel = os.path.relpath(entry.path, repo_root).replace(os.sep, "/")
         except ValueError:
             rel = entry.name
-        return SimpleNamespace(path=entry.path, code=code, rel=rel)
+        return SimpleNamespace(
+            path=entry.path, code=code, rel=rel, git_cwd=repo_root)
 
     # -- git-mode diff preview ------------------------------------------------
     def _git_text(self):
@@ -521,7 +523,8 @@ class PreviewView:
             if entry.code == "?":  # untracked: git diff is empty, show the content
                 frags = await run_in_thread(self._build_untracked, entry)
             else:
-                text = await git.diff(entry.path, self.app.cwd)
+                text = await git.diff(
+                    entry.path, getattr(entry, "git_cwd", self.app.cwd))
                 frags = self._build_diff(entry, text)
         except Exception as exc:  # noqa: BLE001 - shown in the pane
             frags = [("class:preview.dim", f" diff error: {exc}")]

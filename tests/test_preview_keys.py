@@ -1,3 +1,4 @@
+import asyncio
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -48,6 +49,34 @@ class PreviewKeyTests(unittest.TestCase):
             path=untracked, name="draft.txt", is_dir=False)))
         self.assertIsNone(view._explorer_git_entry(SimpleNamespace(
             path=cwd / "src", name="src", is_dir=True)))
+
+    def test_changed_file_in_expanded_child_repo_uses_git_preview(self):
+        cwd = Path("work").resolve()
+        repo = cwd / "project"
+        path = repo / "src" / "app.py"
+        child = GitStatus(is_repo=True, root=repo)
+        child.add_file(path, "M")
+        outer = GitStatus(
+            child_repos={str(repo).lower(): "RD"},
+            child_statuses={str(repo).lower(): child})
+        view = object.__new__(PreviewView)
+        view.app = SimpleNamespace(
+            cwd=cwd, explorer=SimpleNamespace(git_status=outer),
+            invalidate=mock.Mock())
+        view._cache = {}
+        view._inflight = set()
+        entry = SimpleNamespace(path=path, name="app.py", is_dir=False)
+
+        adapted = view._explorer_git_entry(entry)
+
+        self.assertEqual(adapted.code, "M")
+        self.assertEqual(adapted.rel, "src/app.py")
+        self.assertEqual(adapted.git_cwd, repo)
+        key = ("test",)
+        with mock.patch("nsh.explorer.preview.git.diff",
+                        new=mock.AsyncMock(return_value="")) as diff:
+            asyncio.run(view._load_git(adapted, key))
+        diff.assert_awaited_once_with(path, repo)
 
 
 if __name__ == "__main__":

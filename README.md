@@ -130,8 +130,9 @@ expanded. Untracked files do not mark their parent directory, and the synthetic
 
 Outside a Git repository, visible child directories—including directories
 revealed through inline expansion—that are themselves Git repository roots get
-a blank colour marker: green for a clean repository and
-red when it has staged, modified, conflicted, or untracked changes. The colour
+a blank colour marker: green when there are no tracked changes and red when it
+has staged, modified, or conflicted tracked files. Untracked files alone do not
+turn the repository marker red. The colour
 marker remains on an expanded repository while the usual `M`/`S`/`!` markers
 also appear on its changed files and collapsed subdirectories.
 

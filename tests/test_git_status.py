@@ -101,6 +101,15 @@ class GitStatusTests(unittest.TestCase):
         self.assertEqual(status.display_code(changed), "M")
         self.assertEqual(status.display_code(repo / "src", is_dir=True), "M")
 
+    def test_untracked_only_child_repository_is_clean_summary(self):
+        repo = Path("work/project").resolve()
+        child = GitStatus(is_repo=True, root=repo)
+        child.add_file(repo / "draft.txt", "?")
+
+        summary = "RD" if child.dirty else "RC"
+
+        self.assertEqual(summary, "RC")
+
     def test_explorer_does_not_require_current_directory_to_be_a_repo(self):
         parent = Path("work").resolve()
         child = parent / "project"
