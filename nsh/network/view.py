@@ -442,7 +442,9 @@ class NetworkView:
             for entry in entries:
                 rel = posixpath.relpath(entry.path, root)
                 out.append(rel + ("/" if entry.is_dir else ""))
-                if entry.is_dir:
+                # Index the link name, but do not recursively follow directory
+                # links: a link to an ancestor would otherwise index forever.
+                if entry.is_dir and not entry.is_symlink:
                     walk(entry.path)
 
         walk(root)
@@ -575,7 +577,11 @@ class NetworkView:
             done = 0
             try:
                 for entry in targets:
-                    fn = self.backend.remove_tree if entry.is_dir else self.backend.remove
+                    # Directory links are navigable, but delete must unlink the
+                    # link itself instead of recursively deleting its target.
+                    fn = (self.backend.remove_tree
+                          if entry.is_dir and not entry.is_symlink
+                          else self.backend.remove)
                     await run_in_thread(self._backend_call, fn, entry.path)
                     done += 1
                 await self._load()
@@ -635,12 +641,19 @@ class NetworkView:
             entry = self.entries[i]
             selected = entry.path in self.selected
             on = cursor_shown and i == self.cursor
-            base_style = ("class:explorer.dir" if entry.is_dir
-                          else "class:explorer.file")
+            base_style = ("class:git.conflict" if entry.is_broken else
+                          ("class:explorer.link" if entry.is_symlink else
+                           ("class:explorer.dir" if entry.is_dir
+                            else "class:explorer.file")))
             style = "class:explorer.selected" if selected else base_style
             cursor_style = (style + " reverse").strip() if on else style
-            name = ".." if entry.is_parent else (
-                entry.name + ("/" if entry.is_dir else ""))
+            if entry.is_parent:
+                name = ".."
+            elif entry.is_symlink:
+                target = f" -> {entry.link_target}" if entry.link_target else " -> ?"
+                name = entry.name + "@" + target + ("/" if entry.is_dir else "")
+            else:
+                name = entry.name + ("/" if entry.is_dir else "")
             size = "" if entry.is_dir else human_size(entry.size)
             size_style = cursor_style if on else (
                 "class:explorer.size" if size else style)
@@ -650,6 +663,8 @@ class NetworkView:
                     ("▾" if entry.is_dir and entry.path in self.expanded
                      else (config.ICONS["dir"] if entry.is_dir
                            else config.ICONS["file"])))
+            if entry.is_symlink:
+                icon = config.ICONS["link"]
             out.extend([
                 (cursor_style, "● " if selected else "  "),
                 (cursor_style, "  " + indent),

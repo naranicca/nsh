@@ -29,6 +29,9 @@ class RemoteEntry:
     mtime: int = 0
     depth: int = 0
     is_parent: bool = False
+    is_symlink: bool = False
+    link_target: str = ""
+    is_broken: bool = False
 
 
 def parse_target(protocol, target):
@@ -62,7 +65,7 @@ class RemoteBackend:
 
     def remove_tree(self, path):
         for entry in self.listdir(path):
-            if entry.is_dir:
+            if entry.is_dir and not entry.is_symlink:
                 self.remove_tree(entry.path)
             else:
                 self.remove(entry.path)
@@ -312,9 +315,24 @@ class SFTPBackend(RemoteBackend):
         entries = []
         for attr in self.client.listdir_attr(path):
             name = attr.filename
+            full = posixpath.join(path, name)
+            is_symlink = stat.S_ISLNK(attr.st_mode)
+            is_broken = False
+            link_target = ""
+            target_attr = attr
+            if is_symlink:
+                try:
+                    link_target = self.client.readlink(full)
+                    target_attr = self.client.stat(full)
+                except (IOError, OSError):
+                    is_broken = True
             entries.append(RemoteEntry(
-                name, posixpath.join(path, name), stat.S_ISDIR(attr.st_mode),
-                attr.st_size or 0, int(attr.st_mtime or 0)))
+                name, full,
+                not is_broken and stat.S_ISDIR(target_attr.st_mode),
+                0 if is_broken else (target_attr.st_size or 0),
+                int(attr.st_mtime or 0),
+                is_symlink=is_symlink, link_target=link_target,
+                is_broken=is_broken))
         return sorted(entries, key=lambda e: (not e.is_dir, e.name.lower()))
 
     def mkdir(self, path):

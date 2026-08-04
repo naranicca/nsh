@@ -339,6 +339,12 @@ indented, and the cursor highlights the complete row with the explorer colour
 scheme. A `..` row is shown outside the remote root. Directory contents are
 fetched only when first expanded.
 
+SFTP symbolic links use the link icon and show `name@ -> target`. Links to
+directories can be opened and expanded like directories; links to files behave
+like files, and broken links are marked with the conflict color. Recursive
+search does not follow directory links, and deleting a directory link removes
+only the link rather than the target tree.
+
 On an SFTP connection, `:` opens a remote command shell that reuses the active
 authenticated SSH session. Commands run in the directory displayed by the
 remote file pane. `cd` updates that pane's directory, `clear` clears remote

@@ -1,7 +1,9 @@
 import asyncio
+import stat
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 from unittest import mock
 
 from nsh.app import NshApp
@@ -24,6 +26,84 @@ class FakeBackend(RemoteBackend):
 
 
 class NetworkBackendTests(unittest.TestCase):
+    def test_sftp_directory_symlink_is_navigable_and_broken_link_is_marked(self):
+        backend = SFTPBackend("host", 22, "user")
+
+        class Client:
+            def listdir_attr(self, path):
+                return [
+                    SimpleNamespace(filename="docs", st_mode=stat.S_IFLNK,
+                                    st_size=4, st_mtime=10),
+                    SimpleNamespace(filename="missing", st_mode=stat.S_IFLNK,
+                                    st_size=7, st_mtime=20),
+                ]
+
+            def readlink(self, path):
+                return "shared/docs" if path.endswith("docs") else "gone"
+
+            def stat(self, path):
+                if path.endswith("missing"):
+                    raise IOError("not found")
+                return SimpleNamespace(st_mode=stat.S_IFDIR, st_size=4096)
+
+        backend.client = Client()
+        entries = backend.listdir("/home/user")
+
+        docs = next(entry for entry in entries if entry.name == "docs")
+        missing = next(entry for entry in entries if entry.name == "missing")
+        self.assertTrue(docs.is_symlink)
+        self.assertTrue(docs.is_dir)
+        self.assertEqual(docs.link_target, "shared/docs")
+        self.assertFalse(docs.is_broken)
+        self.assertTrue(missing.is_symlink)
+        self.assertFalse(missing.is_dir)
+        self.assertTrue(missing.is_broken)
+
+    def test_recursive_delete_unlinks_directory_symlink_without_following_it(self):
+        class Backend(RemoteBackend):
+            def __init__(self):
+                super().__init__("host", 22, "user")
+                self.calls = []
+
+            def listdir(self, path):
+                self.calls.append(("list", path))
+                return [RemoteEntry("linked", path + "/linked", True,
+                                    is_symlink=True)]
+
+            def remove(self, path):
+                self.calls.append(("remove", path))
+
+            def rmdir(self, path):
+                self.calls.append(("rmdir", path))
+
+        backend = Backend()
+        backend.remove_tree("/root")
+
+        self.assertEqual(backend.calls, [
+            ("list", "/root"), ("remove", "/root/linked"),
+            ("rmdir", "/root")])
+
+    def test_remote_search_lists_but_does_not_follow_directory_symlink(self):
+        class Backend:
+            def __init__(self):
+                self.visited = []
+
+            def listdir(self, path):
+                self.visited.append(path)
+                return [RemoteEntry("loop", path + "/loop", True,
+                                    is_symlink=True)]
+
+        backend = Backend()
+        view = object.__new__(NetworkView)
+        view.path = "/root"
+        view.backend = backend
+        view._backend_call = lambda fn, *args: fn(*args)
+
+        results = view.gather_search_candidates()
+
+        self.assertEqual(results, ["loop/"])
+        self.assertEqual(backend.visited, ["/root"])
+
     def test_parse_sftp_target(self):
         self.assertEqual(
             parse_target("sftp", "alice@example.com:2222/home/alice"),
