@@ -205,6 +205,9 @@ with a `⋯ N queued` count in the status bar. A tab bar marks each session's st
 while a command is still running, red once one finishes with a non-zero exit
 (cleared when the next command runs).
 
+`Ctrl+Z` removes the last waiting command without affecting the command already
+running. This shortcut is configurable as `queue_remove_last` in Preferences.
+
 Built-ins handled internally: `cd`, `clear`/`cls`, `exit`/`quit`. The output pane
 grows with its content and goes full-screen once it fills up. Long lines wrap.
 Manually typed PowerShell home paths are expanded before execution while
@@ -341,7 +344,8 @@ SFTP uploads and downloads run as visible SSH-shell jobs. Each selected item is
 queued separately, so the shell shows the source and destination, elapsed time,
 completion or failure details, and subsequent transfers waiting above the
 prompt. `Ctrl+C` cancels the active transfer; queued transfers then continue in
-order. The SSH shell initially shares the screen with the local/remote panes and
+order. `Ctrl+Z` removes the last queued command or transfer without cancelling
+the active one. The SSH shell initially shares the screen with the local/remote panes and
 grows with its output, maximizing only when the normal shell height limit is
 reached. FTP transfers retain the direct network-pane workflow because FTP has
 no SSH command shell.

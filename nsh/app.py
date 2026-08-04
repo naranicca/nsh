@@ -397,11 +397,11 @@ class NshApp:
             pass
         tab_mode = Condition(lambda: self.mode in (EXPLORER, SHELL, GIT, LOG))
 
-        def add(key, filt, handler):
+        def add(key, filt, handler, eager=False):
             if not key:
                 return
             try:
-                kb.add(key, filter=filt)(lambda event: handler())
+                kb.add(key, filter=filt, eager=eager)(lambda event: handler())
             except Exception:  # noqa: BLE001 - bad key spec; skip it
                 pass
 
@@ -410,6 +410,14 @@ class NshApp:
         add(prev_key, tab_mode, self.shells.prev)
         add(next_key, tab_mode, self.shells.next)
 
+        # Ctrl+Z normally suspends a terminal application on POSIX. Inside a
+        # command shell it instead removes only the newest waiting queue item.
+        queue_mode = Condition(
+            lambda: self.mode in (SHELL, REMOTE_SHELL)
+            and not self._overlay_active())
+        add(self.keys.get("queue_remove_last"), queue_mode,
+            self.remove_last_queued, eager=True)
+
         # zoom (z by default): enlarge the focused pane wherever a split is on
         # screen — the explorer (single + two-pane), git and log views. Guarded
         # against firing while a menu/dialog is up.
@@ -417,6 +425,13 @@ class NshApp:
             lambda: self.mode in (EXPLORER, GIT, LOG) and not self._overlay_active())
         add(self.keys.get("zoom"), zoom_mode, self.toggle_zoom)
         return kb
+
+    def remove_last_queued(self):
+        """Discard the most recently queued local/remote shell job."""
+        shell = self.remote_shell if self.mode == REMOTE_SHELL else self.shell
+        removed = shell.remove_last_pending()
+        if removed is not None:
+            self.set_message(f"removed from queue: {removed}")
 
     # -- live config reload ---------------------------------------------------
     def _read_config_mtime(self):

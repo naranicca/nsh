@@ -211,6 +211,8 @@ DEFAULT_KEYS = {
     "sort": "s",
     "find": "/",
     "command": ":",
+    # remove the newest waiting command/job without interrupting the active one
+    "queue_remove_last": "c-z",
     "preview": "P",
     "hidden": ".",
     "refresh": "r",

@@ -277,6 +277,14 @@ class RemoteShellView:
         """Run an SFTP operation as a visible, cancellable shell queue item."""
         self.run(_TransferJob(label, operation))
 
+    def remove_last_pending(self):
+        """Remove the newest waiting command or transfer, never the active job."""
+        if not self.pending:
+            return None
+        job = self.pending.pop()
+        self.app.invalidate()
+        return job
+
     def _run_transfer(self, job):
         self._begin(job.label)
         cancel = threading.Event()

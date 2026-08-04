@@ -192,6 +192,7 @@ class PreferenceTests(unittest.TestCase):
         self.assertTrue(app.invalidated)
 
     def test_all_default_colors_and_shortcuts_are_valid_preferences(self):
+        self.assertEqual(config.DEFAULT_KEYS["queue_remove_last"], "c-z")
         self.assertEqual(config.STYLE_DEFAULTS["preview-hunk-selected"],
                          "bg:#585858")
         self.assertEqual(config.STYLE_DEFAULTS["preview-hunk-staged-selected"],

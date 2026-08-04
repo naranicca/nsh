@@ -226,6 +226,14 @@ class ShellView:
         return result is not None and result[1] not in (0, None)
 
     # -- pending queue --------------------------------------------------------
+    def remove_last_pending(self):
+        """Remove and return the newest queued command, leaving the active job alone."""
+        if not self.pending:
+            return None
+        command = self.pending.pop()
+        self.app.invalidate()
+        return command
+
     def _queue_height(self):
         # one row per queued command; collapses away (and stays hidden while the
         # user is scrolled up, like the prompt) when there's nothing waiting

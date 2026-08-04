@@ -775,6 +775,51 @@ class NetworkBackendTests(unittest.TestCase):
         self.assertIn("download /photo.jpg", remote_shell.enqueue_transfer.call_args.args[0])
         app.open_remote_shell.assert_called_once_with()
 
+    def test_local_shell_removes_only_last_queued_command(self):
+        app = SimpleNamespace(invalidate=mock.Mock())
+        shell = object.__new__(ShellView)
+        shell.app = app
+        shell.pending = ["first", "last"]
+
+        removed = shell.remove_last_pending()
+
+        self.assertEqual(removed, "last")
+        self.assertEqual(shell.pending, ["first"])
+        app.invalidate.assert_called_once_with()
+
+    def test_remote_shell_removes_last_queued_transfer_without_interrupting(self):
+        app = SimpleNamespace(invalidate=mock.Mock())
+        shell = object.__new__(RemoteShellView)
+        shell.app = app
+        transfer = SimpleNamespace(__str__=lambda _self: "download last")
+        shell.pending = ["first", transfer]
+        shell.busy = True
+
+        removed = shell.remove_last_pending()
+
+        self.assertIs(removed, transfer)
+        self.assertEqual(shell.pending, ["first"])
+        self.assertTrue(shell.busy)
+        app.invalidate.assert_called_once_with()
+
+    def test_remove_last_queued_dispatches_to_active_shell_type(self):
+        local = SimpleNamespace(remove_last_pending=mock.Mock(return_value="local"))
+        remote = SimpleNamespace(remove_last_pending=mock.Mock(return_value="transfer"))
+        app = object.__new__(NshApp)
+        app.shells = SimpleNamespace(current=lambda: local)
+        app.remote_shell = remote
+        app.set_message = mock.Mock()
+
+        app.mode = "shell"
+        app.remove_last_queued()
+        local.remove_last_pending.assert_called_once_with()
+        remote.remove_last_pending.assert_not_called()
+
+        app.mode = "remote-shell"
+        app.remove_last_queued()
+        remote.remove_last_pending.assert_called_once_with()
+        app.set_message.assert_called_with("removed from queue: transfer")
+
     def test_remote_transfer_jobs_queue_and_ctrl_c_cancels_current_job(self):
         events = []
 
