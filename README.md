@@ -342,7 +342,8 @@ it. A transfer refreshes only its destination pane.
 
 SFTP uploads and downloads run as visible SSH-shell jobs. Each selected item is
 queued separately, so the shell shows the source and destination, elapsed time,
-completion or failure details, and subsequent transfers waiting above the
+live progress bar, transferred/total size, transfer speed, completion or failure
+details, and subsequent transfers waiting above the
 prompt. `Ctrl+C` cancels the active transfer; queued transfers then continue in
 order. `Ctrl+Z` removes the last queued command or transfer without cancelling
 the active one. The SSH shell initially shares the screen with the local/remote panes and
@@ -378,9 +379,10 @@ downloads use `name (2)`, `name (3)`, and so on. Disconnect is blocked while an
 operation is active, and connection/transfer errors remain visible in the
 status bar.
 
-Disconnect deliberately has no single-key shortcut. Choose `Disconnect` from
-the `Tab` remote-actions menu (or `F10` network menu) and approve the
-confirmation prompt. The `2` key is disabled while this fixed local/remote
+Disconnect deliberately has no single-key shortcut. While connected, the F10
+menu replaces `Network` with `Network: Disconnect`; choose it, or use `Disconnect` from
+the `Tab` remote-actions menu, and approve the confirmation prompt. The `2` key
+is disabled while this fixed local/remote
 layout is open, so it cannot alter the hidden local explorer split.
 
 Current limitations: transfers cannot yet be resumed, there is no remote-to-

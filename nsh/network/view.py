@@ -510,10 +510,11 @@ class NetworkView:
         for entry in targets:
             label = f"download {entry.path} -> {local_dir}"
 
-            async def operation(cancel, entry=entry):
-                def progress(_done, _total):
+            async def operation(cancel, report, entry=entry):
+                def progress(done, total):
                     if cancel.is_set():
                         raise InterruptedError("transfer cancelled")
+                    report(done, total)
 
                 def transfer():
                     target = unique_target(local_dir, entry.name)
@@ -574,10 +575,11 @@ class NetworkView:
         for path in paths:
             label = f"upload {path} -> {remote_dir}"
 
-            async def operation(cancel, path=path):
-                def progress(_done, _total):
+            async def operation(cancel, report, path=path):
+                def progress(done, total):
                     if cancel.is_set():
                         raise InterruptedError("transfer cancelled")
+                    report(done, total)
 
                 def transfer():
                     target = backend.unique_path(remote_dir, path.name)

@@ -41,6 +41,14 @@ def _fmt_elapsed(seconds):
     return f"{hours}h{minutes:02d}m"
 
 
+def _fmt_bytes(value):
+    value = float(max(0, value))
+    for unit in ("B", "KiB", "MiB", "GiB", "TiB"):
+        if value < 1024 or unit == "TiB":
+            return f"{value:.0f} {unit}" if unit == "B" else f"{value:.1f} {unit}"
+        value /= 1024
+
+
 class _CommandScrollMargin(Margin):
     """Match the local shell's fixed left/right clipping indicators."""
 
@@ -69,6 +77,9 @@ class RemoteShellView:
         self._started_at = None
         self._last_result = None
         self._transfer_cancel = None
+        self._transfer_token = None
+        self._transfer_progress = None
+        self._transfer_progress_started = None
         self.command_buffer = Buffer(
             name="remote-command", multiline=False,
             history=InMemoryHistory(), accept_handler=self._accept,
@@ -94,9 +105,13 @@ class RemoteShellView:
         self.queue_window = Window(
             FormattedTextControl(self._queue_text),
             height=self._queue_height, style="class:shell.queued")
+        self.progress_window = Window(
+            FormattedTextControl(self._progress_text),
+            height=self._progress_height, style="class:shell.output")
         self.container = HSplit([
             self.output,
             Window(height=1, char="─", style="class:preview.border"),
+            self.progress_window,
             self.queue_window,
             VSplit([self.prompt, self.input], height=1),
         ])
@@ -167,6 +182,34 @@ class RemoteShellView:
 
     def _queue_height(self):
         return Dimension.exact(len(self.pending))
+
+    def _progress_height(self):
+        return Dimension.exact(1 if self._transfer_progress is not None else 0)
+
+    def _progress_text(self):
+        progress = self._transfer_progress
+        if progress is None:
+            return []
+        done, total = progress
+        elapsed = max(0.001, time.monotonic() - self._transfer_progress_started)
+        speed = done / elapsed
+        if total <= 0:
+            return [("class:shell.elapsed", " transferring "),
+                    ("class:shell.output", f"{_fmt_bytes(done)}  {_fmt_bytes(speed)}/s")]
+        ratio = min(1.0, max(0.0, done / total))
+        try:
+            columns = get_app().output.get_size().columns
+        except Exception:
+            columns = 80
+        details = (f" {ratio * 100:5.1f}%  {_fmt_bytes(done)} / "
+                   f"{_fmt_bytes(total)}  {_fmt_bytes(speed)}/s")
+        bar_width = max(8, min(30, columns - text_width(details) - 3))
+        filled = min(bar_width, int(ratio * bar_width))
+        return [
+            ("class:shell.elapsed.ok", "[" + "=" * filled),
+            ("class:shell.queued", "-" * (bar_width - filled) + "]"),
+            ("class:shell.output", details),
+        ]
 
     def _queue_text(self):
         elapsed = self._elapsed()
@@ -289,11 +332,21 @@ class RemoteShellView:
         self._begin(job.label)
         cancel = threading.Event()
         self._transfer_cancel = cancel
+        token = object()
+        self._transfer_token = token
+        self._transfer_progress = (0, 0)
+        self._transfer_progress_started = time.monotonic()
 
         async def do():
             status = -1
             try:
-                message = await job.operation(cancel)
+                loop = asyncio.get_running_loop()
+
+                def report(done, total):
+                    loop.call_soon_threadsafe(
+                        self._set_transfer_progress, token, done, total)
+
+                message = await job.operation(cancel, report)
                 if cancel.is_set():
                     self.append("transfer cancelled", "class:shell.error")
                 else:
@@ -307,8 +360,23 @@ class RemoteShellView:
                     self.append(f"transfer: {exc}", "class:shell.error")
             finally:
                 self._transfer_cancel = None
+                self._transfer_token = None
+                self._transfer_progress = None
+                self._transfer_progress_started = None
                 self._finish(status)
         asyncio.ensure_future(do())
+
+    def _set_transfer_progress(self, token, done, total):
+        """Apply a worker-thread SFTP callback safely on the UI event loop."""
+        if token is not self._transfer_token:
+            return
+        done, total = max(0, int(done or 0)), max(0, int(total or 0))
+        previous = self._transfer_progress
+        if previous is not None and done < previous[0]:
+            # Paramiko reports directory transfers one file at a time.
+            self._transfer_progress_started = time.monotonic()
+        self._transfer_progress = (done, total)
+        self.app.invalidate()
 
     def interrupt(self):
         """Cancel the active SFTP transfer. Returns True when one was active."""

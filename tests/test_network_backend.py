@@ -1,12 +1,13 @@
 import asyncio
 import stat
+import time
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest import mock
 
-from nsh.app import NshApp
+from nsh.app import NshApp, PANE_SEPARATOR
 from nsh.explorer.view import ExplorerView
 from nsh.network.backend import (
     HostKeyRequired, RemoteBackend, RemoteEntry, SFTPBackend, parse_target)
@@ -26,6 +27,77 @@ class FakeBackend(RemoteBackend):
 
 
 class NetworkBackendTests(unittest.TestCase):
+    def test_two_pane_and_network_use_single_cell_double_separator(self):
+        self.assertEqual(PANE_SEPARATOR, "║")
+        self.assertEqual(len(PANE_SEPARATOR), 1)
+
+    def test_network_title_uses_blank_at_pane_split(self):
+        app = object.__new__(NshApp)
+        session = SimpleNamespace(mode="network")
+        app.shells = SimpleNamespace(current=lambda: session)
+        app.networkview = SimpleNamespace(
+            local_view=SimpleNamespace(cwd=Path("C:/local")),
+            location="sftp://host/remote")
+        clock = [("class:titlebar.clock", " 12:34:56 ")]
+
+        fragments = app._network_title("class:titlebar.name", clock, 81)
+        rendered = "".join(text for _style, text in fragments)
+
+        self.assertNotIn("│", rendered)
+        self.assertEqual(rendered[81 // 2], " ")
+        self.assertEqual(sum(len(text) for _style, text in fragments), 81)
+
+    def test_two_pane_title_colors_both_paths_cyan(self):
+        app = object.__new__(NshApp)
+        session = SimpleNamespace(mode="explorer", active_pane=0)
+        app.shells = SimpleNamespace(current=lambda: session)
+        session.explorers = [
+            SimpleNamespace(cwd=Path("C:/left"), git_status=None, selected=set()),
+            SimpleNamespace(cwd=Path("C:/right"), git_status=None, selected=set()),
+        ]
+        clock = [("class:titlebar.clock", " 12:34:56 ")]
+        output = SimpleNamespace(get_size=lambda: SimpleNamespace(columns=100))
+
+        with mock.patch("nsh.app.get_app",
+                        return_value=SimpleNamespace(output=output)):
+            fragments = app._two_pane_title("class:titlebar.name", clock)
+
+        path_texts = [text for style, text in fragments
+                      if style == "class:titlebar.path"]
+        self.assertTrue(any("left" in text for text in path_texts))
+        self.assertTrue(any("right" in text for text in path_texts))
+        self.assertNotIn("▸", "".join(text for _style, text in fragments))
+
+    def test_f10_network_item_becomes_disconnect_while_connected(self):
+        app = object.__new__(NshApp)
+        disconnect = mock.Mock()
+        app.networkview = SimpleNamespace(connected=True, disconnect=disconnect)
+        app.open_menu = mock.Mock()
+
+        app.open_nsh_menu()
+
+        items = app.open_menu.call_args.args[1]
+        labels = [label for label, _callback in items]
+        self.assertNotIn("Network", labels)
+        self.assertIn("Network: Disconnect", labels)
+        callback = next(callback for label, callback in items
+                        if label == "Network: Disconnect")
+        callback()
+        disconnect.assert_called_once_with()
+
+    def test_f10_shows_network_item_while_disconnected(self):
+        app = object.__new__(NshApp)
+        app.networkview = SimpleNamespace(connected=False)
+        app.open_network_menu = mock.Mock()
+        app.open_menu = mock.Mock()
+
+        app.open_nsh_menu()
+
+        items = app.open_menu.call_args.args[1]
+        labels = [label for label, _callback in items]
+        self.assertIn("Network", labels)
+        self.assertNotIn("Network: Disconnect", labels)
+
     def test_shift_l_in_network_only_focuses_remote_pane(self):
         app = SimpleNamespace(
             mode="network", two_pane=False,
@@ -36,6 +108,34 @@ class NetworkBackendTests(unittest.TestCase):
 
         app.focus_network_pane.assert_called_once_with(1)
         app.open_dir_in_two_pane.assert_not_called()
+
+    def test_shift_h_in_network_makes_local_cursor_visible(self):
+        local_control = object()
+
+        class Layout:
+            focused = None
+
+            def focus(self, control):
+                self.focused = control
+
+            def has_focus(self, control):
+                return self.focused is control
+
+        app = object.__new__(NshApp)
+        session = SimpleNamespace(mode="network")
+        app.shells = SimpleNamespace(current=lambda: session)
+        app.mode = "network"
+        app.application = SimpleNamespace(layout=Layout())
+        app.networkview = SimpleNamespace(
+            local_view=SimpleNamespace(control=local_control),
+            control=object())
+        app.invalidate = mock.Mock()
+
+        app.focus_network_pane(-1)
+
+        self.assertTrue(app.network_local_focused())
+        self.assertEqual(app._network_pane_direction(), -1)
+        app.invalidate.assert_called_once_with()
 
     def test_shift_l_in_existing_two_pane_only_focuses_right_pane(self):
         app = SimpleNamespace(
@@ -832,14 +932,16 @@ class NetworkBackendTests(unittest.TestCase):
         async def scenario():
             shell = RemoteShellView(App())
 
-            async def first(cancel):
+            async def first(cancel, report):
                 events.append("first-start")
+                report(25, 100)
                 while not cancel.is_set():
                     await asyncio.sleep(0.001)
                 events.append("first-cancel")
 
-            async def second(cancel):
+            async def second(cancel, report):
                 events.append("second")
+                report(100, 100)
                 return "second complete"
 
             shell.enqueue_transfer("download first", first)
@@ -854,6 +956,23 @@ class NetworkBackendTests(unittest.TestCase):
         shell = asyncio.run(scenario())
         self.assertEqual(events, ["first-start", "first-cancel", "second"])
         self.assertEqual(shell._last_result[1], 0)
+
+    def test_remote_transfer_progress_renders_percentage_size_and_speed(self):
+        app = SimpleNamespace(invalidate=mock.Mock())
+        shell = object.__new__(RemoteShellView)
+        shell.app = app
+        shell._transfer_token = token = object()
+        shell._transfer_progress = (0, 0)
+        shell._transfer_progress_started = time.monotonic() - 2
+
+        shell._set_transfer_progress(token, 512 * 1024, 1024 * 1024)
+        text = "".join(value for _style, value in shell._progress_text())
+
+        self.assertIn("50.0%", text)
+        self.assertIn("512.0 KiB", text)
+        self.assertIn("1.0 MiB", text)
+        self.assertIn("/s", text)
+        app.invalidate.assert_called_once_with()
 
     def test_remote_shell_starts_split_and_maximizes_only_after_output_cap(self):
         shell = object.__new__(RemoteShellView)

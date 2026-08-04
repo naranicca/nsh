@@ -66,6 +66,7 @@ PREFERENCES = "preferences"
 # Once the shell output would shrink the explorer below this many rows, the
 # shell takes over the whole screen.
 SHELL_MIN_EXPLORER = 5
+PANE_SEPARATOR = "║"
 
 
 def _unquote_arg(s):
@@ -504,7 +505,7 @@ class NshApp:
         ])
         session._two_split = VSplit([
             e0.window,
-            Window(width=1, char="│", style="class:preview.border"),
+            Window(width=1, char=PANE_SEPARATOR, style="class:preview.border"),
             e1.window,
         ])
 
@@ -832,7 +833,7 @@ class NshApp:
         self._network_split = VSplit([
             DynamicContainer(lambda: (
                 self.networkview.local_view or self.explorer).window),
-            Window(width=1, char="│", style="class:preview.border"),
+            Window(width=1, char=PANE_SEPARATOR, style="class:preview.border"),
             self.networkview.window,
         ])
         self._remote_shell_split = HSplit([
@@ -1070,23 +1071,7 @@ class NshApp:
                 total = get_app().output.get_size().columns
             except Exception:
                 total = 80
-            label = self._name_label()
-            clock_w = sum(text_width(text) for _, text in clock)
-            usable = max(0, total - text_width(label) - clock_w - 4)
-            local_width = usable // 2
-            remote_width = usable - local_width
-            local = self.networkview.local_view or self.explorer
-            local_text = self._clip_path(shorten_home(local.cwd), local_width)
-            remote_text = self._clip_path(self.networkview.location, remote_width)
-            return [
-                (name_style, label), ("class:titlebar", " "),
-                ("class:titlebar.path", local_text + " " * max(
-                    0, local_width - text_width(local_text))),
-                ("class:titlebar", " │ "),
-                ("class:titlebar.path", remote_text + " " * max(
-                    0, remote_width - text_width(remote_text))),
-                *clock,
-            ]
+            return self._network_title(name_style, clock, total)
         if self.two_pane:
             return self._two_pane_title(name_style, clock)
         segs = [
@@ -1107,6 +1092,27 @@ class NshApp:
             segs.append(("class:titlebar", "   "))
             segs.append(("class:titlebar.sel", f"● {len(selected)} selected"))
         return self._fill_with_right(segs, "class:titlebar", clock)
+
+    def _network_title(self, name_style, clock, total):
+        """Network title aligned to its VSplit, with a blank separator cell."""
+        sep = 1
+        left_width = total // 2
+        right_width = max(0, total - left_width - sep)
+        clock_width = sum(text_width(text) for _style, text in clock)
+        label = [(name_style, self._name_label()), ("class:titlebar", " ")]
+        label_width = sum(text_width(text) for _style, text in label)
+        local = self.networkview.local_view or self.explorer
+
+        local_room = max(0, left_width - label_width)
+        local_text = self._clip_path(shorten_home(local.cwd), local_room)
+        left = label + [("class:titlebar.path", local_text)]
+        left = self._clip_segs(left, left_width, "class:titlebar")
+
+        remote_room = max(0, right_width - clock_width)
+        remote_text = self._clip_path(self.networkview.location, remote_room)
+        right = [("class:titlebar.path", remote_text)]
+        right = self._clip_segs(right, remote_room, "class:titlebar")
+        return left + [("class:titlebar", " ")] + right + clock
 
     def _two_pane_title(self, name_style, clock):
         """Title bar mirroring the two-pane layout: the left pane's path sits in
@@ -1130,15 +1136,12 @@ class NshApp:
             """Path segment for pane ``i`` followed by its own branch/selected
             badge, fitting ``avail`` cells: the branch keeps its width and the
             path is clipped to whatever's left (so the branch stays visible)."""
-            active = i == self.active_pane
-            style = "class:titlebar.path" if active else "class:titlebar"
-            marker = "▸ " if active else "  "
             git_segs = self._pane_git_segs(i)
             git_w = sum(text_width(t) for _, t in git_segs)
             path = self._clip_path(
                 shorten_home(self.explorers[i].cwd),
-                max(0, avail - text_width(marker) - git_w))
-            return [(style, marker + path)] + git_segs
+                max(0, avail - git_w))
+            return [("class:titlebar.path", path)] + git_segs
 
         # left half: nsh label + left pane path + its branch/selected
         label = [(name_style, self._name_label()), ("class:titlebar", " ")]
@@ -2169,14 +2172,14 @@ class NshApp:
         local = self.networkview.local_view
         if local is None or not hasattr(self, "application"):
             return False
-
-    def _network_pane_direction(self):
-        """Pane to restore after a full-screen transient view: -1 local, +1 remote."""
-        return -1 if self.network_local_focused() else 1
         try:
             return self.application.layout.has_focus(local.control)
         except Exception:
             return False
+
+    def _network_pane_direction(self):
+        """Pane to restore after a full-screen transient view: -1 local, +1 remote."""
+        return -1 if self.network_local_focused() else 1
 
     def focus_network_pane(self, direction):
         """Shift+H/L focus the local/remote halves of Network mode."""
@@ -2307,10 +2310,16 @@ class NshApp:
 
     # -- nsh menu (F10) -------------------------------------------------------
     def open_nsh_menu(self):
+        network = getattr(self, "networkview", None)
+        network_item = (
+            ("Network: Disconnect", network.disconnect)
+            if network is not None and network.connected
+            else ("Network", self.open_network_menu)
+        )
         self.open_menu("nsh", [
             ("Bookmarks", self.open_bookmark_menu),
             ("Find", self.open_find),
-            ("Network", self.open_network_menu),
+            network_item,
             (SEPARATOR, None),
             ("Notes", self.open_notes),
             ("System", self.open_system),
