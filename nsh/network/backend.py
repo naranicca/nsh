@@ -360,6 +360,11 @@ class SFTPBackend(RemoteBackend):
     def download(self, remote, local, callback=None):
         self.client.get(remote, os.fspath(local), callback=callback)
 
+    def read_preview(self, remote, limit):
+        """Read at most ``limit + 1`` bytes without creating a local file."""
+        with self.client.open(remote, "rb") as stream:
+            return stream.read(limit + 1)
+
     def upload(self, local, remote, callback=None):
         self.client.put(os.fspath(local), remote, callback=callback)
 

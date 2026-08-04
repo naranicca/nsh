@@ -7,6 +7,8 @@ from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest import mock
 
+from prompt_toolkit.data_structures import Point
+
 from nsh.app import NshApp, PANE_SEPARATOR
 from nsh.explorer.view import ExplorerView
 from nsh.network.backend import (
@@ -913,6 +915,232 @@ class NetworkBackendTests(unittest.TestCase):
         remote_shell.enqueue_transfer.assert_called_once()
         self.assertIn("download /photo.jpg", remote_shell.enqueue_transfer.call_args.args[0])
         app.open_remote_shell.assert_called_once_with()
+
+    def test_enter_on_sftp_file_opens_preview_instead_of_downloading(self):
+        entry = RemoteEntry("notes.txt", "/notes.txt", False, size=12)
+        view = object.__new__(NetworkView)
+        view.backend = SimpleNamespace(protocol="sftp", read_preview=mock.Mock())
+        view.current = lambda: entry
+        view.preview_file = mock.Mock()
+        view.download = mock.Mock()
+
+        view.open()
+
+        view.preview_file.assert_called_once_with(entry)
+        view.download.assert_not_called()
+
+    def test_enter_on_ftp_file_keeps_download_behavior(self):
+        entry = RemoteEntry("notes.txt", "/notes.txt", False, size=12)
+        view = object.__new__(NetworkView)
+        view.backend = SimpleNamespace(protocol="ftp")
+        view.current = lambda: entry
+        view.preview_file = mock.Mock()
+        view.download = mock.Mock()
+
+        view.open()
+
+        view.download.assert_called_once_with()
+        view.preview_file.assert_not_called()
+
+    def test_remote_preview_renders_text_and_escape_returns_to_listing(self):
+        entry = RemoteEntry("notes.txt", "/notes.txt", False, size=11)
+        app = SimpleNamespace(invalidate=mock.Mock())
+        view = object.__new__(NetworkView)
+        view.app = app
+        view.window = SimpleNamespace(render_info=None)
+        view._preview_entry = entry
+        view._preview_data = b"hello\nworld"
+        view._preview_error = None
+        view._preview_loading = False
+        view._preview_scroll = 0
+        view._preview_token = object()
+
+        rendered = "".join(text for _style, text in view._preview_text())
+        self.assertIn("notes.txt", rendered)
+        self.assertIn("hello", rendered)
+        self.assertIn("world", rendered)
+        view.cursor = 500
+        view._top = 0
+        self.assertEqual(view._cursor_position(), Point(0, 0))
+
+        view.cancel()
+        self.assertIsNone(view._preview_entry)
+        app.invalidate.assert_called_once_with()
+
+    def test_binary_remote_preview_keeps_cursor_within_content(self):
+        entry = RemoteEntry("photo.jpg", "/photo.jpg", False, size=1024)
+        view = object.__new__(NetworkView)
+        view.window = SimpleNamespace(render_info=None)
+        view._preview_entry = entry
+        view._preview_data = b"\xff\xd8\x00\x10JFIF"
+        view._preview_error = None
+        view._preview_loading = False
+        view._preview_scroll = 0
+        view.cursor = 100
+        view._top = 0
+
+        rendered = "".join(text for _style, text in view._preview_text())
+
+        self.assertIn("binary file", rendered)
+        self.assertEqual(view._cursor_position(), Point(0, 0))
+        pdf = RemoteEntry("manual.pdf", "/manual.pdf", False, size=20)
+        self.assertTrue(NetworkView._is_binary_preview(
+            pdf, b"%PDF-1.7 mostly ascii"))
+
+    def test_remote_preview_reads_bounded_data_in_worker(self):
+        class Backend:
+            protocol = "sftp"
+
+            def read_preview(self, path, limit):
+                self.request = (path, limit)
+                return b"remote text"
+
+        class App:
+            settings = {}
+
+            def invalidate(self):
+                pass
+
+        async def scenario():
+            view = NetworkView(App())
+            backend = Backend()
+            view.backend = backend
+            entry = RemoteEntry("notes.txt", "/notes.txt", False, size=11)
+            view.preview_file(entry)
+            while view.busy:
+                await asyncio.sleep(0.001)
+            return view, backend
+
+        view, backend = asyncio.run(scenario())
+        self.assertEqual(backend.request,
+                         ("/notes.txt", 256 * 1024))
+        self.assertEqual(view._preview_data, b"remote text")
+
+    def test_binary_preview_downloads_modally_opens_and_cleans_private_temp(self):
+        class Backend:
+            protocol = "sftp"
+
+            def read_preview(self, _path, _limit):
+                return b"\xff\xd8\x00JFIF"
+
+            def download(self, _remote, local, callback=None):
+                if callback:
+                    callback(8, 8)
+                Path(local).write_bytes(b"jpegdata")
+
+        class App:
+            settings = {}
+
+            def __init__(self):
+                self.opened = None
+                self.progress = []
+
+            def invalidate(self):
+                pass
+
+            def open_progress_dialog(self, title, label, on_cancel):
+                self.progress.append(("open", title, label))
+                self.cancel = on_cancel
+
+            def update_progress_dialog(self, done, total):
+                self.progress.append(("update", done, total))
+
+            def close_progress_dialog(self):
+                self.progress.append(("close",))
+
+            def open_file(self, path):
+                self.opened = Path(path)
+
+            def set_message(self, message):
+                self.message = message
+
+        async def scenario():
+            app = App()
+            view = NetworkView(app)
+            view.backend = Backend()
+            view.preview_file(RemoteEntry(
+                "photo.jpg", "/photo.jpg", False, size=8))
+            while view.busy:
+                await asyncio.sleep(0.001)
+            await asyncio.sleep(0)
+            return app, view
+
+        app, view = asyncio.run(scenario())
+        target = app.opened
+        self.assertIsNotNone(target)
+        self.assertTrue(target.exists())
+        self.assertEqual(target.read_bytes(), b"jpegdata")
+        self.assertEqual(app.progress[0][0], "open")
+        self.assertIn(("update", 8, 8), app.progress)
+        self.assertEqual(app.progress[-1], ("close",))
+        temp_root = target.parent
+        view._cleanup_temp()
+        self.assertFalse(temp_root.exists())
+
+    def test_binary_preview_cancel_does_not_open_file(self):
+        class Backend:
+            protocol = "sftp"
+
+            def read_preview(self, _path, _limit):
+                return b"\x00binary"
+
+            def download(self, _remote, _local, callback=None):
+                callback(1, 10)
+
+        class App:
+            settings = {}
+
+            def invalidate(self):
+                pass
+
+            def open_progress_dialog(self, _title, _label, on_cancel):
+                on_cancel()
+
+            def update_progress_dialog(self, _done, _total):
+                pass
+
+            def close_progress_dialog(self):
+                self.closed = True
+
+            def open_file(self, _path):
+                self.opened = True
+
+            def set_message(self, message):
+                self.message = message
+
+        async def scenario():
+            app = App()
+            view = NetworkView(app)
+            view.backend = Backend()
+            view.preview_file(RemoteEntry(
+                "data.bin", "/data.bin", False, size=10))
+            while view.busy:
+                await asyncio.sleep(0.001)
+            return app, view
+
+        app, view = asyncio.run(scenario())
+        self.assertFalse(hasattr(app, "opened"))
+        self.assertEqual(app.message, "preview download cancelled")
+        self.assertTrue(app.closed)
+        view._cleanup_temp()
+
+    def test_preview_temp_cleanup_is_isolated_per_nsh_instance(self):
+        app = SimpleNamespace(settings={}, invalidate=lambda: None)
+        first, second = NetworkView(app), NetworkView(app)
+        first._temp_dir = TemporaryDirectory(
+            prefix="nsh-remote-preview-", ignore_cleanup_errors=True)
+        second._temp_dir = TemporaryDirectory(
+            prefix="nsh-remote-preview-", ignore_cleanup_errors=True)
+        first_file = Path(first._temp_dir.name) / "first.bin"
+        second_file = Path(second._temp_dir.name) / "second.bin"
+        first_file.write_bytes(b"first")
+        second_file.write_bytes(b"second")
+
+        first._cleanup_temp()
+
+        self.assertFalse(first_file.exists())
+        self.assertTrue(second_file.exists())
+        second._cleanup_temp()
 
     def test_local_shell_removes_only_last_queued_command(self):
         app = SimpleNamespace(invalidate=mock.Mock())

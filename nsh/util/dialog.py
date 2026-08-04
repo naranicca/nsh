@@ -266,6 +266,74 @@ class ConfirmDialog:
         return kb
 
 
+class ProgressDialog:
+    """Blocking modal progress display with one cancellable operation."""
+
+    def __init__(self, on_close):
+        self._on_close = on_close
+        self.active = False
+        self.title = ""
+        self.label = ""
+        self.done = 0
+        self.total = 0
+        self._on_cancel = None
+        self.control = FormattedTextControl(
+            self._text, focusable=True, show_cursor=False, key_bindings=self._kb())
+        body = HSplit([
+            Window(self.control, height=3, width=Dimension.exact(WIDTH)),
+            Window(FormattedTextControl(self._buttons), height=1,
+                   align=WindowAlign.CENTER),
+        ], style="class:dialog")
+        self.container = ConditionalContainer(
+            Frame(body, title=lambda: self.title),
+            filter=Condition(lambda: self.active))
+
+    def open(self, title, label, on_cancel):
+        self.title, self.label = title, label
+        self.done = self.total = 0
+        self._on_cancel = on_cancel
+        self.active = True
+
+    def update(self, done, total):
+        self.done = max(0, int(done or 0))
+        self.total = max(0, int(total or 0))
+
+    def close(self):
+        if not self.active:
+            return
+        self.active = False
+        self._on_cancel = None
+        self._on_close()
+
+    def cancel(self):
+        callback = self._on_cancel
+        if callback:
+            callback()
+
+    def _text(self):
+        ratio = min(1.0, self.done / self.total) if self.total else 0.0
+        width = 34
+        filled = int(width * ratio)
+        amount = (f"{ratio * 100:5.1f}%  {self.done} / {self.total} bytes"
+                  if self.total else f"{self.done} bytes")
+        return [
+            ("class:dialog", " " + cut_to_width(self.label, WIDTH - 2) + "\n"),
+            ("class:shell.elapsed.ok", " [" + "=" * filled),
+            ("class:shell.queued", "-" * (width - filled) + "]\n"),
+            ("class:dialog", " " + amount),
+        ]
+
+    def _buttons(self):
+        return [_button("Cancel", True, self.cancel)]
+
+    def _kb(self):
+        kb = KeyBindings()
+        kb.add("enter")(lambda event: self.cancel())
+        kb.add("escape")(lambda event: self.cancel())
+        kb.add("c-c")(lambda event: self.cancel())
+        return kb
+
+
 class InfoDialog:
     """A centered modal that shows a few lines of read-only text and a single
     OK button. Enter / Esc / Space dismiss it. Used for the About box."""

@@ -46,7 +46,8 @@ from .shell.tabs import ShellTabs
 from .util import state
 from .util.bookmarks import Bookmarks
 from .util.dialog import (
-    ChmodDialog, ConfirmDialog, FindTextDialog, InfoDialog, InputDialog)
+    ChmodDialog, ConfirmDialog, FindTextDialog, InfoDialog, InputDialog,
+    ProgressDialog)
 from .util.menu import SEPARATOR, Menu
 from .util.paths import shorten_home
 from .util.widgets import WheelScrollControl
@@ -225,6 +226,7 @@ class NshApp:
         self.about_dialog = InfoDialog(self._dialog_closed)
         self.find_dialog = FindTextDialog(self._dialog_closed)
         self.chmod_dialog = ChmodDialog(self._dialog_closed)
+        self.progress_dialog = ProgressDialog(self._dialog_closed)
         # browse a git branch's file tree (from the branch action menu)
         self.branch_browser = BranchBrowser(self)
 
@@ -396,7 +398,9 @@ class NshApp:
         @kb.add("2", filter=network_mode & network_local, eager=True)
         def _(event):
             pass
-        tab_mode = Condition(lambda: self.mode in (EXPLORER, SHELL, GIT, LOG))
+        tab_mode = Condition(
+            lambda: self.mode in (EXPLORER, SHELL, GIT, LOG)
+            and not self._overlay_active())
 
         def add(key, filt, handler, eager=False):
             if not key:
@@ -540,8 +544,9 @@ class NshApp:
         about_open = Condition(lambda: self.about_dialog.active)
         find_open = Condition(lambda: self.find_dialog.active)
         chmod_open = Condition(lambda: self.chmod_dialog.active)
+        progress_open = Condition(lambda: self.progress_dialog.active)
         overlay_open = (confirm_open | menu_open | dialog_open | about_open
-                        | find_open | chmod_open)
+                        | find_open | chmod_open | progress_open)
 
         kb = KeyBindings()
 
@@ -601,11 +606,11 @@ class NshApp:
         def _(event):
             self.toggle_git_mode()
 
-        @kb.add("c-q")
+        @kb.add("c-q", filter=~progress_open)
         def _(event):
             self.exit()
 
-        @kb.add("c-c")
+        @kb.add("c-c", filter=~progress_open)
         def _(event):
             # Ctrl-C stops the active session's command (and its children) but
             # never quits nsh; with nothing running it just clears the input.
@@ -918,6 +923,7 @@ class NshApp:
                 Float(content=self.about_dialog.container),
                 Float(content=self.find_dialog.container),
                 Float(content=self.chmod_dialog.container),
+                Float(content=self.progress_dialog.container),
                 Float(content=self.branch_browser.container),
             ],
         )
@@ -1282,14 +1288,23 @@ class NshApp:
                     ("ESC", "clear selection"),
                 ]
             else:
-                hints = [
-                    ("Space", "select", nv.toggle),
-                    ("c", "download", nv.download),
-                    ("n", "mkdir", nv.new_dir), ("s", "sort", nv.open_sort_menu),
-                    ("/", "find", nv.start_search),
-                    ("Shift+H", "local", lambda: self.focus_network_pane(-1)),
-                    ("ESC", "clear selection", nv.cancel), ("q", "quit", self.exit),
-                ]
+                if nv._preview_entry is not None:
+                    hints = [
+                        ("c", "download", nv.download),
+                        ("Shift+H", "local", lambda: self.focus_network_pane(-1)),
+                        ("ESC", "files", nv.close_preview),
+                    ]
+                else:
+                    hints = [
+                        ("Space", "select", nv.toggle),
+                        ("c", "download", nv.download),
+                        ("n", "mkdir", nv.new_dir),
+                        ("s", "sort", nv.open_sort_menu),
+                        ("/", "find", nv.start_search),
+                        ("Shift+H", "local", lambda: self.focus_network_pane(-1)),
+                        ("ESC", "clear selection", nv.cancel),
+                        ("q", "quit", self.exit),
+                    ]
         elif self.mode == REMOTE_SHELL:
             hints = [
                 ("ESC", "files", lambda: self.switch_mode(NETWORK)),
@@ -1965,6 +1980,19 @@ class NshApp:
         self.application.layout.focus(self.confirm_dialog.control)
         self.invalidate()
 
+    def open_progress_dialog(self, title, label, on_cancel):
+        self._capture_dialog_focus()
+        self.progress_dialog.open(title, label, on_cancel)
+        self.application.layout.focus(self.progress_dialog.control)
+        self.invalidate()
+
+    def update_progress_dialog(self, done, total):
+        self.progress_dialog.update(done, total)
+        self.invalidate()
+
+    def close_progress_dialog(self):
+        self.progress_dialog.close()
+
     def open_chmod_dialog(self, title, mode, on_accept):
         """Show the permission grid seeded with ``mode``; ``on_accept(mode_int)``
         gets the chosen 0-0o777 value."""
@@ -2224,7 +2252,7 @@ class NshApp:
         through to the panes then."""
         return (self.menu.active or self.dialog.active or self.confirm_dialog.active
                 or self.about_dialog.active or self.find_dialog.active
-                or self.chmod_dialog.active)
+                or self.chmod_dialog.active or self.progress_dialog.active)
 
     def _zoom_active(self):
         """Zoom only reshapes a split that's actually on screen: the explorer,

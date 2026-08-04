@@ -337,8 +337,13 @@ With the remote pane focused, `c` downloads into the displayed local pane's
 current directory. With the local pane focused, `c` uploads its marked
 selection—or its cursor item when nothing is marked—into the displayed remote
 directory. Files and whole directory trees are supported in both directions.
-`Enter` on a remote file is a download shortcut; `Enter` on a directory opens
-it. A transfer refreshes only its destination pane.
+`Enter` on an SFTP file opens a bounded preview in the remote pane without
+creating a local file; `Esc` returns to the listing and `c` explicitly downloads
+the file. Binary files are downloaded to an instance-private temporary directory
+behind a blocking progress dialog with a Cancel button, then opened with the OS
+default application; those temporary files are removed on disconnect or exit.
+`Enter` on a directory opens it. FTP files retain the direct-download
+behavior. A transfer refreshes only its destination pane.
 
 SFTP uploads and downloads run as visible SSH-shell jobs. Each selected item is
 queued separately, so the shell shows the source and destination, elapsed time,

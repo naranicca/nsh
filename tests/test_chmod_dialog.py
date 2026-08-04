@@ -5,11 +5,25 @@ from unittest import mock
 
 from nsh.app import NshApp
 from nsh.explorer.view import ExplorerView
-from nsh.util.dialog import ChmodDialog
+from nsh.util.dialog import ChmodDialog, ProgressDialog
 from nsh.util.menu import SEPARATOR
 
 
 class ChmodDialogTests(unittest.TestCase):
+    def test_progress_dialog_reports_progress_and_cancel(self):
+        cancelled = mock.Mock()
+        dialog = ProgressDialog(lambda: None)
+        dialog.open("Download", "photo.jpg", cancelled)
+        dialog.update(50, 100)
+
+        rendered = "".join(text for fragment in dialog._text()
+                           for text in [fragment[1]])
+        self.assertIn("50.0%", rendered)
+        self.assertIn("photo.jpg", rendered)
+        dialog.cancel()
+        cancelled.assert_called_once_with()
+        self.assertTrue(dialog.active)
+
     def test_new_items_are_removed_from_f10_menu(self):
         app = object.__new__(NshApp)
         app.open_menu = mock.Mock()

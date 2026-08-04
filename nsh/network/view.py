@@ -4,6 +4,7 @@ import posixpath
 import threading
 from dataclasses import replace
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from prompt_toolkit.data_structures import Point
 from prompt_toolkit.key_binding import KeyBindings
@@ -22,6 +23,13 @@ from . import backend as remote
 
 
 SIZE_COL = 8
+REMOTE_PREVIEW_BYTES = 256 * 1024
+BINARY_PREVIEW_EXTENSIONS = {
+    ".7z", ".avi", ".bin", ".bmp", ".bz2", ".dll", ".doc", ".docx",
+    ".exe", ".gif", ".gz", ".ico", ".jpeg", ".jpg", ".mkv", ".mov",
+    ".mp3", ".mp4", ".pdf", ".png", ".ppt", ".pptx", ".rar", ".so",
+    ".tar", ".tif", ".tiff", ".wav", ".webp", ".xls", ".xlsx", ".zip",
+}
 
 
 class NetworkView:
@@ -39,6 +47,14 @@ class NetworkView:
         self.cursor = 0
         self._top = 0
         self.selected = set()
+        self._preview_entry = None
+        self._preview_data = None
+        self._preview_error = None
+        self._preview_loading = False
+        self._preview_scroll = 0
+        self._preview_token = None
+        self._binary_cancel = None
+        self._temp_dir = None
         settings = getattr(app, "settings", {})
         self.sort = settings.get("sort", "name")
         if self.sort not in ("name", "size", "date", "type"):
@@ -52,7 +68,7 @@ class NetworkView:
             lambda d: self.move(d * 3), on_click=self._on_mouse,
             text=self._text, focusable=True,
             show_cursor=False, key_bindings=self._keys(),
-            get_cursor_position=lambda: Point(0, self.cursor - self._top),
+            get_cursor_position=self._cursor_position,
         )
         self.window = Window(self.control, always_hide_cursor=True,
                              style="class:explorer.file")
@@ -60,6 +76,12 @@ class NetworkView:
     @property
     def connected(self):
         return self.backend is not None
+
+    def _cursor_position(self):
+        """Keep prompt_toolkit's cursor inside the currently rendered content."""
+        if self._preview_entry is not None:
+            return Point(0, 0)
+        return Point(0, max(0, self.cursor - self._top))
 
     @property
     def location(self):
@@ -128,6 +150,8 @@ class NetworkView:
         self.expanded.clear()
         self._children.clear()
         self.selected.clear()
+        self.close_preview()
+        self._cleanup_temp()
         if backend is not None:
             asyncio.ensure_future(run_in_thread(backend.close))
         self.app.switch_mode("explorer")
@@ -140,17 +164,32 @@ class NetworkView:
 
     def cancel(self):
         """Clear remote selection without risking the active connection."""
+        if self._preview_entry is not None:
+            self.close_preview()
+            return
         self.selected.clear()
         self.app.invalidate()
 
     def close(self):
         """Close the transport during application shutdown without changing UI."""
+        if self._binary_cancel is not None:
+            self._binary_cancel.set()
         backend, self.backend = self.backend, None
         self.local_view = None
         if backend is not None:
             try:
                 backend.close()
             except Exception:
+                pass
+        self._cleanup_temp()
+
+    def _cleanup_temp(self):
+        """Delete only this NetworkView instance's private preview directory."""
+        temp, self._temp_dir = self._temp_dir, None
+        if temp is not None:
+            try:
+                temp.cleanup()
+            except OSError:
                 pass
 
     async def _load(self, select=None):
@@ -236,11 +275,19 @@ class NetworkView:
         return [cur] if cur and not cur.is_parent else []
 
     def move(self, delta):
+        if self._preview_entry is not None:
+            self._preview_scroll = max(0, self._preview_scroll + delta)
+            self.app.invalidate()
+            return
         if self.entries:
             self.cursor = max(0, min(len(self.entries) - 1, self.cursor + delta))
             self.app.invalidate()
 
     def _move_to(self, index):
+        if self._preview_entry is not None:
+            self._preview_scroll = 0 if index <= 0 else 10 ** 9
+            self.app.invalidate()
+            return
         if self.entries:
             self.cursor = max(0, min(len(self.entries) - 1, index))
             self.app.invalidate()
@@ -259,6 +306,8 @@ class NetworkView:
         if self.app.consume_menu_click():
             return
         self.app.focus_network_pane(1)
+        if self._preview_entry is not None:
+            return
         index = self._top + mouse_event.position.y
         if not 0 <= index < len(self.entries):
             return
@@ -287,7 +336,11 @@ class NetworkView:
             self.up()
             return
         if not cur.is_dir:
-            self.download()
+            if (getattr(self.backend, "protocol", "") == "sftp" and
+                    hasattr(self.backend, "read_preview")):
+                self.preview_file(cur)
+            else:
+                self.download()
             return
         self.path = posixpath.normpath(cur.path)
         self.busy = True
@@ -334,6 +387,9 @@ class NetworkView:
 
     def collapse_or_up(self):
         """Fold a directory, move to its tree parent, or leave the directory."""
+        if self._preview_entry is not None:
+            self.close_preview()
+            return
         entry = self.current()
         if entry is not None and entry.is_dir and entry.path in self.expanded:
             self.expanded.discard(entry.path)
@@ -472,7 +528,8 @@ class NetworkView:
         asyncio.ensure_future(do())
 
     def download(self):
-        targets = self.targets()
+        targets = ([self._preview_entry] if self._preview_entry is not None
+                   else self.targets())
         if not targets or self.busy:
             return
         local_view = self.local_view or self.app.explorer
@@ -505,6 +562,99 @@ class NetworkView:
                 self.busy = False
                 self.app.invalidate()
         asyncio.ensure_future(do())
+
+    def preview_file(self, entry):
+        """Show a bounded SFTP file preview in the remote pane."""
+        if self.busy:
+            return
+        token = object()
+        self._preview_token = token
+        self._preview_entry = entry
+        self._preview_data = None
+        self._preview_error = None
+        self._preview_loading = True
+        self._preview_scroll = 0
+        self.busy = True
+        self.app.invalidate()
+
+        async def do():
+            try:
+                data = await run_in_thread(
+                    self._backend_call, self.backend.read_preview,
+                    entry.path, REMOTE_PREVIEW_BYTES)
+                if token is self._preview_token:
+                    if self._is_binary_preview(entry, data):
+                        await self._download_binary_preview(entry)
+                    else:
+                        self._preview_data = data
+            except Exception as exc:
+                if token is self._preview_token:
+                    self._preview_error = str(exc)
+            finally:
+                if token is self._preview_token:
+                    self._preview_loading = False
+                self.busy = False
+                self.app.invalidate()
+        asyncio.ensure_future(do())
+
+    @staticmethod
+    def _is_binary_preview(entry, data):
+        if Path(entry.name).suffix.lower() in BINARY_PREVIEW_EXTENSIONS:
+            return True
+        if b"\x00" in data:
+            return True
+        if not data:
+            return False
+        controls = sum(byte < 32 and byte not in (9, 10, 12, 13) for byte in data)
+        return controls / len(data) > 0.10
+
+    async def _download_binary_preview(self, entry):
+        """Download a binary preview modally, then open it with the OS."""
+        if self._temp_dir is None:
+            self._temp_dir = TemporaryDirectory(
+                prefix="nsh-remote-preview-", ignore_cleanup_errors=True)
+        safe_name = "".join(
+            "_" if char in '<>:"/\\|?*' else char for char in entry.name)
+        target = unique_target(Path(self._temp_dir.name), safe_name or "remote-file")
+        cancel = threading.Event()
+        self._binary_cancel = cancel
+        loop = asyncio.get_running_loop()
+        self.app.open_progress_dialog(
+            "Downloading remote preview", entry.name, cancel.set)
+
+        def progress(done, total):
+            if cancel.is_set():
+                raise InterruptedError("download cancelled")
+            loop.call_soon_threadsafe(
+                self.app.update_progress_dialog, done, total)
+
+        succeeded = False
+        try:
+            await run_in_thread(
+                self._backend_call, self.backend.download,
+                entry.path, target, progress)
+            if not cancel.is_set():
+                succeeded = True
+        except Exception as exc:
+            if cancel.is_set():
+                self.app.set_message("preview download cancelled")
+            else:
+                self.app.set_message(f"preview download failed: {exc}")
+        finally:
+            self._binary_cancel = None
+            self.app.close_progress_dialog()
+            self.close_preview()
+        if succeeded:
+            self.app.open_file(target)
+
+    def close_preview(self):
+        self._preview_token = None
+        self._preview_entry = None
+        self._preview_data = None
+        self._preview_error = None
+        self._preview_loading = False
+        self._preview_scroll = 0
+        self.app.invalidate()
 
     def _queue_sftp_downloads(self, targets, backend, local_view, local_dir):
         for entry in targets:
@@ -680,6 +830,8 @@ class NetworkView:
         ])
 
     def _text(self):
+        if self._preview_entry is not None:
+            return self._preview_text()
         if self.busy and not self.entries:
             return [("class:preview.dim", "  working…")]
         if not self.entries:
@@ -733,6 +885,43 @@ class NetworkView:
             ])
             if i != end - 1:
                 out.append(("", "\n"))
+        return out
+
+    def _preview_text(self):
+        """Render the bounded remote file preview in the remote pane."""
+        entry = self._preview_entry
+        header = [
+            ("class:preview.header", f" {entry.name}\n"),
+            ("class:preview.meta", f" {human_size(entry.size)}  {entry.path}\n\n"),
+        ]
+        if self._preview_loading:
+            return header + [("class:preview.dim", " loading preview…")]
+        if self._preview_error:
+            return header + [
+                ("class:preview.dim", f" preview failed: {self._preview_error}")]
+        data = self._preview_data or b""
+        if not data:
+            return header + [("class:preview.dim", " (empty file)")]
+        if self._is_binary_preview(entry, data):
+            return header + [
+                ("class:preview.dim", " (binary file — press c to download)")]
+        truncated = len(data) > REMOTE_PREVIEW_BYTES
+        text = data[:REMOTE_PREVIEW_BYTES].decode("utf-8", errors="replace")
+        lines = text.splitlines() or [""]
+        height = (self.window.render_info.window_height
+                  if self.window.render_info else 20)
+        body_height = max(1, height - 3)
+        maximum = max(0, len(lines) - body_height)
+        self._preview_scroll = min(self._preview_scroll, maximum)
+        visible = lines[self._preview_scroll:self._preview_scroll + body_height]
+        out = list(header)
+        for index, line in enumerate(visible):
+            out.append(("class:shell.output", line))
+            if index != len(visible) - 1:
+                out.append(("", "\n"))
+        if truncated and self._preview_scroll >= maximum:
+            out.extend([("", "\n"),
+                        ("class:preview.dim", " … (preview truncated)")])
         return out
 
     def _keys(self):
