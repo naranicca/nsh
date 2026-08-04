@@ -434,6 +434,19 @@ class NshApp:
         if removed is not None:
             self.set_message(f"removed from queue: {removed}")
 
+    def shell_escape(self, remote=False):
+        """Clear a typed command first; leave the local/SSH shell when empty."""
+        shell = self.remote_shell if remote else self.shell
+        if shell.command_buffer.text:
+            shell.command_buffer.reset()
+            shell.command_window.horizontal_scroll = 0
+            self.invalidate()
+            return
+        if remote:
+            self.switch_mode(NETWORK)
+        else:
+            self.leave_shell()
+
     # -- live config reload ---------------------------------------------------
     def _read_config_mtime(self):
         try:
@@ -554,7 +567,6 @@ class NshApp:
 
         @kb.add("escape", filter=~overlay_open)
         def _(event):
-            buff = self.shell.command_buffer
             self.message = ""  # ESC dismisses the status message
             # a zoomed pane backs out to the even split first (before clearing a
             # selection or leaving the mode); the preview pane handles its own
@@ -565,10 +577,7 @@ class NshApp:
             if self.mode == SEARCH:
                 self.cancel_search()
             elif self.mode == SHELL:
-                if buff.complete_state:
-                    buff.cancel_completion()
-                else:
-                    self.leave_shell()
+                self.shell_escape()
             elif self.mode == GIT:
                 # clear the selection first, then leave git mode
                 if self.gitview.selected:
@@ -584,7 +593,7 @@ class NshApp:
             elif self.mode == PREFERENCES:
                 self.close_preferences()
             elif self.mode == REMOTE_SHELL:
-                self.switch_mode(NETWORK)
+                self.shell_escape(remote=True)
             else:  # EXPLORER: clear any multi-selection
                 self.explorer.clear_selection()
 
@@ -1182,6 +1191,7 @@ class NshApp:
         pk = self._fmt_key(self.keys.get("pane_prev"))
         nk = self._fmt_key(self.keys.get("pane_next"))
         zk = self._fmt_key(self.keys.get("zoom"))
+        queue_key = self._fmt_key(self.keys.get("queue_remove_last"))
         pane_pair = "/".join(p for p in (pk, nk) if p) or nk or pk
         # Hints are (key, label) or (key, label, action); an action makes the
         # hint clickable in the status bar. Directional / typing hints (arrows,
@@ -1191,7 +1201,7 @@ class NshApp:
             # the preview pane holds the focus: it scrolls with the arrows; Esc
             # (or a click) returns to the list — the pane keys now switch tabs
             hints = [
-                ("↑↓", "scroll"), ("PgUp/PgDn", "page"), ("g/G", "top/bottom"),
+                ("PgUp/PgDn", "page"), ("g/G", "top/bottom"),
                 (zk, "zoom", self.toggle_zoom),
                 (":", "cmd", lambda: self.switch_mode(SHELL)),
                 ("h/ESC", "list", self.focus_active_list),
@@ -1202,8 +1212,7 @@ class NshApp:
                 hints.insert(1, ("s", "stage/unstage"))
         elif self.mode == EXPLORER:
             hints = [
-                ("↵", "open", ex.open), ("Space", "select", ex.toggle_select),
-                ("Tab", "actions", ex.open_command_menu),
+                ("Space", "select", ex.toggle_select),
                 ("b", "marks", self.open_bookmark_menu),
                 ("/", "find", self.enter_search),
                 ("*", "select", ex.select_pattern),
@@ -1219,14 +1228,12 @@ class NshApp:
             hints.append(("q", "quit", self.exit))
         elif self.mode == SEARCH:
             hints = [
-                ("type", "filter"), ("↑↓", "move"), ("↵", "select"),
+                ("type", "filter"),
                 ("ESC", "cancel", self.cancel_search),
             ]
         elif self.mode == GIT:
             hints = [
-                ("↑↓", "move"),
                 ("Space", "select", self.gitview.toggle_select),
-                ("Tab", "actions", self.gitview.open_action_menu),
                 ("b", "marks", self.open_bookmark_menu),
                 (zk, "zoom", self.toggle_zoom),
                 (":", "cmd", lambda: self.switch_mode(SHELL)),
@@ -1235,8 +1242,6 @@ class NshApp:
             ]
         elif self.mode == LOG:
             hints = [
-                ("↑↓", "move"),
-                ("↵", "actions", self.logview.open_action_menu),
                 ("/", "search", self.logview.search),
                 ("n", "next", lambda: self.logview._find(1)),
                 (zk, "zoom", self.toggle_zoom),
@@ -1244,9 +1249,8 @@ class NshApp:
             ]
         elif self.mode == NOTES:
             hints = [
-                ("^S", "save", self.notesview.save_note), ("↑↓", "browse"),
+                ("^S", "save", self.notesview.save_note),
                 ("/", "search", self.notesview.start_search),
-                ("↵", "edit", self.notesview.edit_note),
                 ("y", "copy", self.notesview.copy_note), ("^V", "paste"),
                 ("d/x", "delete", self.notesview.delete_note),
                 ("u", "undo", self.notesview.undo_delete),
@@ -1254,7 +1258,7 @@ class NshApp:
             ]
         elif self.mode == SYSTEM:
             hints = [
-                ("↑↓", "move"), ("c/m/n", "sort cpu/mem/name"),
+                ("c/m/n", "sort cpu/mem/name"),
                 ("v", "cmd/name", self.systemview.toggle_detail),
                 ("/", "search", self.systemview.start_search),
                 ("x", "kill", lambda: self.systemview.kill_selected()),
@@ -1264,7 +1268,7 @@ class NshApp:
             ]
         elif self.mode == PREFERENCES:
             hints = [
-                ("type", "search"), ("↑↓", "move"), ("Enter", "edit"),
+                ("type", "search"),
                 ("^O", "edit nshrc", self.edit_preferences_file),
                 ("ESC", "back", self.close_preferences),
             ]
@@ -1272,7 +1276,6 @@ class NshApp:
             nv = self.networkview
             if self.network_local_focused():
                 hints = [
-                    ("↵", "open", (nv.local_view or ex).open),
                     ("Space", "select", (nv.local_view or ex).toggle_select),
                     ("c", "upload", nv.upload),
                     ("Shift+L", "remote", lambda: self.focus_network_pane(1)),
@@ -1280,28 +1283,32 @@ class NshApp:
                 ]
             else:
                 hints = [
-                    ("↵", "open/download", nv.open),
                     ("Space", "select", nv.toggle),
                     ("c", "download", nv.download),
                     ("n", "mkdir", nv.new_dir), ("s", "sort", nv.open_sort_menu),
-                    ("/", "find", nv.start_search), ("Tab", "actions", nv.actions),
+                    ("/", "find", nv.start_search),
                     ("Shift+H", "local", lambda: self.focus_network_pane(-1)),
                     ("ESC", "clear selection", nv.cancel), ("q", "quit", self.exit),
                 ]
         elif self.mode == REMOTE_SHELL:
             hints = [
-                ("↵", "run"), ("↑↓", "history"),
-                ("^C", "stop", self.remote_shell.interrupt),
                 ("ESC", "files", lambda: self.switch_mode(NETWORK)),
             ]
+            if queue_key:
+                hints.insert(0, (queue_key, "unqueue", self.remove_last_queued))
         else:
             hints = [
-                ("Tab", "complete"), ("↵", "run"), ("↑↓", "history"),
-                ("PgUp/PgDn", "scroll"), ("^T/^W", "tab"),
+                ("^T", "new tab", self.shells.new_session),
+                ("F2", "rename tab", self.shells.rename),
                 (f"Alt+←→/{pk}·{nk}", "switch"),
-                ("^C", "stop", lambda: self.shell.runner.interrupt()),
-                ("ESC", "back", self.leave_shell),
+                ("PgUp/PgDn", "scroll"),
             ]
+            if queue_key:
+                hints.append((queue_key, "unqueue", self.remove_last_queued))
+            hints.extend([
+                ("^W", "close tab", self.close_shell_tab),
+                ("ESC", "back", self.leave_shell),
+            ])
         segs = []
         # a yellow square + the note count at the very front whenever there are
         # saved notes — ahead of the message and the shortcut hints; clicking it

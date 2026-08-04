@@ -27,6 +27,45 @@ class FakeBackend(RemoteBackend):
 
 
 class NetworkBackendTests(unittest.TestCase):
+    def test_escape_clears_local_shell_input_before_leaving(self):
+        buffer = SimpleNamespace(text="unfinished", reset=mock.Mock())
+        local = SimpleNamespace(
+            command_buffer=buffer,
+            command_window=SimpleNamespace(horizontal_scroll=20))
+        app = object.__new__(NshApp)
+        app.shells = SimpleNamespace(current=lambda: local)
+        app.invalidate = mock.Mock()
+        app.leave_shell = mock.Mock()
+
+        app.shell_escape()
+
+        buffer.reset.assert_called_once_with()
+        self.assertEqual(local.command_window.horizontal_scroll, 0)
+        app.leave_shell.assert_not_called()
+
+        buffer.text = ""
+        app.shell_escape()
+        app.leave_shell.assert_called_once_with()
+
+    def test_escape_clears_remote_shell_input_before_returning_to_files(self):
+        buffer = SimpleNamespace(text="unfinished", reset=mock.Mock())
+        remote = SimpleNamespace(
+            command_buffer=buffer,
+            command_window=SimpleNamespace(horizontal_scroll=20))
+        app = object.__new__(NshApp)
+        app.remote_shell = remote
+        app.invalidate = mock.Mock()
+        app.switch_mode = mock.Mock()
+
+        app.shell_escape(remote=True)
+
+        buffer.reset.assert_called_once_with()
+        app.switch_mode.assert_not_called()
+
+        buffer.text = ""
+        app.shell_escape(remote=True)
+        app.switch_mode.assert_called_once_with("network")
+
     def test_two_pane_and_network_use_single_cell_double_separator(self):
         self.assertEqual(PANE_SEPARATOR, "║")
         self.assertEqual(len(PANE_SEPARATOR), 1)
