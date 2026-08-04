@@ -477,6 +477,9 @@ class NetworkView:
             return
         local_view = self.local_view or self.app.explorer
         backend, local_dir = self.backend, Path(local_view.cwd)
+        if getattr(backend, "protocol", "") == "sftp":
+            self._queue_sftp_downloads(targets, backend, local_view, local_dir)
+            return
         self.busy = True
         self.app.set_message(f"downloading {len(targets)} item(s)…")
 
@@ -503,6 +506,32 @@ class NetworkView:
                 self.app.invalidate()
         asyncio.ensure_future(do())
 
+    def _queue_sftp_downloads(self, targets, backend, local_view, local_dir):
+        for entry in targets:
+            label = f"download {entry.path} -> {local_dir}"
+
+            async def operation(cancel, entry=entry):
+                def progress(_done, _total):
+                    if cancel.is_set():
+                        raise InterruptedError("transfer cancelled")
+
+                def transfer():
+                    target = unique_target(local_dir, entry.name)
+                    if entry.is_dir:
+                        backend.download_tree(entry.path, target, callback=progress)
+                    else:
+                        backend.download(entry.path, target, callback=progress)
+                    return target
+
+                target = await run_in_thread(self._backend_call, transfer)
+                local_view.refresh()
+                self.app.invalidate()
+                return f"downloaded {entry.path} -> {target}"
+
+            self.app.remote_shell.enqueue_transfer(label, operation)
+        self.selected.clear()
+        self.app.open_remote_shell()
+
     def upload(self):
         if self.busy:
             return
@@ -512,6 +541,9 @@ class NetworkView:
             self.app.set_message("no local file selected")
             return
         backend, remote_dir = self.backend, self.path
+        if getattr(backend, "protocol", "") == "sftp":
+            self._queue_sftp_uploads(paths, backend, remote_dir)
+            return
         self.busy = True
         self.app.set_message(f"uploading {len(paths)} item(s)…")
 
@@ -537,6 +569,30 @@ class NetworkView:
                 self.busy = False
                 self.app.invalidate()
         asyncio.ensure_future(do())
+
+    def _queue_sftp_uploads(self, paths, backend, remote_dir):
+        for path in paths:
+            label = f"upload {path} -> {remote_dir}"
+
+            async def operation(cancel, path=path):
+                def progress(_done, _total):
+                    if cancel.is_set():
+                        raise InterruptedError("transfer cancelled")
+
+                def transfer():
+                    target = backend.unique_path(remote_dir, path.name)
+                    if path.is_dir() and not path.is_symlink():
+                        backend.upload_tree(path, target, callback=progress)
+                    else:
+                        backend.upload(path, target, callback=progress)
+                    return target
+
+                target = await run_in_thread(self._backend_call, transfer)
+                await self._load()
+                return f"uploaded {path} -> {target}"
+
+            self.app.remote_shell.enqueue_transfer(label, operation)
+        self.app.open_remote_shell()
 
     def new_dir(self):
         self.app.open_input_dialog("New remote folder", "", 0, self._make_dir)

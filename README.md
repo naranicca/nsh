@@ -88,7 +88,7 @@ The action keys (everything below the navigation block) are remappable in
 | `↵` | open the file / enter the directory |
 | `l`, `→` | expand/collapse a directory inline; **on a file, focus the preview** |
 | `⌫`, `h`, `←` | collapse the directory, else go to the parent |
-| `Shift+H` / `Shift+L` | move focus left / right across columns — the two panes (two-pane view), or the list and its preview |
+| `Shift+H` / `Shift+L` | move focus left / right; only Explorer single-pane may open the cursor directory as a new right pane, while existing two-pane and SSH/Network views only move focus |
 | `Space` | select / deselect the entry (multi-select) |
 | `Tab` | open the **action menu** (copy, rename, delete, git…) — drops from the cursor row, beside the filename |
 | `y` / `x` / `p` | copy / cut / paste — the picked rows briefly flash; **paste lands in the directory at the cursor**. The clipboard is shared across tabs, so you can copy in one tab and paste in another |
@@ -241,7 +241,11 @@ indexing progresses. Remote search follows the same visible-results-first model.
 Network mode places the active local explorer pane on the left and an FTP or
 SSH-SFTP directory tree on the right. Open **F10 → Network** from the local pane
 you want to use as the transfer endpoint, then choose a connection type. Both
-directories remain visible while files are transferred between them.
+directories remain visible while files are transferred between them. Searching
+with `/` in the local pane returns to the same Network layout and keeps the
+remote connection visible; remote search likewise restores remote focus.
+Notes, grep/shell, System, Preferences, Git/Log, and modal dialogs also return
+to the originating Network pane instead of replacing the SSH side with preview.
 
 Connection targets use `[user@]host[:port][/initial/path]`:
 
@@ -332,6 +336,15 @@ selection—or its cursor item when nothing is marked—into the displayed remot
 directory. Files and whole directory trees are supported in both directions.
 `Enter` on a remote file is a download shortcut; `Enter` on a directory opens
 it. A transfer refreshes only its destination pane.
+
+SFTP uploads and downloads run as visible SSH-shell jobs. Each selected item is
+queued separately, so the shell shows the source and destination, elapsed time,
+completion or failure details, and subsequent transfers waiting above the
+prompt. `Ctrl+C` cancels the active transfer; queued transfers then continue in
+order. The SSH shell initially shares the screen with the local/remote panes and
+grows with its output, maximizing only when the normal shell height limit is
+reached. FTP transfers retain the direct network-pane workflow because FTP has
+no SSH command shell.
 
 The remote pane uses the same tree presentation as the local file pane: file
 sizes are right-aligned, directories use `▸`/`▾` carets, expanded children are

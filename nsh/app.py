@@ -145,6 +145,7 @@ class NshApp:
         self._initial_query = query
         self._pending_query = ""
         self._search_remote = False
+        self._search_return = EXPLORER
         self.picker = picker
         self.search_result = None
 
@@ -192,7 +193,17 @@ class NshApp:
         self.remote_shell = RemoteShellView(self)
         self.preferencesview = PreferencesView(self)
         self._notes_return = EXPLORER  # the mode Notes was opened from
+        self._notes_return_pane = 1
         self._preferences_return = EXPLORER
+        self._preferences_return_pane = 1
+        self._system_return = EXPLORER
+        self._system_return_pane = 1
+        self._shell_return_pane = 1
+        self._find_return = EXPLORER
+        self._find_return_pane = 1
+        self._git_return = EXPLORER
+        self._git_return_pane = 1
+        self._log_return_pane = 1
 
         # popup action menu (Tab in the explorer)
         self.menu = Menu(self._menu_closed)
@@ -200,6 +211,7 @@ class NshApp:
         # the "nsh" label); only the latter tints the "nsh" label (see _title_text)
         self._menu_at_cursor = False
         self._menu_return_focus = None
+        self._dialog_return_focus = None
         self.bookmarks = Bookmarks()
         self.visited = []  # most-recent-first history of directories we've left
         # last directory visited on each Windows drive letter (for "D:" changes)
@@ -540,19 +552,19 @@ class NshApp:
                 if buff.complete_state:
                     buff.cancel_completion()
                 else:
-                    self.switch_mode(self._shell_return)
+                    self.leave_shell()
             elif self.mode == GIT:
                 # clear the selection first, then leave git mode
                 if self.gitview.selected:
                     self.gitview.clear_selection()
                 else:
-                    self.switch_mode(EXPLORER)
+                    self.close_git()
             elif self.mode == LOG:
                 self.close_log()
             elif self.mode == NOTES:
                 self.leave_notes()
             elif self.mode == SYSTEM:
-                self.switch_mode(EXPLORER)
+                self.close_system()
             elif self.mode == PREFERENCES:
                 self.close_preferences()
             elif self.mode == REMOTE_SHELL:
@@ -572,6 +584,10 @@ class NshApp:
         def _(event):
             # Ctrl-C stops the active session's command (and its children) but
             # never quits nsh; with nothing running it just clears the input.
+            if self.mode == REMOTE_SHELL:
+                if not self.remote_shell.interrupt():
+                    self.remote_shell.command_buffer.reset()
+                return
             if self.shell.runner.interrupt():
                 self.shell.append("^C")
             elif self.mode == SHELL:
@@ -804,6 +820,11 @@ class NshApp:
             Window(width=1, char="│", style="class:preview.border"),
             self.networkview.window,
         ])
+        self._remote_shell_split = HSplit([
+            self._network_split,
+            Window(height=1, char="─", style="class:preview.border"),
+            self.remote_shell.container,
+        ])
 
         def _body():
             if self.mode == SEARCH:
@@ -817,7 +838,9 @@ class NshApp:
             if self.mode == NETWORK:
                 return self._network_split
             if self.mode == REMOTE_SHELL:
-                return self.remote_shell.container
+                return (self.remote_shell.container
+                        if self.remote_shell_fullscreen()
+                        else self._remote_shell_split)
             if self.mode == GIT:
                 return git_area
             if self.mode == LOG:
@@ -1189,7 +1212,7 @@ class NshApp:
                 ("b", "marks", self.open_bookmark_menu),
                 (zk, "zoom", self.toggle_zoom),
                 (":", "cmd", lambda: self.switch_mode(SHELL)),
-                ("ESC", "exit", lambda: self.switch_mode(EXPLORER)),
+                ("ESC", "exit", self.close_git),
                 ("q", "quit", self.exit),
             ]
         elif self.mode == LOG:
@@ -1219,7 +1242,7 @@ class NshApp:
                 ("x", "kill", lambda: self.systemview.kill_selected()),
                 ("r", "refresh", lambda: asyncio.ensure_future(self.systemview.refresh())),
                 ("^N", "note", self.open_notes),
-                ("ESC", "back", lambda: self.switch_mode(EXPLORER)),
+                ("ESC", "back", self.close_system),
             ]
         elif self.mode == PREFERENCES:
             hints = [
@@ -1250,6 +1273,7 @@ class NshApp:
         elif self.mode == REMOTE_SHELL:
             hints = [
                 ("↵", "run"), ("↑↓", "history"),
+                ("^C", "stop", self.remote_shell.interrupt),
                 ("ESC", "files", lambda: self.switch_mode(NETWORK)),
             ]
         else:
@@ -1258,7 +1282,7 @@ class NshApp:
                 ("PgUp/PgDn", "scroll"), ("^T/^W", "tab"),
                 (f"Alt+←→/{pk}·{nk}", "switch"),
                 ("^C", "stop", lambda: self.shell.runner.interrupt()),
-                ("ESC", "explorer", lambda: self.switch_mode(self._shell_return)),
+                ("ESC", "back", self.leave_shell),
             ]
         segs = []
         # a yellow square + the note count at the very front whenever there are
@@ -1306,13 +1330,23 @@ class NshApp:
 
     # -- modes ----------------------------------------------------------------
     def toggle_mode(self):
-        self.switch_mode(EXPLORER if self.mode == SHELL else SHELL)
+        if self.mode == SHELL:
+            self.leave_shell()
+        else:
+            self.switch_mode(SHELL)
+
+    def leave_shell(self):
+        self.switch_mode(self._shell_return)
+        if self._shell_return == NETWORK:
+            self.focus_network_pane(self._shell_return_pane)
 
     def switch_mode(self, mode):
         # remember where the shell was opened from, to return there on ESC
         from_mode = self.mode
-        if mode == SHELL and self.mode in (EXPLORER, GIT):
+        if mode == SHELL and self.mode in (EXPLORER, GIT, NETWORK):
             self._shell_return = self.mode
+            if self.mode == NETWORK:
+                self._shell_return_pane = self._network_pane_direction()
         if from_mode != mode:
             self.message = ""  # a mode change dismisses the status message
         self.mode = mode
@@ -1348,23 +1382,36 @@ class NshApp:
 
     def toggle_git_mode(self):
         if self.mode == GIT:
-            self.switch_mode(EXPLORER)
+            self.close_git()
             return
         if not self.git_status.is_repo:
             self.set_message("not a git repository")
             return
+        self._git_return = NETWORK if self.mode == NETWORK else EXPLORER
+        if self.mode == NETWORK:
+            self._git_return_pane = self._network_pane_direction()
         self.switch_mode(GIT)
+
+    def close_git(self):
+        self.switch_mode(self._git_return)
+        if self._git_return == NETWORK:
+            self.focus_network_pane(self._git_return_pane)
 
     def open_log(self, paths=None):
         if not self.git_status.is_repo:
             self.set_message("not a git repository")
             return
         self.logview.path_filters = tuple(Path(path) for path in (paths or ()))
-        self._log_return = self.mode if self.mode in (EXPLORER, GIT) else EXPLORER
+        self._log_return = (self.mode if self.mode in (EXPLORER, GIT, NETWORK)
+                            else EXPLORER)
+        if self.mode == NETWORK:
+            self._log_return_pane = self._network_pane_direction()
         self.switch_mode(LOG)
 
     def close_log(self):
         self.switch_mode(self._log_return)
+        if self._log_return == NETWORK:
+            self.focus_network_pane(self._log_return_pane)
 
     # -- find (text / file) ---------------------------------------------------
     def open_find(self):
@@ -1376,6 +1423,10 @@ class NshApp:
         ])
 
     def find_text(self):
+        self._find_return = self.mode
+        if self.mode == NETWORK:
+            self._find_return_pane = self._network_pane_direction()
+        self._capture_dialog_focus()
         self.find_dialog.open(self._run_grep)
         self.application.layout.focus(self.find_dialog.control)
         self.invalidate()
@@ -1397,12 +1448,15 @@ class NshApp:
             flags += "w"
         cmd = f"grep --color=always {flags} -e {shlex.quote(phrase)} ."
         self.switch_mode(SHELL)
+        self._shell_return = self._find_return
+        self._shell_return_pane = self._find_return_pane
         self.run_in_shell(self.shell, cmd)
 
     # -- notes ----------------------------------------------------------------
     def open_notes(self):
-        self._notes_return = (self.mode if self.mode in (EXPLORER, GIT, SHELL, SYSTEM)
-                              else EXPLORER)
+        self._notes_return = self.mode
+        if self.mode == NETWORK:
+            self._notes_return_pane = self._network_pane_direction()
         self.switch_mode(NOTES)
 
     def leave_notes(self):
@@ -1412,19 +1466,31 @@ class NshApp:
         if self.notesview.input.text.strip():
             self.notesview.save_note()
         self.switch_mode(dest)
+        if dest == NETWORK:
+            self.focus_network_pane(self._notes_return_pane)
 
     # -- system (process manager) ---------------------------------------------
     def open_system(self):
+        self._system_return = self.mode
+        if self.mode == NETWORK:
+            self._system_return_pane = self._network_pane_direction()
         self.switch_mode(SYSTEM)
+
+    def close_system(self):
+        self.switch_mode(self._system_return)
+        if self._system_return == NETWORK:
+            self.focus_network_pane(self._system_return_pane)
 
     # -- fuzzy search ---------------------------------------------------------
     def enter_search(self, query=""):
         self._search_remote = False
+        self._search_return = NETWORK if self.mode == NETWORK else EXPLORER
         self._pending_query = query
         self.switch_mode(SEARCH)
 
     def enter_network_search(self, query=""):
         self._search_remote = True
+        self._search_return = NETWORK
         self._pending_query = query
         self.switch_mode(SEARCH)
 
@@ -1438,14 +1504,21 @@ class NshApp:
         else:
             self.set_cwd(path.parent)
             self.explorer.refresh_listing(select_name=path.name)
-        self.switch_mode(EXPLORER)
+        self.switch_mode(self._search_return)
+        if self._search_return == NETWORK:
+            # A local search started from the left half of Network mode should
+            # restore that pane, not the remote pane selected by switch_mode's
+            # normal Network default.
+            self.focus_network_pane(-1)
 
     def cancel_search(self):
         if self.picker:
             self.search_result = None
             self.exit()
             return
-        self.switch_mode(NETWORK if self._search_remote else EXPLORER)
+        self.switch_mode(self._search_return)
+        if self._search_return == NETWORK:
+            self.focus_network_pane(1 if self._search_remote else -1)
 
     def toggle_preview(self):
         self.show_preview = not self.show_preview
@@ -1525,6 +1598,17 @@ class NshApp:
         """Output rows in split mode: grows with content up to the cap."""
         cap = self._shell_cap()
         return max(0, min(self.shell.display_rows(self._term_cols(), limit=cap), cap))
+
+    def remote_shell_fullscreen(self):
+        """Match the local shell: maximize only after remote output fills split."""
+        cap = self._shell_cap()
+        return self.remote_shell.display_rows(
+            self._term_cols(), limit=cap) > cap
+
+    def remote_shell_split_output_rows(self):
+        cap = self._shell_cap()
+        return max(0, min(self.remote_shell.display_rows(
+            self._term_cols(), limit=cap), cap))
 
     # -- command line ---------------------------------------------------------
     def run_in_shell(self, session, cmd):
@@ -1851,6 +1935,7 @@ class NshApp:
     # -- confirmation dialog --------------------------------------------------
     def confirm(self, label, callback):
         """Show a centered yes/no dialog; ``callback(True|False)`` on resolve."""
+        self._capture_dialog_focus()
         self.confirm_dialog.open("Confirm", label, callback)
         self.application.layout.focus(self.confirm_dialog.control)
         self.invalidate()
@@ -1858,6 +1943,7 @@ class NshApp:
     def open_chmod_dialog(self, title, mode, on_accept):
         """Show the permission grid seeded with ``mode``; ``on_accept(mode_int)``
         gets the chosen 0-0o777 value."""
+        self._capture_dialog_focus()
         self.chmod_dialog.open(title, mode, on_accept)
         self.application.layout.focus(self.chmod_dialog.control)
         self.invalidate()
@@ -2042,6 +2128,12 @@ class NshApp:
         if self.two_pane:  # [left pane, right pane]; no preview in this layout
             self.switch_to_pane(1 if direction > 0 else 0)
             return
+        # Opening the cursor directory as a new right-hand pane is strictly an
+        # Explorer single-pane gesture. Other modes can reuse explorer controls
+        # (notably the local half of Network/SSH), but must never create/replace
+        # a pane as a side effect of moving focus.
+        if self.mode != EXPLORER:
+            return
         # single pane: Shift+L on a directory opens it beside the current one
         # (enters two-pane view with the right pane in that directory) instead
         # of merely focusing its preview; otherwise Shift+H/L step between the
@@ -2062,6 +2154,10 @@ class NshApp:
         local = self.networkview.local_view
         if local is None or not hasattr(self, "application"):
             return False
+
+    def _network_pane_direction(self):
+        """Pane to restore after a full-screen transient view: -1 local, +1 remote."""
+        return -1 if self.network_local_focused() else 1
         try:
             return self.application.layout.has_focus(local.control)
         except Exception:
@@ -2214,10 +2310,14 @@ class NshApp:
         config.ensure_default_config()
         if self.mode != PREFERENCES:
             self._preferences_return = self.mode
+            if self.mode == NETWORK:
+                self._preferences_return_pane = self._network_pane_direction()
         self.switch_mode(PREFERENCES)
 
     def close_preferences(self):
         self.switch_mode(self._preferences_return)
+        if self._preferences_return == NETWORK:
+            self.focus_network_pane(self._preferences_return_pane)
 
     def _edit_preference(self, section, name, value, reopen, blank_resets=False,
                          modified=False, blank_unbinds=False):
@@ -2255,6 +2355,7 @@ class NshApp:
             "",
             "https://github.com/naranicca/nsh",
         ]
+        self._capture_dialog_focus()
         self.about_dialog.open("About", lines)
         self.application.layout.focus(self.about_dialog.control)
         self.invalidate()
@@ -2310,6 +2411,7 @@ class NshApp:
     def open_input_dialog(self, title, text, cursor, on_accept,
                           on_change=None, on_cancel=None, password=False,
                           extra_label=None, on_extra=None):
+        self._capture_dialog_focus()
         self.dialog.open(title, text, cursor, on_accept, on_change, on_cancel,
                          password=password, extra_label=extra_label,
                          on_extra=on_extra)
@@ -2317,8 +2419,20 @@ class NshApp:
         self.invalidate()
 
     def _dialog_closed(self):
-        self._restore_focus()
+        control, self._dialog_return_focus = self._dialog_return_focus, None
+        try:
+            if control is None:
+                raise ValueError("no dialog return focus")
+            self.application.layout.focus(control)
+        except Exception:  # noqa: BLE001 - stale/hidden control: mode fallback
+            self._restore_focus()
         self.invalidate()
+
+    def _capture_dialog_focus(self):
+        try:
+            self._dialog_return_focus = self.application.layout.current_control
+        except Exception:
+            self._dialog_return_focus = None
 
     # -- bookmarks ------------------------------------------------------------
     def open_bookmark_menu(self):

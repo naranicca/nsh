@@ -26,6 +26,148 @@ class FakeBackend(RemoteBackend):
 
 
 class NetworkBackendTests(unittest.TestCase):
+    def test_shift_l_in_network_only_focuses_remote_pane(self):
+        app = SimpleNamespace(
+            mode="network", two_pane=False,
+            focus_network_pane=mock.Mock(),
+            open_dir_in_two_pane=mock.Mock())
+
+        NshApp.move_pane_focus(app, 1)
+
+        app.focus_network_pane.assert_called_once_with(1)
+        app.open_dir_in_two_pane.assert_not_called()
+
+    def test_shift_l_in_existing_two_pane_only_focuses_right_pane(self):
+        app = SimpleNamespace(
+            mode="explorer", two_pane=True, active_pane=0,
+            switch_to_pane=mock.Mock(), open_dir_in_two_pane=mock.Mock())
+
+        NshApp.move_pane_focus(app, 1)
+
+        app.switch_to_pane.assert_called_once_with(1)
+        app.open_dir_in_two_pane.assert_not_called()
+
+    def test_shift_l_opens_cursor_directory_only_in_single_pane(self):
+        entry = SimpleNamespace(path=Path("folder"), is_dir=True,
+                                is_parent=False)
+        app = SimpleNamespace(
+            mode="explorer", two_pane=False,
+            preview_focused=mock.Mock(return_value=False),
+            explorer=SimpleNamespace(current=lambda: entry),
+            open_dir_in_two_pane=mock.Mock())
+
+        NshApp.move_pane_focus(app, 1)
+
+        app.open_dir_in_two_pane.assert_called_once_with(entry.path)
+
+    def test_local_search_from_network_restores_network_left_pane(self):
+        app = SimpleNamespace(
+            mode="network", picker=False, search_result=None,
+            switch_mode=mock.Mock(), focus_network_pane=mock.Mock(),
+            set_cwd=mock.Mock(),
+            explorer=SimpleNamespace(refresh_listing=mock.Mock()))
+
+        NshApp.enter_search(app, "photo")
+        self.assertEqual(app._search_return, "network")
+        self.assertFalse(app._search_remote)
+
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "photo.jpg"
+            path.write_bytes(b"")
+            NshApp.search_select(app, path)
+
+        app.switch_mode.assert_called_with("network")
+        app.focus_network_pane.assert_called_once_with(-1)
+        app.explorer.refresh_listing.assert_called_once_with(
+            select_name="photo.jpg")
+
+    def test_cancel_remote_search_restores_network_remote_pane(self):
+        app = SimpleNamespace(
+            picker=False, _search_return="network", _search_remote=True,
+            switch_mode=mock.Mock(), focus_network_pane=mock.Mock())
+
+        NshApp.cancel_search(app)
+
+        app.switch_mode.assert_called_once_with("network")
+        app.focus_network_pane.assert_called_once_with(1)
+
+    def test_notes_and_system_restore_originating_network_pane(self):
+        notes_app = SimpleNamespace(
+            mode="network", _network_pane_direction=lambda: -1,
+            switch_mode=mock.Mock(), focus_network_pane=mock.Mock(),
+            notesview=SimpleNamespace(
+                input=SimpleNamespace(text=""), save_note=mock.Mock()))
+        NshApp.open_notes(notes_app)
+        NshApp.leave_notes(notes_app)
+        self.assertEqual(notes_app._notes_return, "network")
+        notes_app.switch_mode.assert_called_with("network")
+        notes_app.focus_network_pane.assert_called_once_with(-1)
+
+        system_app = SimpleNamespace(
+            mode="network", _network_pane_direction=lambda: 1,
+            switch_mode=mock.Mock(), focus_network_pane=mock.Mock())
+        NshApp.open_system(system_app)
+        NshApp.close_system(system_app)
+        self.assertEqual(system_app._system_return, "network")
+        system_app.focus_network_pane.assert_called_once_with(1)
+
+    def test_preferences_and_grep_shell_restore_network_pane(self):
+        preferences_app = SimpleNamespace(
+            mode="network", _network_pane_direction=lambda: -1,
+            switch_mode=mock.Mock(), focus_network_pane=mock.Mock())
+        with mock.patch("nsh.app.config.ensure_default_config"):
+            NshApp.open_preferences(preferences_app)
+        NshApp.close_preferences(preferences_app)
+        self.assertEqual(preferences_app._preferences_return, "network")
+        preferences_app.focus_network_pane.assert_called_once_with(-1)
+
+        grep_app = SimpleNamespace(
+            _find_return="network", _find_return_pane=-1,
+            switch_mode=mock.Mock(), run_in_shell=mock.Mock(), shell=object())
+        NshApp._run_grep(grep_app, "needle", False, False)
+        self.assertEqual(grep_app._shell_return, "network")
+        self.assertEqual(grep_app._shell_return_pane, -1)
+        grep_app.run_in_shell.assert_called_once()
+
+    def test_git_and_log_restore_originating_network_pane(self):
+        git_app = SimpleNamespace(
+            mode="network",
+            git_status=SimpleNamespace(is_repo=True),
+            _network_pane_direction=lambda: -1,
+            switch_mode=mock.Mock(), focus_network_pane=mock.Mock())
+        NshApp.toggle_git_mode(git_app)
+        self.assertEqual(git_app._git_return, "network")
+        git_app.mode = "git"
+        NshApp.close_git(git_app)
+        git_app.focus_network_pane.assert_called_once_with(-1)
+
+        log_app = SimpleNamespace(
+            mode="network",
+            git_status=SimpleNamespace(is_repo=True),
+            logview=SimpleNamespace(path_filters=()),
+            _network_pane_direction=lambda: 1,
+            switch_mode=mock.Mock(), focus_network_pane=mock.Mock())
+        NshApp.open_log(log_app)
+        self.assertEqual(log_app._log_return, "network")
+        NshApp.close_log(log_app)
+        log_app.focus_network_pane.assert_called_once_with(1)
+
+    def test_dialog_close_restores_exact_originating_pane_control(self):
+        local_control = object()
+        layout = SimpleNamespace(
+            current_control=local_control, focus=mock.Mock())
+        app = SimpleNamespace(
+            application=SimpleNamespace(layout=layout),
+            _dialog_return_focus=None,
+            _restore_focus=mock.Mock(), invalidate=mock.Mock())
+
+        NshApp._capture_dialog_focus(app)
+        layout.current_control = object()
+        NshApp._dialog_closed(app)
+
+        layout.focus.assert_called_once_with(local_control)
+        app._restore_focus.assert_not_called()
+
     def test_sftp_directory_symlink_is_navigable_and_broken_link_is_marked(self):
         backend = SFTPBackend("host", 22, "user")
 
@@ -614,6 +756,74 @@ class NetworkBackendTests(unittest.TestCase):
         finished_prompt = shell._prompt_text()
         self.assertTrue(any(style == "class:shell.elapsed.ok"
                             for style, _text in finished_prompt))
+
+    def test_sftp_download_is_enqueued_in_remote_shell(self):
+        remote_shell = SimpleNamespace(enqueue_transfer=mock.Mock())
+        local = SimpleNamespace(cwd=Path("local"), refresh=mock.Mock())
+        app = SimpleNamespace(
+            explorer=local, remote_shell=remote_shell,
+            open_remote_shell=mock.Mock(), invalidate=mock.Mock())
+        view = NetworkView(app)
+        view.backend = SimpleNamespace(protocol="sftp")
+        view.local_view = local
+        view.entries = [RemoteEntry("photo.jpg", "/photo.jpg", False)]
+        view.cursor = 0
+
+        view.download()
+
+        remote_shell.enqueue_transfer.assert_called_once()
+        self.assertIn("download /photo.jpg", remote_shell.enqueue_transfer.call_args.args[0])
+        app.open_remote_shell.assert_called_once_with()
+
+    def test_remote_transfer_jobs_queue_and_ctrl_c_cancels_current_job(self):
+        events = []
+
+        class App:
+            networkview = SimpleNamespace(location="sftp://host/dir")
+
+            def invalidate(self):
+                pass
+
+        async def scenario():
+            shell = RemoteShellView(App())
+
+            async def first(cancel):
+                events.append("first-start")
+                while not cancel.is_set():
+                    await asyncio.sleep(0.001)
+                events.append("first-cancel")
+
+            async def second(cancel):
+                events.append("second")
+                return "second complete"
+
+            shell.enqueue_transfer("download first", first)
+            shell.enqueue_transfer("download second", second)
+            self.assertEqual([str(job) for job in shell.pending],
+                             ["download second"])
+            self.assertTrue(shell.interrupt())
+            while shell.busy or shell.pending:
+                await asyncio.sleep(0.001)
+            return shell
+
+        shell = asyncio.run(scenario())
+        self.assertEqual(events, ["first-start", "first-cancel", "second"])
+        self.assertEqual(shell._last_result[1], 0)
+
+    def test_remote_shell_starts_split_and_maximizes_only_after_output_cap(self):
+        shell = object.__new__(RemoteShellView)
+        shell.lines = [[("", "short")], [("", "x" * 20)]]
+        app = SimpleNamespace(
+            remote_shell=shell,
+            _shell_cap=lambda: 3,
+            _term_cols=lambda: 10)
+
+        self.assertEqual(shell.display_rows(10), 3)
+        self.assertFalse(NshApp.remote_shell_fullscreen(app))
+        self.assertEqual(NshApp.remote_shell_split_output_rows(app), 3)
+
+        shell.lines.append([("", "one more row")])
+        self.assertTrue(NshApp.remote_shell_fullscreen(app))
 
     def test_disconnect_requires_confirmation(self):
         class Backend:

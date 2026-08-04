@@ -71,25 +71,35 @@ class RemoteBackend:
                 self.remove(entry.path)
         self.rmdir(path)
 
-    def download_tree(self, remote, local):
+    def download_tree(self, remote, local, callback=None):
+        if callback is not None:
+            callback(0, 0)
         local = Path(local)
         local.mkdir(parents=True, exist_ok=True)
         for entry in self.listdir(remote):
             target = local / entry.name
             if entry.is_dir:
-                self.download_tree(entry.path, target)
+                self.download_tree(entry.path, target, callback=callback)
             else:
-                self.download(entry.path, target)
+                if callback is None:
+                    self.download(entry.path, target)
+                else:
+                    self.download(entry.path, target, callback=callback)
 
-    def upload_tree(self, local, remote):
+    def upload_tree(self, local, remote, callback=None):
+        if callback is not None:
+            callback(0, 0)
         local = Path(local)
         self.mkdir(remote)
         for child in local.iterdir():
             target = posixpath.join(remote, child.name)
             if child.is_dir() and not child.is_symlink():
-                self.upload_tree(child, target)
+                self.upload_tree(child, target, callback=callback)
             else:
-                self.upload(child, target)
+                if callback is None:
+                    self.upload(child, target)
+                else:
+                    self.upload(child, target, callback=callback)
 
     def unique_path(self, directory, name):
         """Non-existing remote path using nsh's ``name (2)`` convention."""
@@ -347,11 +357,11 @@ class SFTPBackend(RemoteBackend):
     def rename(self, old, new):
         self.client.rename(old, new)
 
-    def download(self, remote, local):
-        self.client.get(remote, os.fspath(local))
+    def download(self, remote, local, callback=None):
+        self.client.get(remote, os.fspath(local), callback=callback)
 
-    def upload(self, local, remote):
-        self.client.put(os.fspath(local), remote)
+    def upload(self, local, remote, callback=None):
+        self.client.put(os.fspath(local), remote, callback=callback)
 
     def execute(self, directory, command):
         """Run one command through the authenticated SSH transport."""

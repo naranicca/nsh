@@ -2,6 +2,7 @@
 import asyncio
 import posixpath
 import shlex
+import threading
 import time
 
 from prompt_toolkit.application.current import get_app
@@ -16,6 +17,15 @@ from prompt_toolkit.layout.margins import Margin
 
 from ..util.aio import run_in_thread
 from ..util.width import char_width, text_width
+
+
+class _TransferJob:
+    def __init__(self, label, operation):
+        self.label = label
+        self.operation = operation
+
+    def __str__(self):
+        return self.label
 
 
 def _fmt_elapsed(seconds):
@@ -58,6 +68,7 @@ class RemoteShellView:
         self.pending = []
         self._started_at = None
         self._last_result = None
+        self._transfer_cancel = None
         self.command_buffer = Buffer(
             name="remote-command", multiline=False,
             history=InMemoryHistory(), accept_handler=self._accept,
@@ -69,6 +80,7 @@ class RemoteShellView:
                 self._output_text,
                 get_cursor_position=lambda: Point(0, max(0, len(self.lines) - 1))),
             wrap_lines=True,
+            height=self._output_height,
             style="class:shell.output")
         self.prompt = Window(
             FormattedTextControl(self._prompt_text),
@@ -187,6 +199,22 @@ class RemoteShellView:
             out.append(("", "\n"))
         return out
 
+    def _output_height(self):
+        if self.app.remote_shell_fullscreen():
+            return Dimension(min=1)
+        return Dimension.exact(self.app.remote_shell_split_output_rows())
+
+    def display_rows(self, columns, limit=None):
+        """Wrapped output rows, used by the shared/fullscreen layout switch."""
+        columns = max(1, columns)
+        total = 0
+        for fragments in self.lines[-2000:]:
+            width = text_width("".join(text for _style, text in fragments))
+            total += max(1, -(-width // columns))
+            if limit is not None and total > limit:
+                return total
+        return total
+
     def append(self, text, style="class:shell.output"):
         for line in str(text).splitlines() or [""]:
             if "\x1b[" in line:
@@ -205,6 +233,9 @@ class RemoteShellView:
         if self.busy:
             self.pending.append(command)
             self.app.invalidate()
+            return
+        if isinstance(command, _TransferJob):
+            self._run_transfer(command)
             return
         if command in ("exit", "quit"):
             self.pending.clear()
@@ -241,6 +272,44 @@ class RemoteShellView:
             finally:
                 self._finish(status)
         asyncio.ensure_future(do())
+
+    def enqueue_transfer(self, label, operation):
+        """Run an SFTP operation as a visible, cancellable shell queue item."""
+        self.run(_TransferJob(label, operation))
+
+    def _run_transfer(self, job):
+        self._begin(job.label)
+        cancel = threading.Event()
+        self._transfer_cancel = cancel
+
+        async def do():
+            status = -1
+            try:
+                message = await job.operation(cancel)
+                if cancel.is_set():
+                    self.append("transfer cancelled", "class:shell.error")
+                else:
+                    if message:
+                        self.append(message)
+                    status = 0
+            except Exception as exc:
+                if cancel.is_set():
+                    self.append("transfer cancelled", "class:shell.error")
+                else:
+                    self.append(f"transfer: {exc}", "class:shell.error")
+            finally:
+                self._transfer_cancel = None
+                self._finish(status)
+        asyncio.ensure_future(do())
+
+    def interrupt(self):
+        """Cancel the active SFTP transfer. Returns True when one was active."""
+        if self._transfer_cancel is None:
+            return False
+        self._transfer_cancel.set()
+        self.append("^C", "class:shell.error")
+        self.app.invalidate()
+        return True
 
     def _begin(self, command):
         line = []

@@ -320,8 +320,7 @@ class SystemView:
         """The header's [x] button: leave the process view."""
         if mouse_event.event_type == MouseEventType.MOUSE_DOWN:
             if not self.app.consume_menu_click():
-                from ..app import EXPLORER
-                self.app.switch_mode(EXPLORER)
+                self.app.close_system()
         return None
 
     def _column_header(self):
