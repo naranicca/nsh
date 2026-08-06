@@ -280,15 +280,16 @@ class CommandRunner:
         return self._proc is not None and self._proc.returncode is None
 
     def _prepare_command(self, command):
-        """Expand PowerShell home paths without consuming their wildcards.
+        """Expand native-Windows home paths without consuming wildcards.
 
         PowerShell 5 can leave ``~/dir/*.jpg`` unresolved in commands launched
-        through ``-Command``. Tab completion already expands this form, but a
-        manually typed path must behave the same way. Only a tilde at the start
-        of a shell word (optionally just inside a quote) is touched; POSIX keeps
-        its native tilde expansion semantics.
+        through ``-Command``; cmd also has no tilde expansion. Shell detection
+        can conservatively fall back from PowerShell to cmd when nsh is started
+        through a launcher, so apply this to every non-POSIX Windows command.
+        Only a tilde at the start of a shell word (optionally just inside a
+        quote) is touched; POSIX keeps its native tilde expansion semantics.
         """
-        if not self._is_powershell:
+        if self._is_posix:
             return command
         home = os.path.expanduser("~")
         out = []

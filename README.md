@@ -215,8 +215,9 @@ running. This shortcut is configurable as `queue_remove_last` in Preferences.
 
 Built-ins handled internally: `cd`, `clear`/`cls`, `exit`/`quit`. The output pane
 grows with its content and goes full-screen once it fills up. Long lines wrap.
-Manually typed PowerShell home paths are expanded before execution while
-retaining wildcards (for example, `mv ~/Desktop/*.jpg .`). The prompt shows
+PowerShell completions keep a leading `~` visible in the editable command;
+home paths are expanded only before execution while retaining wildcards (for
+example, `mv ~/Desktop/*.jpg .`). The prompt shows
 each command's run time tinted by its exit status (and dims
 itself while a command is still running), and
 interactive commands that need a real terminal — editors/pagers, plus network

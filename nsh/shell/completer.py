@@ -81,13 +81,11 @@ class ShellCompleter(Completer):
         only performs tilde expansion on an unquoted tilde, so quoting the whole
         path would leave a literal ``~`` the shell can't resolve."""
         prefix, rest = "", full
-        # POSIX requires the tilde outside quotes for expansion. Native Windows
-        # shells must expand it before quoting. PowerShell cmdlets understand a
-        # quoted tilde, but external programs (for example GNU mv) receive it
-        # literally and fail to find the file.
-        if full.startswith("~") and not self._is_posix():
-            rest = os.path.expanduser(full)
-        elif full.startswith("~"):
+        # POSIX requires the tilde outside quotes for expansion. PowerShell may
+        # keep it inside the completed token: CommandRunner expands a leading
+        # tilde immediately before execution, so the editable command remains
+        # compact without passing a literal tilde to external programs.
+        if full.startswith("~") and self._is_posix():
             sep = min((i for i in (full.find("/"), full.find("\\")) if i != -1),
                       default=-1)
             if sep != -1:
