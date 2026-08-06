@@ -317,7 +317,8 @@ for approval; verify it with the server owner. An approved key is saved to
 an existing entry is still rejected without an approval prompt. A password
 entered in nsh is available as an authentication fallback for the destination
 and every jump host, while per-host keys and the SSH agent remain preferred
-alternatives.
+alternatives. If authentication is rejected, nsh preserves the target and jump
+route and asks only for the password again.
 
 #### Browsing and file operations
 

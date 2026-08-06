@@ -12,9 +12,9 @@ from prompt_toolkit.data_structures import Point
 from nsh.app import NshApp, PANE_SEPARATOR, _safe_status_message
 from nsh.explorer.view import ExplorerView
 from nsh.network.backend import (
-    HostKeyRequired, RemoteBackend, RemoteEntry, SFTPBackend,
+    AuthenticationFailed, HostKeyRequired, RemoteBackend, RemoteEntry, SFTPBackend,
     has_configured_proxy, parse_target)
-from nsh.network.view import NetworkView
+from nsh.network.view import NetworkView, _NetworkPreviewScrollbar
 from nsh.network.shell import RemoteShellView
 from nsh.search.view import SearchView
 from nsh.shell.view import ShellView
@@ -489,6 +489,33 @@ class NetworkBackendTests(unittest.TestCase):
         )
         self.assertIs(clients[1].connect_args[1]["sock"], channel)
         self.assertEqual(len(backend.ssh_clients), 2)
+
+    def test_sftp_converts_paramiko_authentication_failure(self):
+        import paramiko
+
+        class Client:
+            closed = False
+
+            def load_system_host_keys(self):
+                pass
+
+            def set_missing_host_key_policy(self, policy):
+                pass
+
+            def connect(self, hostname, **kwargs):
+                raise paramiko.AuthenticationException("bad password")
+
+            def close(self):
+                self.closed = True
+
+        client = Client()
+        with TemporaryDirectory() as temp, mock.patch(
+                "paramiko.SSHClient", return_value=client), mock.patch(
+                "nsh.network.backend.Path.home", return_value=Path(temp)):
+            with self.assertRaises(AuthenticationFailed):
+                SFTPBackend.connect("host", 22, "user", "wrong")
+
+        self.assertTrue(client.closed)
 
     def test_sftp_uses_proxycommand_from_ssh_config(self):
         clients = []
@@ -1079,6 +1106,37 @@ class NetworkBackendTests(unittest.TestCase):
         self.assertIsNone(view._preview_entry)
         app.invalidate.assert_called_once_with()
 
+    def test_long_remote_text_preview_shows_scrollbar(self):
+        entry = RemoteEntry("long.txt", "/long.txt", False, size=100)
+        app = SimpleNamespace(
+            invalidate=mock.Mock(), network_local_focused=lambda: False)
+        view = object.__new__(NetworkView)
+        view.app = app
+        view.window = SimpleNamespace(
+            render_info=SimpleNamespace(window_height=6))
+        view._preview_entry = entry
+        view._preview_data = "\n".join(
+            f"line {index}" for index in range(10)).encode()
+        view._preview_error = None
+        view._preview_loading = False
+        view._preview_scroll = 0
+        view._preview_total = 0
+        view._preview_view = 0
+
+        view._preview_text()
+        margin = _NetworkPreviewScrollbar(view)
+
+        self.assertEqual(view._preview_total, 10)
+        self.assertEqual(view._preview_view, 3)
+        self.assertEqual(margin.get_width(None), 1)
+        fragments = margin.create_margin(None, 1, 6)
+        self.assertTrue(any(style == "class:scrollbar.button"
+                            for style, _text in fragments))
+
+    def test_short_remote_text_preview_hides_scrollbar(self):
+        view = SimpleNamespace(_preview_total=2, _preview_view=5)
+        self.assertEqual(_NetworkPreviewScrollbar(view).get_width(None), 0)
+
     def test_binary_remote_preview_keeps_cursor_within_content(self):
         entry = RemoteEntry("photo.jpg", "/photo.jpg", False, size=1024)
         view = object.__new__(NetworkView)
@@ -1555,6 +1613,38 @@ class NetworkBackendTests(unittest.TestCase):
             app._network_target("sftp")
         self.assertEqual(app.open_input_dialog.call_args.args[1],
                          "naranicca@192.168.45.75")
+
+    def test_authentication_failure_reopens_only_password_dialog(self):
+        class App:
+            explorer = object()
+
+            def __init__(self):
+                self.messages = []
+                self._network_password = mock.Mock()
+
+            def set_message(self, message):
+                self.messages.append(message)
+
+            def invalidate(self):
+                pass
+
+        async def scenario():
+            app = App()
+            view = NetworkView(app)
+            with mock.patch(
+                    "nsh.network.view.remote.connect",
+                    side_effect=AuthenticationFailed("bad password")):
+                view.connect("sftp", "office-mac", "wrong", jump="gateway")
+                while view.busy:
+                    await asyncio.sleep(0.01)
+            return app
+
+        app = asyncio.run(scenario())
+
+        app._network_password.assert_called_once_with(
+            "sftp", "office-mac", "gateway")
+        self.assertEqual(
+            app.messages[-1], "authentication failed; enter password again")
 
     def test_remote_listing_has_parent_row_and_navigation_shortcuts(self):
         class App:

@@ -20,6 +20,10 @@ class HostKeyRequired(Exception):
         super().__init__(f"unknown SSH host key for {hostname}: {fingerprint}")
 
 
+class AuthenticationFailed(Exception):
+    """The remote endpoint rejected the supplied authentication."""
+
+
 def _load_ssh_config(paramiko):
     config = paramiko.SSHConfig()
     config_path = Path.home() / ".ssh" / "config"
@@ -169,7 +173,11 @@ class FTPBackend(RemoteBackend):
     def connect(cls, host, port, username, password):
         ftp = ftplib.FTP()
         ftp.connect(host, port, timeout=15)
-        ftp.login(username or "anonymous", password or "anonymous@")
+        try:
+            ftp.login(username or "anonymous", password or "anonymous@")
+        except ftplib.error_perm as exc:
+            ftp.close()
+            raise AuthenticationFailed(str(exc)) from exc
         ftp.encoding = "utf-8"
         obj = cls(host, port, username or "anonymous")
         obj.client = ftp
@@ -336,7 +344,7 @@ class SFTPBackend(RemoteBackend):
             except Exception:
                 obj.home = "/"
             return obj
-        except Exception:
+        except Exception as exc:
             for ssh in reversed(clients):
                 try:
                     ssh.close()
@@ -347,6 +355,8 @@ class SFTPBackend(RemoteBackend):
                     proxy.close()
                 except Exception:
                     pass
+            if isinstance(exc, paramiko.AuthenticationException):
+                raise AuthenticationFailed(str(exc)) from exc
             raise
 
     def close(self):

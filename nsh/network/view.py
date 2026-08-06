@@ -9,6 +9,7 @@ from tempfile import TemporaryDirectory
 from prompt_toolkit.data_structures import Point
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout.containers import Window
+from prompt_toolkit.layout.margins import Margin
 from prompt_toolkit.mouse_events import MouseModifier
 
 from .. import config
@@ -32,6 +33,37 @@ BINARY_PREVIEW_EXTENSIONS = {
 }
 
 
+class _NetworkPreviewScrollbar(Margin):
+    """Scrollbar for the manually windowed remote text preview."""
+
+    def __init__(self, view):
+        self.view = view
+
+    def get_width(self, get_ui_content):
+        return 1 if self.view._preview_total > self.view._preview_view else 0
+
+    def create_margin(self, window_render_info, width, height):
+        total = self.view._preview_total
+        visible = self.view._preview_view
+        if height <= 0 or total <= visible:
+            return []
+        maximum = total - visible
+        scroll = max(0, min(self.view._preview_scroll, maximum))
+        thumb = max(1, min(height, height * visible // total))
+        top = ((height - thumb) * scroll // maximum) if maximum else 0
+        focused = not self.view.app.network_local_focused()
+        thumb_style = ("class:scrollbar.button" if focused
+                       else "class:scrollbar.button.inactive")
+        fragments = []
+        for row in range(height):
+            style = (thumb_style if top <= row < top + thumb
+                     else "class:scrollbar.background")
+            fragments.append((style, " "))
+            if row < height - 1:
+                fragments.append(("", "\n"))
+        return fragments
+
+
 class NetworkView:
     def __init__(self, app):
         self.app = app
@@ -52,6 +84,8 @@ class NetworkView:
         self._preview_error = None
         self._preview_loading = False
         self._preview_scroll = 0
+        self._preview_total = 0
+        self._preview_view = 0
         self._preview_token = None
         self._binary_cancel = None
         self._temp_dir = None
@@ -70,8 +104,11 @@ class NetworkView:
             show_cursor=False, key_bindings=self._keys(),
             get_cursor_position=self._cursor_position,
         )
-        self.window = Window(self.control, always_hide_cursor=True,
-                             style="class:explorer.file")
+        self.window = Window(
+            self.control, always_hide_cursor=True,
+            style="class:explorer.file",
+            right_margins=[_NetworkPreviewScrollbar(self)],
+        )
 
     @property
     def connected(self):
@@ -124,6 +161,9 @@ class NetworkView:
                         protocol, target, password, jump,
                         key) if ok else None,
                 )
+            except remote.AuthenticationFailed:
+                self.app.set_message("authentication failed; enter password again")
+                self.app._network_password(protocol, target, jump)
             except Exception as exc:  # noqa: BLE001 - surfaced in status bar
                 self.app.set_message(f"connection failed: {exc}")
             finally:
@@ -654,6 +694,8 @@ class NetworkView:
         self._preview_error = None
         self._preview_loading = False
         self._preview_scroll = 0
+        self._preview_total = 0
+        self._preview_view = 0
         self.app.invalidate()
 
     def _queue_sftp_downloads(self, targets, backend, local_view, local_dir):
@@ -889,6 +931,8 @@ class NetworkView:
 
     def _preview_text(self):
         """Render the bounded remote file preview in the remote pane."""
+        self._preview_total = 0
+        self._preview_view = 0
         entry = self._preview_entry
         header = [
             ("class:preview.header", f" {entry.name}\n"),
@@ -911,6 +955,8 @@ class NetworkView:
         height = (self.window.render_info.window_height
                   if self.window.render_info else 20)
         body_height = max(1, height - 3)
+        self._preview_total = len(lines)
+        self._preview_view = body_height
         maximum = max(0, len(lines) - body_height)
         self._preview_scroll = min(self._preview_scroll, maximum)
         visible = lines[self._preview_scroll:self._preview_scroll + body_height]
