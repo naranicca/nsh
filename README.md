@@ -248,7 +248,10 @@ so a built executable is findable; the skipped directories are configurable via
 
 Search does not wait for a full tree index before becoming useful: matches from
 the current directory appear first, then indexed results are added as background
-indexing progresses. Remote search follows the same visible-results-first model.
+indexing progresses. While that index is still running, a query containing `/`
+or `\` follows its fuzzy-matched directory components and lists that specific
+subdirectory immediately. Remote search follows the same visible-results-first
+model.
 
 ### Network mode (FTP / SSH-SFTP)
 

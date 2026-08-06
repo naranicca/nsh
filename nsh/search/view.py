@@ -28,6 +28,13 @@ class SearchView:
         self.scroll = 0
         self.loading = False
         self._index_generation = 0
+        self._path_generation = 0
+        self._path_task = None
+        self._path_prefix = None
+        self._immediate_candidates = []
+        self._search_root = None
+        self._search_show_hidden = False
+        self._search_skip = set()
         self.remote_view = None
 
         self.query_buffer = Buffer(multiline=False, on_text_changed=self._on_query)
@@ -75,11 +82,12 @@ class SearchView:
         # listing as an instant first-stage index while the recursive walk runs
         # in the background. Expanded descendants and the synthetic ".." row
         # are excluded: this stage deliberately represents only cwd.
-        self.candidates = [
+        self._immediate_candidates = [
             e.name + (os.sep if e.is_dir else "")
             for e in self.app.explorer.entries
             if not e.is_parent and e.path.parent == root
         ]
+        self.candidates = list(self._immediate_candidates)
         self.results = []
         self.cursor = 0
         self.scroll = 0
@@ -88,9 +96,14 @@ class SearchView:
         generation = self._index_generation
         show_hidden = self.app.explorer.show_hidden
         skip = self._exclude_dirs()
+        self._search_root = root
+        self._search_show_hidden = show_hidden
+        self._search_skip = skip
+        self._path_prefix = None
         self.query_buffer.text = query
         self.query_buffer.cursor_position = len(query)
         # Assigning the same query does not necessarily fire on_text_changed.
+        self._schedule_path_lookup()
         self._refilter()
         asyncio.ensure_future(self._index(generation, root, show_hidden, skip))
 
@@ -141,6 +154,7 @@ class SearchView:
             return
         self.candidates = items
         self.loading = False
+        self._path_generation += 1
         self._refilter()
         self.app.invalidate()
 
@@ -148,6 +162,39 @@ class SearchView:
     def _on_query(self, _buffer):
         self.cursor = 0
         self.scroll = 0
+        self._schedule_path_lookup()
+        self._refilter()
+        self.app.invalidate()
+
+    def _schedule_path_lookup(self):
+        if self.remote_view is not None or not self.loading:
+            return
+        query = self.query_buffer.text
+        normalized = query.replace("\\", "/")
+        prefix = normalized.rsplit("/", 1)[0].lower() if "/" in normalized else None
+        if prefix is not None and prefix == self._path_prefix:
+            return
+        self._path_generation += 1
+        generation = self._path_generation
+        if self._path_task is not None and not self._path_task.done():
+            self._path_task.cancel()
+        self.candidates = list(self._immediate_candidates)
+        self._path_prefix = prefix
+        if prefix is None:
+            self._path_task = None
+            return
+        self._path_task = asyncio.ensure_future(
+            self._index_query_path(generation, query))
+
+    async def _index_query_path(self, generation, query):
+        items = await run_in_thread(
+            fuzzy.gather_query_path, self._search_root, query,
+            self._search_show_hidden, self._search_skip)
+        if (generation != self._path_generation or not self.loading
+                or self.remote_view is not None):
+            return
+        self.candidates = list(dict.fromkeys(
+            [*self._immediate_candidates, *items]))
         self._refilter()
         self.app.invalidate()
 

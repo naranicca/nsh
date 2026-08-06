@@ -30,8 +30,11 @@ def match(query, text):
     """
     if not query:
         return (0.0, ())
-    q = query.lower()
-    t = text.lower()
+    # A query typed with POSIX-style `/` must also match Windows-indexed `\`
+    # paths (and vice versa). Replacing one cell with one cell preserves the
+    # highlight positions in the original candidate.
+    q = query.lower().replace("\\", "/")
+    t = text.lower().replace("\\", "/")
     # locate the basename, ignoring a directory's trailing separator so its real
     # name (not an empty string) gets the basename bonus
     base = t.rstrip("/\\")
@@ -115,3 +118,75 @@ def gather(root, show_hidden=False, limit=50000, skip=None):
             if len(items) >= limit:
                 return items
     return items
+
+
+def gather_query_path(root, query, show_hidden=False, skip=None,
+                      max_branch=40, limit=1000):
+    """List the directory implied by a slash-containing fuzzy query.
+
+    Only components before the final separator-delimited search term are
+    traversed, so ``src/mod`` scans matching ``src`` directories and returns
+    their immediate children while the full recursive index is still running.
+    """
+    normalized = query.replace("\\", "/").lstrip("/")
+    if "/" not in normalized:
+        return []
+    parts = normalized.split("/")
+    directory_parts = parts[:-1]
+    if not directory_parts:
+        return []
+    skip = SKIP_DIRS if skip is None else set(skip)
+    root = os.fspath(root)
+    frontier = [(root, "")]
+    for component in directory_parts:
+        if not component:
+            continue
+        next_frontier = []
+        for directory, relative in frontier:
+            try:
+                with os.scandir(directory) as entries:
+                    rows = sorted(entries, key=lambda entry: entry.name.lower())
+            except OSError:
+                continue
+            for entry in rows:
+                if entry.name in skip:
+                    continue
+                if not show_hidden and entry.name.startswith("."):
+                    continue
+                try:
+                    is_dir = entry.is_dir()
+                except OSError:
+                    is_dir = False
+                if not is_dir or match(component, entry.name) is None:
+                    continue
+                rel = os.path.join(relative, entry.name) if relative else entry.name
+                next_frontier.append((entry.path, rel))
+                if len(next_frontier) >= max_branch:
+                    break
+            if len(next_frontier) >= max_branch:
+                break
+        frontier = next_frontier
+        if not frontier:
+            return []
+
+    results = []
+    for directory, relative in frontier:
+        try:
+            with os.scandir(directory) as entries:
+                rows = sorted(entries, key=lambda entry: entry.name.lower())
+        except OSError:
+            continue
+        for entry in rows:
+            if entry.name in skip:
+                continue
+            if not show_hidden and entry.name.startswith("."):
+                continue
+            try:
+                is_dir = entry.is_dir()
+            except OSError:
+                is_dir = False
+            rel = os.path.join(relative, entry.name)
+            results.append(rel + (os.sep if is_dir else ""))
+            if len(results) >= limit:
+                return results
+    return results
