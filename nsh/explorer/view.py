@@ -21,6 +21,7 @@ from prompt_toolkit.mouse_events import MouseModifier
 
 from .. import config
 from ..util import hangul
+from ..util.aio import run_in_thread
 from ..util.menu import SEPARATOR
 from ..util.paths import human_size, shorten_home
 from ..util.widgets import WheelScrollControl, visible_slice
@@ -78,6 +79,7 @@ class ExplorerView:
         self._flash = set()
         self._flash_task = None
         self._signature = ()   # snapshot used to auto-refresh on external change
+        self._watch_scan_running = False
         # inline rename state: edits the cursor row's name in place (no dialog)
         self._renaming = False
         self._rename_entry = None
@@ -127,31 +129,51 @@ class ExplorerView:
     # -- data -----------------------------------------------------------------
     @staticmethod
     def _sig(entries):
-        return tuple((e.name, e.is_dir, e.size, e.mtime) for e in entries)
+        return tuple((e.name, e.is_dir, e.size, e.mtime, e.link_target)
+                     for e in entries)
+
+    @staticmethod
+    def _display_name(entry):
+        if entry.is_parent:
+            return ".."
+        suffix = os.sep if entry.is_dir else ""
+        if entry.is_link:
+            target = entry.link_target or "?"
+            return f"{entry.name}{suffix} -> {target}{suffix}"
+        return entry.name + suffix
 
     def _list(self):
         """The cwd listing flattened into a tree: each expanded directory's
         contents follow it, indented one level deeper. A ``..`` row is prepended
         when the cwd has a parent, so you can step up without the keyboard."""
-        entries = self._flatten(self.cwd, 0)
-        parent = self.cwd.parent
-        if parent != self.cwd:  # not already at a filesystem / drive root
+        return self._list_snapshot(
+            self.cwd, self.show_hidden, self.sort, self.reverse,
+            frozenset(self.expanded))
+
+    @classmethod
+    def _list_snapshot(cls, cwd, show_hidden, sort, reverse, expanded):
+        """Build a listing from immutable pane state, safe for a worker."""
+        cwd = Path(cwd)
+
+        def flatten(directory, depth):
+            out = []
+            for entry in model.list_dir(
+                    directory, show_hidden, sort, reverse):
+                entry.depth = depth
+                out.append(entry)
+                # Recurse only through directories expanded in this immutable
+                # snapshot, including directory symlinks as before.
+                if entry.is_dir and entry.path in expanded:
+                    out.extend(flatten(entry.path, depth + 1))
+            return out
+
+        entries = flatten(cwd, 0)
+        parent = cwd.parent
+        if parent != cwd:  # not already at a filesystem / drive root
             entries.insert(0, model.Entry(
                 path=parent, name="..", is_dir=True, is_link=False,
                 is_exec=False, is_image=False, size=0, is_parent=True))
         return entries
-
-    def _flatten(self, directory, depth):
-        out = []
-        for e in model.list_dir(directory, self.show_hidden, self.sort, self.reverse):
-            e.depth = depth
-            out.append(e)
-            # recurse into expanded directories, including symlinked ones (a
-            # symlinked dir has is_dir=True). This terminates: only paths the
-            # user explicitly expanded are followed, and child paths always grow.
-            if e.is_dir and e.path in self.expanded:
-                out.extend(self._flatten(e.path, depth + 1))
-        return out
 
     def first_index(self):
         """The first selectable row — skips a leading ``..`` so entering a
@@ -193,14 +215,29 @@ class ExplorerView:
         self.app.invalidate()
         asyncio.ensure_future(self.app.refresh_git())
 
-    def check_external_change(self):
-        """Re-list only when the directory changed under us (polled)."""
-        entries = self._list()
-        if self._sig(entries) == self._signature:
-            return
+    async def check_external_change(self):
+        """Re-list in a worker, discarding stale or overlapping scans."""
+        if self._watch_scan_running:
+            return False
+        snapshot = (
+            self.cwd, self.show_hidden, self.sort, self.reverse,
+            frozenset(self.expanded),
+        )
+        self._watch_scan_running = True
+        try:
+            entries = await run_in_thread(self._list_snapshot, *snapshot)
+        finally:
+            self._watch_scan_running = False
+        current = (
+            self.cwd, self.show_hidden, self.sort, self.reverse,
+            frozenset(self.expanded),
+        )
+        if current != snapshot or self._sig(entries) == self._signature:
+            return False
         self._apply_listing(entries)
         self.app.invalidate()
         asyncio.ensure_future(self.app.refresh_git())
+        return True
 
     def current(self):
         if 0 <= self.cursor < len(self.entries):
@@ -215,7 +252,7 @@ class ExplorerView:
         e = self.current()
         if e is None:
             return 0
-        name = ".." if e.is_parent else e.name + ("/" if e.is_dir else "")
+        name = self._display_name(e)
         return 6 + 2 * e.depth + text_width(name)
 
     def refresh_listing(self, select_name=None):
@@ -289,7 +326,7 @@ class ExplorerView:
                 estyle = "class:explorer.flash"
                 mstyle = ""
                 on = False
-            name = ".." if e.is_parent else e.name + ("/" if e.is_dir else "")
+            name = self._display_name(e)
             size = "" if e.is_dir else human_size(e.size)
             # on the cursor row the size uses the row (name) style so the "reverse"
             # highlight stays one solid colour instead of a darker grey block at

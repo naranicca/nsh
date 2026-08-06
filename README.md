@@ -107,6 +107,11 @@ The action keys (everything below the navigation block) are remappable in
 | `ESC` | clear the selection |
 | `q` | quit |
 
+Local symbolic links use the link icon and display their recorded target as
+`name -> target`, matching the SFTP file view. Directory links end in the local
+platform's path separator on both sides of the arrow, such as
+`name\ -> target\` on Windows and `name/ -> target/` on POSIX.
+
 Paste, new file and new folder follow the cursor: a directory under the cursor
 is the target (the item lands *inside* it and it expands to show the result),
 while a file targets its containing directory — so in the tree view you act
@@ -373,7 +378,8 @@ indented, and the cursor highlights the complete row with the explorer colour
 scheme. A `..` row is shown outside the remote root. Directory contents are
 fetched only when first expanded.
 
-SFTP symbolic links use the link icon and show `name@ -> target`. Links to
+SFTP symbolic links use the link icon and show `name -> target`. Directory links
+use `name/ -> target/`. Links to
 directories can be opened and expanded like directories; links to files behave
 like files, and broken links are marked with the conflict color. Recursive
 search does not follow directory links, and deleting a directory link removes
@@ -496,7 +502,9 @@ nsh/
 - **Non-blocking everything.** Directory listing, Git status, file copies, the
   preview, and the search index all run off the event loop (an `asyncio` task or
   a worker thread) and `invalidate()` when done; the UI never waits on them.
-  Stale results (for a directory you already left) are dropped.
+  Periodic directory scans skip overlaps, and stale results (for a directory you
+  already left) are dropped. Concurrent identical Git status requests share one
+  process, which is terminated when its final waiter is cancelled.
 - **Host shell.** Commands run through your platform's default shell
   (`$SHELL -c …` on Unix; `cmd /c …` or `powershell -Command …` on Windows),
   streamed in chunks so a `\r`-only progress bar updates in place. ANSI colour

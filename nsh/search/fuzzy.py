@@ -7,6 +7,7 @@ incidental scatter of those letters. ``gather`` walks a directory tree once,
 pruning the usual heavy/uninteresting directories.
 """
 import os
+from collections import deque
 
 WORD_BOUNDARY = set("/\\._- ")
 
@@ -87,9 +88,9 @@ def gather(root, show_hidden=False, limit=50000, skip=None):
     skip = SKIP_DIRS if skip is None else set(skip)
     items = []
     root = os.fspath(root)
-    queue = [root]
+    queue = deque([root])
     while queue:
-        current = queue.pop(0)
+        current = queue.popleft()
         try:
             with os.scandir(current) as it:
                 entries = sorted(it, key=lambda e: e.name.lower())

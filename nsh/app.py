@@ -352,7 +352,9 @@ class NshApp:
         except OSError:
             pass
         self._remember_drive(ex.cwd)
-        ex.check_external_change()  # the dir may have changed while we were away
+        # The directory may have changed while this tab was away. Do not block
+        # the tab switch on a large directory scan.
+        asyncio.ensure_future(ex.check_external_change())
         self.preview.clear()
         self.message = ""
         self.schedule_git()
@@ -2595,9 +2597,11 @@ class NshApp:
                 if self.mode == GIT:
                     await self.refresh_git()  # reflect external edits in the list/diff
                 else:
-                    self.explorer.check_external_change()
+                    panes = [self.explorer]
                     if self.two_pane:  # keep the inactive pane fresh too
-                        self.explorers[1 - self.active_pane].check_external_change()
+                        panes.append(self.explorers[1 - self.active_pane])
+                    await asyncio.gather(
+                        *(pane.check_external_change() for pane in panes))
             except asyncio.CancelledError:
                 raise
             except Exception:  # noqa: BLE001 - never let the watcher die

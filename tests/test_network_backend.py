@@ -359,6 +359,10 @@ class NetworkBackendTests(unittest.TestCase):
         self.assertTrue(missing.is_symlink)
         self.assertFalse(missing.is_dir)
         self.assertTrue(missing.is_broken)
+        self.assertEqual(
+            NetworkView._display_name(docs), "docs/ -> shared/docs/")
+        self.assertEqual(
+            NetworkView._display_name(missing), "missing -> gone")
 
     def test_recursive_delete_unlinks_directory_symlink_without_following_it(self):
         class Backend(RemoteBackend):
@@ -1132,6 +1136,25 @@ class NetworkBackendTests(unittest.TestCase):
         fragments = margin.create_margin(None, 1, 6)
         self.assertTrue(any(style == "class:scrollbar.button"
                             for style, _text in fragments))
+
+    def test_remote_text_preview_reuses_decoded_line_cache(self):
+        entry = RemoteEntry("cached.txt", "/cached.txt", False, size=20)
+        view = object.__new__(NetworkView)
+        view.window = SimpleNamespace(render_info=None)
+        view._preview_entry = entry
+        view._preview_error = None
+        view._preview_loading = False
+        view._preview_scroll = 0
+        view._preview_total = 0
+        view._preview_view = 0
+
+        view._store_preview_data(b"first\nsecond")
+        cached_lines = view._preview_lines
+        view._preview_text()
+        view._preview_text()
+
+        self.assertIs(view._preview_lines, cached_lines)
+        self.assertEqual(cached_lines, ["first", "second"])
 
     def test_short_remote_text_preview_hides_scrollbar(self):
         view = SimpleNamespace(_preview_total=2, _preview_view=5)

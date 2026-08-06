@@ -81,6 +81,7 @@ class NetworkView:
         self.selected = set()
         self._preview_entry = None
         self._preview_data = None
+        self._preview_lines = None
         self._preview_error = None
         self._preview_loading = False
         self._preview_scroll = 0
@@ -611,6 +612,7 @@ class NetworkView:
         self._preview_token = token
         self._preview_entry = entry
         self._preview_data = None
+        self._preview_lines = None
         self._preview_error = None
         self._preview_loading = True
         self._preview_scroll = 0
@@ -626,7 +628,7 @@ class NetworkView:
                     if self._is_binary_preview(entry, data):
                         await self._download_binary_preview(entry)
                     else:
-                        self._preview_data = data
+                        self._store_preview_data(data)
             except Exception as exc:
                 if token is self._preview_token:
                     self._preview_error = str(exc)
@@ -647,6 +649,13 @@ class NetworkView:
             return False
         controls = sum(byte < 32 and byte not in (9, 10, 12, 13) for byte in data)
         return controls / len(data) > 0.10
+
+    def _store_preview_data(self, data):
+        """Cache remote preview bytes and their decoded logical lines."""
+        self._preview_data = data
+        text = data[:REMOTE_PREVIEW_BYTES].decode("utf-8", errors="replace")
+        self._preview_lines = text.splitlines() or [""]
+        self._preview_total = len(self._preview_lines)
 
     async def _download_binary_preview(self, entry):
         """Download a binary preview modally, then open it with the OS."""
@@ -691,6 +700,7 @@ class NetworkView:
         self._preview_token = None
         self._preview_entry = None
         self._preview_data = None
+        self._preview_lines = None
         self._preview_error = None
         self._preview_loading = False
         self._preview_scroll = 0
@@ -899,13 +909,7 @@ class NetworkView:
                             else "class:explorer.file")))
             style = "class:explorer.selected" if selected else base_style
             cursor_style = (style + " reverse").strip() if on else style
-            if entry.is_parent:
-                name = ".."
-            elif entry.is_symlink:
-                target = f" -> {entry.link_target}" if entry.link_target else " -> ?"
-                name = entry.name + "@" + target + ("/" if entry.is_dir else "")
-            else:
-                name = entry.name + ("/" if entry.is_dir else "")
+            name = self._display_name(entry)
             size = "" if entry.is_dir else human_size(entry.size)
             size_style = cursor_style if on else (
                 "class:explorer.size" if size else style)
@@ -929,6 +933,15 @@ class NetworkView:
                 out.append(("", "\n"))
         return out
 
+    @staticmethod
+    def _display_name(entry):
+        if entry.is_parent:
+            return ".."
+        suffix = "/" if entry.is_dir else ""
+        if entry.is_symlink:
+            return f"{entry.name}{suffix} -> {entry.link_target or '?'}{suffix}"
+        return entry.name + suffix
+
     def _preview_text(self):
         """Render the bounded remote file preview in the remote pane."""
         self._preview_total = 0
@@ -950,8 +963,10 @@ class NetworkView:
             return header + [
                 ("class:preview.dim", " (binary file — press c to download)")]
         truncated = len(data) > REMOTE_PREVIEW_BYTES
-        text = data[:REMOTE_PREVIEW_BYTES].decode("utf-8", errors="replace")
-        lines = text.splitlines() or [""]
+        lines = getattr(self, "_preview_lines", None)
+        if lines is None:  # compatibility for previews populated directly
+            self._store_preview_data(data)
+            lines = self._preview_lines
         height = (self.window.render_info.window_height
                   if self.window.render_info else 20)
         body_height = max(1, height - 3)

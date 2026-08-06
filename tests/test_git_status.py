@@ -16,6 +16,64 @@ from nsh.explorer.view import ExplorerView
 
 
 class GitStatusTests(unittest.TestCase):
+    def test_concurrent_identical_git_queries_share_one_task(self):
+        calls = 0
+        release = asyncio.Event()
+
+        async def uncached(directory, child_directories=()):
+            nonlocal calls
+            calls += 1
+            await release.wait()
+            return GitStatus(root=Path(directory))
+
+        async def scenario():
+            with mock.patch("nsh.explorer.git._query_uncached",
+                            side_effect=uncached):
+                first = asyncio.create_task(git.query("repo", ("repo/a",)))
+                second = asyncio.create_task(git.query("repo", ("repo/a",)))
+                await asyncio.sleep(0)
+                release.set()
+                return await asyncio.gather(first, second)
+
+        results = asyncio.run(scenario())
+
+        self.assertEqual(calls, 1)
+        self.assertIs(results[0], results[1])
+
+    def test_cancelled_git_process_is_terminated(self):
+        started = asyncio.Event()
+
+        class Process:
+            returncode = None
+
+            def __init__(self):
+                self.terminated = False
+
+            async def communicate(self, input_data):
+                started.set()
+                await asyncio.Event().wait()
+
+            def terminate(self):
+                self.terminated = True
+                self.returncode = -15
+
+            async def wait(self):
+                return self.returncode
+
+        async def scenario():
+            process = Process()
+            with mock.patch("asyncio.create_subprocess_exec",
+                            return_value=process):
+                task = asyncio.create_task(git.run_git(["status"], Path(".")))
+                await started.wait()
+                task.cancel()
+                with self.assertRaises(asyncio.CancelledError):
+                    await task
+            return process
+
+        process = asyncio.run(scenario())
+        self.assertTrue(process.terminated)
+
     @unittest.skipUnless(shutil.which("git"), "git executable required")
     def test_zero_context_change_patch_can_be_reverted(self):
         with tempfile.TemporaryDirectory() as tmp:

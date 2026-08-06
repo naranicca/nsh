@@ -339,7 +339,25 @@ async def run_git(args, cwd, env=None, input_data=None):
         return 127, ""
     if isinstance(input_data, str):
         input_data = input_data.encode("utf-8")
-    out, _ = await proc.communicate(input_data)
+    try:
+        out, _ = await proc.communicate(input_data)
+    except asyncio.CancelledError:
+        # Cancelling a directory/status refresh must not leave git.exe running
+        # after its owning pane has moved elsewhere.
+        if proc.returncode is None:
+            try:
+                proc.terminate()
+            except (ProcessLookupError, OSError):
+                pass
+            try:
+                await asyncio.wait_for(proc.wait(), timeout=1.0)
+            except asyncio.TimeoutError:
+                try:
+                    proc.kill()
+                except (ProcessLookupError, OSError):
+                    pass
+                await proc.wait()
+        raise
     return proc.returncode, out.decode("utf-8", "replace")
 
 
@@ -348,7 +366,38 @@ async def _out(args, cwd):
     return out if rc == 0 else None
 
 
+_QUERY_TASKS = {}
+
+
 async def query(directory, child_directories=()) -> GitStatus:
+    """Share concurrent status requests for the same pane/repository scope."""
+    key = (norm(directory), tuple(sorted(norm(path)
+                                         for path in child_directories)))
+    entry = _QUERY_TASKS.get(key)
+    if entry is None:
+        entry = {
+            "task": asyncio.create_task(
+                _query_uncached(directory, child_directories)),
+            "waiters": 0,
+        }
+        _QUERY_TASKS[key] = entry
+    entry["waiters"] += 1
+    try:
+        return await asyncio.shield(entry["task"])
+    finally:
+        entry["waiters"] -= 1
+        if entry["waiters"] == 0:
+            if not entry["task"].done():
+                entry["task"].cancel()
+                try:
+                    await entry["task"]
+                except asyncio.CancelledError:
+                    pass
+            if _QUERY_TASKS.get(key) is entry:
+                del _QUERY_TASKS[key]
+
+
+async def _query_uncached(directory, child_directories=()) -> GitStatus:
     """Detect the repo, current branch and per-file status for ``directory``."""
     st = GitStatus()
     layout = _repository_layout(directory)

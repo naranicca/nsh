@@ -37,6 +37,7 @@ class Entry:
     mtime: int = 0  # st_mtime_ns (files only); used for change detection
     depth: int = 0  # indentation level when the listing is shown as a tree
     is_parent: bool = False  # the synthetic ".." row (go to the parent dir)
+    link_target: str = ""  # raw target recorded by a symbolic link
 
 
 def _is_exec(dir_entry, name: str) -> bool:
@@ -107,6 +108,12 @@ def list_dir(path, show_hidden: bool = False, sort: str = "name", reverse: bool 
                 is_dir = de.is_dir()
             except OSError:
                 is_link, is_dir = False, False
+            link_target = ""
+            if is_link:
+                try:
+                    link_target = os.readlink(de.path)
+                except OSError:
+                    pass
             ext = os.path.splitext(name)[1].lower()
             size = mtime = 0
             try:  # stat every entry for the modified time (dirs included, for date sort)
@@ -126,6 +133,7 @@ def list_dir(path, show_hidden: bool = False, sort: str = "name", reverse: bool 
                     is_image=(not is_dir) and ext in IMAGE_EXTS,
                     size=size,
                     mtime=mtime,
+                    link_target=link_target,
                 )
             )
     return sort_entries(entries, sort, reverse)
