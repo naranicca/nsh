@@ -201,6 +201,7 @@ DEFAULT_KEYS = {
     "copy": "y",
     "cut": "x",
     "paste": "p",
+    "trash": "d",
     "delete": "D",
     "rename": "f2",
     "new_dir": "m",
@@ -346,6 +347,7 @@ DEFAULT_NSHRC = """\
 # copy = y
 # cut = x
 # paste = p
+# trash = d          (move to the platform Trash / Recycle Bin)
 # delete = D
 # rename = f2
 # new_dir = m

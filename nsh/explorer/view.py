@@ -794,6 +794,35 @@ class ExplorerView:
             label = f"Delete {len(targets)} items? This cannot be undone."
         self.app.confirm(label, lambda ok: self._do_delete(targets, ok))
 
+    def trash_entry(self):
+        targets = self._targets()
+        if not targets:
+            return
+        if len(targets) == 1:
+            label = f"Move '{targets[0].name}' to the Trash?"
+        else:
+            label = f"Move {len(targets)} items to the Trash?"
+        self.app.confirm(label, lambda ok: self._do_trash(targets, ok))
+
+    def _do_trash(self, targets, ok):
+        if not ok:
+            self.app.set_message("trash cancelled")
+            return
+
+        async def do():
+            done = 0
+            for path in targets:
+                try:
+                    await fileops.trash(path)
+                    done += 1
+                except Exception as exc:  # noqa: BLE001
+                    self.app.set_message(f"{path.name}: {exc}")
+            self.selected.clear()
+            self.refresh_listing()
+            self.app.set_message(f"moved {done} item(s) to Trash")
+            await self.app.refresh_git()
+        asyncio.ensure_future(do())
+
     def _do_delete(self, targets, ok):
         if not ok:
             self.app.set_message("delete cancelled")
@@ -1014,7 +1043,9 @@ class ExplorerView:
         if self.clipboard:
             items.append(("Paste", self.paste))
         if has_target:
-            items += [("Rename", self.rename_entry), ("Delete", self.delete_entry)]
+            items += [("Rename", self.rename_entry),
+                      ("Move to Trash", self.trash_entry),
+                      ("Delete permanently", self.delete_entry)]
             # Python exposes chmod on every supported platform. Windows only
             # honours its writable/read-only subset, but keeping the action in
             # the same menu makes the interface predictable across machines.
@@ -1119,7 +1150,8 @@ class ExplorerView:
         ("menu", "action menu (copy, rename, git…)"),
         ("copy", "copy"), ("cut", "cut"), ("paste", "paste"),
         ("rename", "rename (also i)"), ("new_dir", "new folder"), ("new_file", "new file"),
-        ("delete", "delete"), ("bookmark", "bookmarks"), ("sort", "sort order"),
+        ("trash", "move to trash"), ("delete", "delete permanently"),
+        ("bookmark", "bookmarks"), ("sort", "sort order"),
         ("find", "fuzzy find"),
         ("command", "command-line mode"), ("preview", "toggle preview pane"),
         ("hidden", "toggle hidden files"), ("refresh", "refresh"),
@@ -1633,6 +1665,7 @@ class ExplorerView:
             "copy": self.copy_action,
             "cut": self.cut_action,
             "paste": self.paste,
+            "trash": self.trash_entry,
             "delete": self.delete_entry,
             "rename": self.rename_entry,
             "new_dir": self.new_dir,

@@ -94,7 +94,8 @@ The action keys (everything below the navigation block) are remappable in
 | `y` / `x` / `p` | copy / cut / paste — the picked rows briefly flash; **paste lands in the directory at the cursor**. The clipboard is shared across tabs, so you can copy in one tab and paste in another |
 | `F2` / `i` | rename (inline) |
 | `m` / `N` | new folder / new file — **created in the directory at the cursor** |
-| `D` | delete (asks to confirm) |
+| `d` | move to the platform Trash / Recycle Bin (asks to confirm) |
+| `D` | permanently delete (asks to confirm) |
 | `Tab` → `chmod…` | change permissions using `755`, `rwxr-xr-x`, `u+x`, or interactive read/write/execute checks |
 | `b` | bookmarks — add/remove this directory, or jump to a saved one |
 | `/` | fuzzy-find a file |
@@ -449,6 +450,7 @@ shell.command     = #5fafff bold
 [keys]
 # <action> = <key>   (a char, or: space, tab, escape, f5, c-r, s-tab, …)
 copy   = y
+trash  = d
 delete = D
 menu   = tab
 quit   = q
