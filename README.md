@@ -120,6 +120,11 @@ action menu when the directory is a repository. An untracked file can be staged
 — including the files inside a brand-new directory, which carry the untracked
 marker and so can be added too.
 
+Repository status uses one `git status --porcelain=v2 --branch --show-stash`
+process per refresh, providing branch, upstream, ahead/behind, stash, and file
+state together. Repository roots and operation markers are read from `.git`
+metadata without starting additional Git processes.
+
 Commit, Revert, and Log make their scope explicit in the action menu. The `.`
 entry targets the current directory, while a second entry targets the selected
 file or files (for example, `Git: Commit .`, `Git: Commit README.md`, or

@@ -236,17 +236,63 @@ class GitStatusTests(unittest.TestCase):
         dirty = parent / "dirty"
         nested = parent / "nested"
 
-        async def output(args, cwd):
-            if args[0] == "rev-parse":
-                return str(parent if cwd == nested else cwd)
-            return " M changed.txt" if cwd == dirty else ""
+        def layout(path):
+            return ((parent, parent / ".git") if path == nested
+                    else (path, path / ".git"))
 
-        with mock.patch("nsh.explorer.git._out", side_effect=output):
+        async def output(_args, cwd, **_kwargs):
+            body = ("1 .M N... 100644 100644 100644 a b changed.txt\n"
+                    if cwd == dirty else "")
+            return 0, "# branch.oid abc\n# branch.head main\n" + body
+
+        with mock.patch("nsh.explorer.git._repository_layout",
+                        side_effect=layout), \
+                mock.patch("nsh.explorer.git.run_git", side_effect=output):
             found = asyncio.run(git.child_repositories((clean, dirty, nested)))
 
         self.assertFalse(found[str(clean).lower()].files)
         self.assertTrue(found[str(dirty).lower()].files)
         self.assertNotIn(str(nested).lower(), found)
+
+    def test_query_uses_one_porcelain_v2_git_process(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".git").mkdir()
+            (root / ".git" / "config").write_text(
+                '[remote "origin"]\n  url = example\n', encoding="utf-8")
+            sub = root / "src"
+            sub.mkdir()
+            output = "\n".join([
+                "# branch.oid abc123",
+                "# branch.head topic",
+                "# branch.upstream origin/topic",
+                "# branch.ab +2 -3",
+                "# stash 1",
+                "1 .M N... 100644 100644 100644 a b src/changed.txt",
+                "1 M. N... 100644 100644 100644 a b staged.txt",
+                "2 R. N... 100644 100644 100644 a b R100 renamed.txt\told.txt",
+                "u UU N... 100644 100644 100644 100644 a b c conflict.txt",
+                "? new/",
+            ])
+            runner = mock.AsyncMock(return_value=(0, output))
+
+            with mock.patch("nsh.explorer.git.run_git", runner):
+                status = asyncio.run(git.query(sub))
+
+        runner.assert_awaited_once_with(git._STATUS_ARGS, sub)
+        self.assertTrue(status.is_repo)
+        self.assertEqual(status.root, root)
+        self.assertEqual(status.branch, "topic")
+        self.assertEqual((status.ahead, status.behind), (2, 3))
+        self.assertTrue(status.has_upstream)
+        self.assertTrue(status.has_remote)
+        self.assertTrue(status.has_commits)
+        self.assertTrue(status.has_stash)
+        self.assertEqual(status.code_for(root / "src" / "changed.txt"), "M")
+        self.assertEqual(status.code_for(root / "staged.txt"), "S")
+        self.assertEqual(status.code_for(root / "renamed.txt"), "S")
+        self.assertEqual(status.code_for(root / "conflict.txt"), "C")
+        self.assertIn(str(root / "new").lower(), status.untracked_dirs)
 
     def test_visible_nested_directories_are_scanned_for_repositories(self):
         root = Path("work").resolve()

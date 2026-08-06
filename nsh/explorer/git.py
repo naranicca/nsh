@@ -162,19 +162,134 @@ async def child_repositories(directories):
 
     async def inspect(path):
         async with semaphore:
-            root = await _out(["rev-parse", "--show-toplevel"], path)
-            if root is None or norm(root.strip()) != norm(path):
+            layout = _repository_layout(path)
+            if layout is None or norm(layout[0]) != norm(path):
                 return None
-            porcelain = await _out(
-                ["-c", "core.quotepath=false", "status", "--porcelain"], path)
-            if porcelain is None:
+            root, gitdir = layout
+            rc, porcelain = await run_git(_STATUS_ARGS, path)
+            if rc != 0:
                 return None
-            status = GitStatus(is_repo=True, root=Path(root.strip()))
-            _parse_porcelain(status, porcelain)
+            status = GitStatus(is_repo=True, root=root)
+            _parse_porcelain_v2(status, porcelain)
+            status.has_remote = _has_remote(gitdir) or status.has_upstream
+            status.in_progress = _operation_in_progress(gitdir)
             return norm(path), status
 
     found = await asyncio.gather(*(inspect(Path(path)) for path in directories))
     return dict(item for item in found if item is not None)
+
+
+_STATUS_ARGS = [
+    "-c", "core.quotepath=false", "status",
+    "--porcelain=v2", "--branch", "--show-stash",
+]
+
+
+def _repository_layout(directory):
+    """Return ``(worktree root, git dir)`` without starting ``git.exe``."""
+    path = Path(directory).absolute()
+    for root in (path, *path.parents):
+        marker = root / ".git"
+        if marker.is_dir():
+            return root, marker
+        if marker.is_file():
+            try:
+                line = marker.read_text(encoding="utf-8", errors="replace").strip()
+            except OSError:
+                continue
+            if line.lower().startswith("gitdir:"):
+                gitdir = Path(line.split(":", 1)[1].strip())
+                if not gitdir.is_absolute():
+                    gitdir = root / gitdir
+                return root, gitdir.absolute()
+    return None
+
+
+def _common_gitdir(gitdir):
+    try:
+        value = (Path(gitdir) / "commondir").read_text(
+            encoding="utf-8", errors="replace").strip()
+    except OSError:
+        return Path(gitdir)
+    common = Path(value)
+    return common if common.is_absolute() else (Path(gitdir) / common).absolute()
+
+
+def _has_remote(gitdir):
+    """Best-effort remote detection from private/common Git config files."""
+    candidates = {Path(gitdir) / "config", _common_gitdir(gitdir) / "config"}
+    for path in candidates:
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if any(line.strip().lower().startswith('[remote "')
+               for line in text.splitlines()):
+            return True
+    return False
+
+
+def _parse_porcelain_v2(status, output):
+    """Populate branch metadata and file state from porcelain-v2 status."""
+    for line in output.splitlines():
+        if line.startswith("# branch.oid "):
+            status.has_commits = line[13:].strip() != "(initial)"
+        elif line.startswith("# branch.head "):
+            branch = line[14:].strip()
+            status.branch = "(detached)" if branch == "(detached)" else branch
+        elif line.startswith("# branch.upstream "):
+            status.has_upstream = bool(line[18:].strip())
+        elif line.startswith("# branch.ab "):
+            fields = line[12:].split()
+            for field in fields:
+                if field.startswith("+") and field[1:].isdigit():
+                    status.ahead = int(field[1:])
+                elif field.startswith("-") and field[1:].isdigit():
+                    status.behind = int(field[1:])
+        elif line.startswith("# stash "):
+            value = line[8:].strip()
+            status.has_stash = value.isdigit() and int(value) > 0
+        elif line.startswith("? "):
+            _add_v2_path(status, line[2:], "?", line[2:].endswith("/"))
+        elif line.startswith("u "):
+            fields = line.split(" ", 10)
+            if len(fields) > 10:
+                _add_v2_path(status, fields[10], "C")
+        elif line.startswith("1 "):
+            fields = line.split(" ", 8)
+            if len(fields) <= 8:
+                continue
+            xy, path = fields[1], fields[8].split("\t", 1)[0]
+            x, y = xy[0], xy[1]
+            if "U" in xy:
+                code = "C"
+            elif x != ".":
+                code = "S" if y == "." else "M"
+            else:
+                code = "M"
+            _add_v2_path(status, path, code)
+        elif line.startswith("2 "):
+            fields = line.split(" ", 9)
+            if len(fields) <= 9:
+                continue
+            xy, path = fields[1], fields[9].split("\t", 1)[0]
+            x, y = xy[0], xy[1]
+            if "U" in xy:
+                code = "C"
+            elif x != ".":
+                code = "S" if y == "." else "M"
+            else:
+                code = "M"
+            _add_v2_path(status, path, code)
+
+
+def _add_v2_path(status, path, code, is_dir_entry=False):
+    path = path.strip().strip('"')
+    abspath = status.root / path.rstrip("/")
+    status.add_file(abspath, code)
+    status.entries.append((abspath, code))
+    if code == "?" and is_dir_entry:
+        status.untracked_dirs.add(norm(abspath))
 
 
 def _parse_porcelain(status, porcelain):
@@ -236,44 +351,21 @@ async def _out(args, cwd):
 async def query(directory, child_directories=()) -> GitStatus:
     """Detect the repo, current branch and per-file status for ``directory``."""
     st = GitStatus()
-    root = await _out(["rev-parse", "--show-toplevel"], directory)
-    if root is None:
+    layout = _repository_layout(directory)
+    if layout is None:
         st.child_statuses = await child_repositories(child_directories)
         st.child_repos = {
             path: "RD" if status.dirty else "RC"
             for path, status in st.child_statuses.items()
         }
         return st
+    st.root, gitdir = layout
     st.is_repo = True
-    st.root = Path(root.strip())
-
-    branch = await _out(["rev-parse", "--abbrev-ref", "HEAD"], directory)
-    if branch is not None:
-        b = branch.strip()
-        st.branch = b if b and b != "HEAD" else "(detached)"
-
-    # behind/ahead vs. the upstream (absent if there's no tracking branch)
-    counts = await _out(
-        ["rev-list", "--left-right", "--count", "@{upstream}...HEAD"], directory
-    )
-    if counts:
-        parts = counts.split()
-        if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
-            st.behind, st.ahead = int(parts[0]), int(parts[1])
-    # @{upstream} only resolves when a tracking branch is configured
-    st.has_upstream = counts is not None
-    remotes = await _out(["remote"], directory)
-    st.has_remote = bool(remotes and remotes.strip())
-    st.has_commits = await _out(["rev-parse", "--verify", "-q", "HEAD"], directory) is not None
-    stash = await _out(["stash", "list"], directory)
-    st.has_stash = bool(stash and stash.strip())
-    st.in_progress = await _operation_in_progress(st.root)
-
-    # core.quotepath=false keeps CJK / unicode filenames intact in the output.
-    porcelain = await _out(
-        ["-c", "core.quotepath=false", "status", "--porcelain"], directory
-    )
-    _parse_porcelain(st, porcelain)
+    rc, output = await run_git(_STATUS_ARGS, directory)
+    if rc == 0:
+        _parse_porcelain_v2(st, output)
+    st.has_remote = _has_remote(gitdir) or st.has_upstream
+    st.in_progress = _operation_in_progress(gitdir)
     return st
 
 
@@ -645,17 +737,12 @@ async def stash_drop(cwd, ref):
 
 
 # -- merge/rebase conflicts ---------------------------------------------------
-async def _operation_in_progress(root):
+def _operation_in_progress(gitdir):
     """Which multi-step operation (if any) is mid-flight: a marker file in the
     git dir tells us — used to offer Continue/Abort and conflict resolution."""
-    if root is None:
+    if gitdir is None:
         return None
-    gitdir = await _out(["rev-parse", "--git-dir"], root)
-    if not gitdir:
-        return None
-    g = Path(gitdir.strip())
-    if not g.is_absolute():
-        g = Path(root) / g
+    g = Path(gitdir)
     if (g / "rebase-merge").exists() or (g / "rebase-apply").exists():
         return "rebase"
     if (g / "MERGE_HEAD").exists():
