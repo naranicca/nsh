@@ -16,6 +16,7 @@ from prompt_toolkit.filters import Condition, has_completions
 from prompt_toolkit.key_binding import (
     DynamicKeyBindings, KeyBindings, merge_key_bindings)
 from prompt_toolkit.key_binding.defaults import load_key_bindings
+from prompt_toolkit.keys import Keys
 from prompt_toolkit.layout.containers import (
     ConditionalContainer,
     DynamicContainer,
@@ -642,6 +643,15 @@ class NshApp:
                 self.shell.append("^C")
             elif self.mode == SHELL:
                 self.shell.command_buffer.reset()
+
+        paste_mode = Condition(
+            lambda: self.mode in (SHELL, REMOTE_SHELL)
+            and not self._overlay_active())
+
+        @kb.add(Keys.BracketedPaste, filter=paste_mode, eager=True)
+        def _(event):
+            self.paste_shell_text(
+                event.data, remote=self.mode == REMOTE_SHELL)
 
         # shell output scrolling — global (not on the input buffer) so it keeps
         # working even while the command line is hidden during a scroll-up
@@ -1689,6 +1699,42 @@ class NshApp:
             self.invalidate()
             return
         self._dispatch_command(session, cmd)
+
+    def run_shell_batch(self, session, commands):
+        """Run pasted commands in order without racing the busy transition."""
+        commands = [command for command in commands if command.strip()]
+        if not commands:
+            return
+        if session.busy():
+            session.pending.extend(commands)
+        else:
+            first, *rest = commands
+            session.pending.extend(rest)
+            self.run_in_shell(session, first)
+        self.invalidate()
+
+    def paste_shell_text(self, text, remote=False):
+        """Insert a one-line paste, or submit a multi-line paste as a batch."""
+        shell = self.remote_shell if remote else self.shell
+        buffer = shell.command_buffer
+        normalized = str(text).replace("\r\n", "\n").replace("\r", "\n")
+        if "\n" not in normalized:
+            buffer.insert_text(normalized)
+            return
+
+        document = buffer.document
+        combined = (document.text_before_cursor + normalized
+                    + document.text_after_cursor)
+        commands = [line for line in combined.split("\n") if line.strip()]
+        for command in commands:
+            buffer.history.append_string(command)
+        buffer.reset()
+        shell.command_window.horizontal_scroll = 0
+        if remote:
+            shell.run_batch(commands)
+        else:
+            self.run_shell_batch(shell, commands)
+        self.invalidate()
 
     def _dispatch_command(self, session, cmd):
         """Actually run ``cmd`` in ``session`` (no busy check). When a builtin

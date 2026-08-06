@@ -199,6 +199,7 @@ it in (a new tab opens in your current mode, so `Ctrl+T` keeps your workflow).
 | Key | Action |
 | --- | --- |
 | typing | live syntax highlighting |
+| paste | a single line is inserted; multiple lines run in order through the command queue |
 | `Tab` | completion popup; `↑`/`↓` or `j`/`k` navigate, `Tab` picks (no space), `Space` picks and adds a space |
 | `↑`/`↓` | command history (when no popup is open) |
 | `↵` | run the command |

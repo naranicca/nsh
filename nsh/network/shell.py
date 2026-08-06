@@ -316,6 +316,19 @@ class RemoteShellView:
                 self._finish(status)
         asyncio.ensure_future(do())
 
+    def run_batch(self, commands):
+        """Run pasted commands serially through the remote shell queue."""
+        commands = [command for command in commands if command.strip()]
+        if not commands:
+            return
+        if self.busy:
+            self.pending.extend(commands)
+        else:
+            first, *rest = commands
+            self.pending.extend(rest)
+            self.run(first)
+        self.app.invalidate()
+
     def enqueue_transfer(self, label, operation):
         """Run an SFTP operation as a visible, cancellable shell queue item."""
         self.run(_TransferJob(label, operation))
