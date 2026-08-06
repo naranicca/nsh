@@ -1,6 +1,7 @@
 """The nsh application: layout, the two modes, and central dispatch."""
 import asyncio
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -35,6 +36,7 @@ from .explorer import git
 from .explorer.browse import BranchBrowser
 from .explorer.preview import PreviewView
 from .notes.view import NotesView
+from .network import backend as remote
 from .network.shell import RemoteShellView
 from .network.view import NetworkView
 from .preferences.view import PreferencesView
@@ -67,6 +69,22 @@ PREFERENCES = "preferences"
 # Once the shell output would shrink the explorer below this many rows, the
 # shell takes over the whole screen.
 SHELL_MIN_EXPLORER = 5
+
+# Status messages may include text supplied by external programs (notably SSH
+# and ProxyCommand failures). Never let terminal control sequences or line
+# breaks escape into prompt_toolkit's one-row status window.
+_TERMINAL_ESCAPE_RE = re.compile(
+    r"\x1b(?:\][^\x07]*(?:\x07|\x1b\\)|[P^_].*?\x1b\\|[@-_][0-?]*[ -/]*[@-~])"
+)
+
+
+def _safe_status_message(message):
+    text = _TERMINAL_ESCAPE_RE.sub("", str(message))
+    text = "".join(
+        " " if ord(char) < 32 or 127 <= ord(char) < 160 else char
+        for char in text
+    )
+    return " ".join(text.split())
 PANE_SEPARATOR = "║"
 
 
@@ -2451,8 +2469,15 @@ class NshApp:
                        else "user@host:21/")
         self.open_input_dialog(
             f"{protocol.upper()} target", example, len(example),
-            lambda target: (self._network_jump(target) if protocol == "sftp"
+            lambda target: (self._network_sftp_route(target)
+                            if protocol == "sftp"
                             else self._network_password(protocol, target)))
+
+    def _network_sftp_route(self, target):
+        if remote.has_configured_proxy(target):
+            self._network_password("sftp", target)
+        else:
+            self._network_jump(target)
 
     def _network_jump(self, target):
         self.open_input_dialog(
@@ -2534,7 +2559,7 @@ class NshApp:
     def set_message(self, message):
         # the message stays put until something explicitly clears it: a directory
         # change, a mode change, or ESC (no auto-dismiss, no slide-out animation)
-        self.message = message
+        self.message = _safe_status_message(message)
         self.invalidate()
 
     def invalidate(self):

@@ -9,10 +9,11 @@ from unittest import mock
 
 from prompt_toolkit.data_structures import Point
 
-from nsh.app import NshApp, PANE_SEPARATOR
+from nsh.app import NshApp, PANE_SEPARATOR, _safe_status_message
 from nsh.explorer.view import ExplorerView
 from nsh.network.backend import (
-    HostKeyRequired, RemoteBackend, RemoteEntry, SFTPBackend, parse_target)
+    HostKeyRequired, RemoteBackend, RemoteEntry, SFTPBackend,
+    has_configured_proxy, parse_target)
 from nsh.network.view import NetworkView
 from nsh.network.shell import RemoteShellView
 from nsh.search.view import SearchView
@@ -29,6 +30,23 @@ class FakeBackend(RemoteBackend):
 
 
 class NetworkBackendTests(unittest.TestCase):
+    def test_status_message_sanitizes_multiline_terminal_error(self):
+        message = "proxy failed\r\n\x1b[31mconnection refused\x1b[0m\t(detail)"
+
+        self.assertEqual(
+            _safe_status_message(message),
+            "proxy failed connection refused (detail)",
+        )
+
+    def test_set_message_stores_only_safe_single_line_text(self):
+        app = object.__new__(NshApp)
+        app.invalidate = mock.Mock()
+
+        app.set_message("connection failed:\nserver closed\x07")
+
+        self.assertEqual(app.message, "connection failed: server closed")
+        app.invalidate.assert_called_once_with()
+
     def test_escape_clears_local_shell_input_before_leaving(self):
         buffer = SimpleNamespace(text="unfinished", reset=mock.Mock())
         local = SimpleNamespace(
@@ -532,6 +550,100 @@ class NetworkBackendTests(unittest.TestCase):
         self.assertEqual(clients[0].connect_args[0], "internal.example")
         backend.close()
         self.assertTrue(proxies[0].closed)
+
+    def test_sftp_finds_proxycommand_alias_by_configured_hostname(self):
+        clients = []
+        proxies = []
+
+        class Proxy:
+            def __init__(self, command):
+                self.command = command
+                proxies.append(self)
+
+            def close(self):
+                pass
+
+        class Client:
+            def __init__(self):
+                clients.append(self)
+
+            def load_system_host_keys(self):
+                pass
+
+            def set_missing_host_key_policy(self, policy):
+                pass
+
+            def connect(self, hostname, **kwargs):
+                self.connect_args = (hostname, kwargs)
+
+            def open_sftp(self):
+                return SimpleNamespace(normalize=lambda path: "/home/user",
+                                       close=lambda: None)
+
+            def close(self):
+                pass
+
+        with TemporaryDirectory() as temp:
+            home = Path(temp)
+            ssh_dir = home / ".ssh"
+            ssh_dir.mkdir()
+            (ssh_dir / "config").write_text(
+                "Host office-mac\n"
+                "  HostName 192.168.45.75\n"
+                "  User naranicca\n"
+                "  ProxyCommand ssh -W %h:%p gateway\n",
+                encoding="utf-8")
+            with mock.patch("paramiko.SSHClient", Client), mock.patch(
+                    "paramiko.ProxyCommand", Proxy), mock.patch(
+                    "nsh.network.backend.Path.home", return_value=home):
+                backend = SFTPBackend.connect(
+                    "192.168.45.75", 22, "naranicca", "secret")
+
+        self.assertEqual(proxies[0].command,
+                         "ssh -W 192.168.45.75:22 gateway")
+        self.assertIs(clients[0].connect_args[1]["sock"], proxies[0])
+        backend.close()
+
+    def test_configured_proxy_is_detected_for_alias_and_hostname(self):
+        with TemporaryDirectory() as temp:
+            home = Path(temp)
+            ssh_dir = home / ".ssh"
+            ssh_dir.mkdir()
+            (ssh_dir / "config").write_text(
+                "Host office-mac\n"
+                "  HostName 192.168.45.75\n"
+                "  ProxyCommand ssh -W %h:%p gateway\n"
+                "Host direct\n"
+                "  HostName direct.example\n",
+                encoding="utf-8")
+            with mock.patch("nsh.network.backend.Path.home", return_value=home):
+                self.assertTrue(has_configured_proxy("office-mac"))
+                self.assertTrue(has_configured_proxy("192.168.45.75"))
+                self.assertFalse(has_configured_proxy("direct"))
+
+    def test_configured_proxy_skips_jump_host_dialog(self):
+        app = object.__new__(NshApp)
+        app._network_password = mock.Mock()
+        app._network_jump = mock.Mock()
+
+        with mock.patch("nsh.app.remote.has_configured_proxy",
+                        return_value=True):
+            app._network_sftp_route("office-mac")
+
+        app._network_password.assert_called_once_with("sftp", "office-mac")
+        app._network_jump.assert_not_called()
+
+    def test_direct_sftp_target_still_opens_jump_host_dialog(self):
+        app = object.__new__(NshApp)
+        app._network_password = mock.Mock()
+        app._network_jump = mock.Mock()
+
+        with mock.patch("nsh.app.remote.has_configured_proxy",
+                        return_value=False):
+            app._network_sftp_route("direct")
+
+        app._network_jump.assert_called_once_with("direct")
+        app._network_password.assert_not_called()
 
     def test_sftp_prompts_then_saves_an_approved_host_key(self):
         class Key:

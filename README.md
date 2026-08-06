@@ -303,7 +303,11 @@ closed in reverse order when the connection ends or fails.
 When no jump host or `ProxyJump` is active, nsh also opens the expanded
 `ProxyCommand` as the SSH transport socket. Standard tokens such as `%h`, `%p`,
 and `%r` are expanded by the SSH config parser. The proxy process is closed when
-the connection ends or fails.
+the connection ends or fails. You may enter either the `Host` alias or its
+literal `HostName` in nsh; when exactly one matching alias defines proxy
+routing, nsh applies that alias's `ProxyJump` or `ProxyCommand` automatically.
+When this routing is detected after entering the SFTP target, nsh skips the
+redundant **Jump host** dialog and proceeds directly to authentication.
 
 Every SSH host key is checked independently against the user's system
 `known_hosts`. On first connection nsh shows the key type and SHA256 fingerprint

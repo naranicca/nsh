@@ -20,6 +20,53 @@ class HostKeyRequired(Exception):
         super().__init__(f"unknown SSH host key for {hostname}: {fingerprint}")
 
 
+def _load_ssh_config(paramiko):
+    config = paramiko.SSHConfig()
+    config_path = Path.home() / ".ssh" / "config"
+    try:
+        with open(config_path, encoding="utf-8") as stream:
+            config.parse(stream)
+    except OSError:
+        pass
+    return config
+
+
+def _ssh_config_values(config, alias):
+    """Resolve an SSH alias, including a unique routed HostName match."""
+    values = config.lookup(alias)
+    if values.get("proxyjump") or values.get("proxycommand"):
+        return values
+    if values.get("hostname", alias).casefold() != alias.casefold():
+        return values
+
+    routed_matches = []
+    for candidate in config.get_hostnames():
+        if candidate == alias or any(char in candidate for char in "*?![]"):
+            continue
+        candidate_values = config.lookup(candidate)
+        hostname = candidate_values.get("hostname", candidate)
+        if hostname.casefold() != alias.casefold():
+            continue
+        if (candidate_values.get("proxyjump") or
+                candidate_values.get("proxycommand")):
+            routed_matches.append(candidate_values)
+    return routed_matches[0] if len(routed_matches) == 1 else values
+
+
+def has_configured_proxy(target):
+    """Whether an SFTP target has active ProxyJump/ProxyCommand routing."""
+    try:
+        import paramiko
+        host, _port, _username, _path = parse_target("sftp", target)
+        values = _ssh_config_values(_load_ssh_config(paramiko), host)
+    except Exception:  # noqa: BLE001 - detection must gracefully fall back
+        return False
+    return any(
+        value and str(value).strip().lower() != "none"
+        for value in (values.get("proxyjump"), values.get("proxycommand"))
+    )
+
+
 @dataclass
 class RemoteEntry:
     name: str
@@ -205,17 +252,10 @@ class SFTPBackend(RemoteBackend):
         except ImportError as exc:
             raise RuntimeError("SFTP requires paramiko (pip install paramiko)") from exc
 
-        config = paramiko.SSHConfig()
-        config_path = Path.home() / ".ssh" / "config"
+        config = _load_ssh_config(paramiko)
         known_hosts_path = Path.home() / ".ssh" / "known_hosts"
-        try:
-            with open(config_path, encoding="utf-8") as stream:
-                config.parse(stream)
-        except OSError:
-            pass
-
         def node(alias, fallback_port=22, fallback_user=""):
-            values = config.lookup(alias)
+            values = _ssh_config_values(config, alias)
             return {
                 "alias": alias,
                 "host": values.get("hostname", alias),
