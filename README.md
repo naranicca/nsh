@@ -398,8 +398,9 @@ a time without an interactive PTY, so full-screen programs such as `vim` and
 Transfers and recursive delete operations run in worker threads so the TUI can
 continue repainting. Existing names are never overwritten: uploads and
 downloads use `name (2)`, `name (3)`, and so on. Disconnect is blocked while an
-operation is active, and connection/transfer errors remain visible in the
-status bar.
+operation is active, but a background remote search index is cancelled so it
+does not prevent disconnecting. Connection/transfer errors remain visible in
+the status bar.
 
 Disconnect deliberately has no single-key shortcut. While connected, the F10
 menu replaces `Network` with `Network: Disconnect`; choose it, or use `Disconnect` from

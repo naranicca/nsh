@@ -98,6 +98,7 @@ class NetworkView:
                         in ("true", "1", "yes", "on"))
         self.busy = False
         self.indexing = False
+        self._index_token = object()
         self._backend_lock = threading.RLock()
         self.control = WheelScrollControl(
             lambda d: self.move(d * 3), on_click=self._on_mouse,
@@ -174,7 +175,7 @@ class NetworkView:
         asyncio.ensure_future(do())
 
     def disconnect(self):
-        if self.busy or self.indexing:
+        if self.busy:
             self.app.set_message("wait for the remote operation to finish")
             return
         if self.backend is None:
@@ -185,6 +186,7 @@ class NetworkView:
         )
 
     def _disconnect(self):
+        self.cancel_indexing()
         backend, self.backend = self.backend, None
         local_view, self.local_view = self.local_view, None
         self.entries = []
@@ -194,7 +196,8 @@ class NetworkView:
         self.close_preview()
         self._cleanup_temp()
         if backend is not None:
-            asyncio.ensure_future(run_in_thread(backend.close))
+            asyncio.ensure_future(run_in_thread(
+                self._backend_call, backend.close))
         self.app.switch_mode("explorer")
         if local_view is not None:
             try:
@@ -213,13 +216,14 @@ class NetworkView:
 
     def close(self):
         """Close the transport during application shutdown without changing UI."""
+        self.cancel_indexing()
         if self._binary_cancel is not None:
             self._binary_cancel.set()
         backend, self.backend = self.backend, None
         self.local_view = None
         if backend is not None:
             try:
-                backend.close()
+                self._backend_call(backend.close)
             except Exception:
                 pass
         self._cleanup_temp()
@@ -511,6 +515,20 @@ class NetworkView:
             return
         self.app.enter_network_search()
 
+    def begin_indexing(self):
+        token = object()
+        self._index_token = token
+        self.indexing = True
+        return token
+
+    def finish_indexing(self, token):
+        if token is self._index_token:
+            self.indexing = False
+
+    def cancel_indexing(self):
+        self._index_token = object()
+        self.indexing = False
+
     def search_candidates(self):
         """Already loaded rows for the searcher's immediate first stage."""
         out = []
@@ -521,13 +539,15 @@ class NetworkView:
             out.append(rel + ("/" if entry.is_dir else ""))
         return out
 
-    def gather_search_candidates(self):
+    def gather_search_candidates(self, token=None):
         """Recursively index remote names; called in a worker thread."""
         out = []
         visited = set()
         root = self.path
 
         def walk(directory):
+            if token is not None and token is not self._index_token:
+                return
             directory = posixpath.normpath(directory)
             if directory in visited:
                 return
@@ -537,6 +557,8 @@ class NetworkView:
             except Exception:
                 return
             for entry in entries:
+                if token is not None and token is not self._index_token:
+                    return
                 rel = posixpath.relpath(entry.path, root)
                 out.append(rel + ("/" if entry.is_dir else ""))
                 # Index the link name, but do not recursively follow directory

@@ -96,7 +96,7 @@ class SearchView:
 
     def _start_remote(self, query=""):
         self.remote_view = self.app.networkview
-        self.remote_view.indexing = True
+        index_token = self.remote_view.begin_indexing()
         self.candidates = self.remote_view.search_candidates()
         self.results = []
         self.cursor = 0
@@ -107,20 +107,20 @@ class SearchView:
         self.query_buffer.text = query
         self.query_buffer.cursor_position = len(query)
         self._refilter()
-        asyncio.ensure_future(self._index_remote(generation))
+        asyncio.ensure_future(self._index_remote(generation, index_token))
 
-    async def _index_remote(self, generation):
+    async def _index_remote(self, generation, index_token):
         remote_view = self.remote_view
         try:
             items = await run_in_thread(
-                remote_view.gather_search_candidates)
+                remote_view.gather_search_candidates, index_token)
             if generation != self._index_generation:
                 return
             self.candidates = items
             self.loading = False
             self._refilter()
         finally:
-            remote_view.indexing = False
+            remote_view.finish_indexing(index_token)
             self.app.invalidate()
 
     def _exclude_dirs(self):

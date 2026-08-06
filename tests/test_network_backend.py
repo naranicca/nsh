@@ -1473,6 +1473,69 @@ class NetworkBackendTests(unittest.TestCase):
         app.confirmation[1](False)
         self.assertIs(view.backend, backend)
 
+    def test_disconnect_cancels_background_indexing(self):
+        class Backend:
+            label = "sftp://example.com"
+
+            def __init__(self):
+                self.closed = False
+
+            def close(self):
+                self.closed = True
+
+        class App:
+            explorer = SimpleNamespace(control=object())
+
+            def confirm(self, label, callback):
+                self.confirmation = (label, callback)
+
+            def switch_mode(self, mode):
+                self.mode = mode
+
+            def set_message(self, message):
+                self.message = message
+
+            def invalidate(self):
+                pass
+
+        async def scenario():
+            app = App()
+            view = NetworkView(app)
+            backend = Backend()
+            view.backend = backend
+            view.local_view = app.explorer
+            token = view.begin_indexing()
+
+            view.disconnect()
+            app.confirmation[1](True)
+            for _ in range(20):
+                if backend.closed:
+                    break
+                await asyncio.sleep(0.01)
+            return app, view, backend, token
+
+        app, view, backend, token = asyncio.run(scenario())
+
+        self.assertTrue(backend.closed)
+        self.assertFalse(view.indexing)
+        self.assertIsNot(token, view._index_token)
+        self.assertIsNone(view.backend)
+        self.assertEqual(app.mode, "explorer")
+        self.assertEqual(app.message, "remote disconnected")
+
+    def test_cancelled_remote_index_stops_before_backend_call(self):
+        view = object.__new__(NetworkView)
+        view.path = "/root"
+        view._index_token = object()
+        view.backend = SimpleNamespace(listdir=mock.Mock(return_value=[]))
+        view._backend_call = lambda fn, *args: fn(*args)
+        cancelled_token = object()
+
+        results = view.gather_search_candidates(cancelled_token)
+
+        self.assertEqual(results, [])
+        view.backend.listdir.assert_not_called()
+
     def test_remote_directory_expands_inline(self):
         class App:
             def invalidate(self):
