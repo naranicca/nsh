@@ -6,7 +6,8 @@ from types import SimpleNamespace
 from unittest import mock
 
 from nsh.explorer.preview import (
-    PreviewView, _sixel_run, encode_sixel, sixel_supported)
+    PreviewView, _sixel_run, encode_iterm2, encode_sixel, image_protocol,
+    sixel_supported)
 
 
 class SixelPreviewTests(unittest.TestCase):
@@ -15,6 +16,27 @@ class SixelPreviewTests(unittest.TestCase):
             self.assertTrue(sixel_supported())
         with mock.patch.dict(os.environ, {}, clear=True):
             self.assertFalse(sixel_supported())
+
+    def test_iterm2_is_detected_before_sixel(self):
+        with mock.patch.dict(os.environ, {
+                "TERM_PROGRAM": "iTerm.app", "WT_SESSION": "session"},
+                clear=True):
+            self.assertEqual("iterm2", image_protocol())
+        with mock.patch.dict(os.environ, {"LC_TERMINAL": "iTerm2"},
+                             clear=True):
+            self.assertEqual("iterm2", image_protocol())
+
+    def test_iterm2_encoder_uses_inline_file_protocol_and_cell_bounds(self):
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / "sample image.png"
+            path.write_bytes(b"image-data")
+            encoded = encode_iterm2(path, 30, 12)
+
+        expected_name = "c2FtcGxlIGltYWdlLnBuZw=="
+        self.assertTrue(encoded.startswith(
+            f"\x1b]1337;File=name={expected_name};size=10;"
+            "width=30;height=12;preserveAspectRatio=1;inline=1:"))
+        self.assertTrue(encoded.endswith("aW1hZ2UtZGF0YQ==\x07"))
 
     def test_sixel_runs_are_compacted(self):
         self.assertEqual("!5?@@", _sixel_run([0, 0, 0, 0, 0, 1, 1]))
@@ -59,10 +81,10 @@ class SixelPreviewTests(unittest.TestCase):
         escape_index = next(i for i, fragment in enumerate(fragments)
                             if fragment[0] == "[ZeroWidthEscape]")
         anchor_style, anchor_text = fragments[escape_index + 1]
-        self.assertTrue(anchor_style.startswith("class:preview.sixel-cell-"))
+        self.assertTrue(anchor_style.startswith("class:preview.image-cell-"))
         self.assertEqual(" ", anchor_text)
         image_cells = [(style, text) for style, text in fragments
-                       if style.startswith("class:preview.sixel-cell-")]
+                       if style.startswith("class:preview.image-cell-")]
         self.assertEqual(5, len(image_cells))
         self.assertEqual(40, sum(len(text) for _style, text in image_cells))
 
@@ -82,7 +104,7 @@ class SixelPreviewTests(unittest.TestCase):
                     for path in paths]
 
         styles = [{style for style, _text in image
-                   if style.startswith("class:preview.sixel-cell-")}
+                   if style.startswith("class:preview.image-cell-")}
                   for image in fragments]
         self.assertEqual(1, len(styles[0]))
         self.assertEqual(1, len(styles[1]))

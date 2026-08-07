@@ -7,6 +7,7 @@ files. Reads happen in a worker thread and results are cached per path, so
 scrolling the listing never blocks the UI.
 """
 import asyncio
+import base64
 import hashlib
 import os
 import stat
@@ -42,6 +43,28 @@ def sixel_supported():
     """Best-effort detection for terminals where nsh can safely emit Sixel."""
     return bool(os.environ.get("WT_SESSION") or
                 "sixel" in os.environ.get("TERM", "").lower())
+
+
+def image_protocol():
+    """Return the inline-image protocol advertised by the host terminal."""
+    if (os.environ.get("TERM_PROGRAM") == "iTerm.app" or
+            os.environ.get("LC_TERMINAL") == "iTerm2"):
+        return "iterm2"
+    if sixel_supported():
+        return "sixel"
+    return None
+
+
+def encode_iterm2(path, columns, rows):
+    """Return an iTerm2 OSC 1337 inline-image sequence."""
+    path = os.fspath(path)
+    with open(path, "rb") as image_file:
+        data = image_file.read()
+    name = base64.b64encode(os.fsencode(os.path.basename(path))).decode("ascii")
+    payload = base64.b64encode(data).decode("ascii")
+    args = (f"name={name};size={len(data)};width={max(1, columns)};"
+            f"height={max(1, rows)};preserveAspectRatio=1;inline=1")
+    return f"\x1b]1337;File={args}:{payload}\x07"
 
 
 def _sixel_run(values):
@@ -724,7 +747,7 @@ class PreviewView:
         try:
             st = entry.path.stat()
             key = (norm(entry.path), st.st_mtime_ns, st.st_size)
-            if entry.is_image and sixel_supported():
+            if entry.is_image and image_protocol():
                 key += (self._content_width(), self._visible_height())
             return key
         except OSError:
@@ -1125,22 +1148,25 @@ class PreviewView:
             parts.append(f"{dims[0]}×{dims[1]} px")
         frags = self._header(entry) + self._meta_line(entry, parts)
         frags.append(("class:preview", "\n"))
-        if sixel_supported():
+        protocol = image_protocol()
+        if protocol:
             columns = max(1, self._content_width() - 2)
             rows = max(1, self._visible_height() - 4)
             try:
-                sixel = encode_sixel(entry.path, columns, rows)
+                encoded = (encode_iterm2(entry.path, columns, rows)
+                           if protocol == "iterm2"
+                           else encode_sixel(entry.path, columns, rows))
             except Exception:  # noqa: BLE001 - metadata preview remains usable
-                sixel = None
-            if sixel:
+                encoded = None
+            if encoded:
                 # Give every rendered image a distinct screen-cell identity.
-                # Sixel pixels live in the terminal rather than prompt_toolkit's
+                # Image pixels live in the terminal rather than prompt_toolkit's
                 # text screen, so ordinary blank cells can otherwise compare
                 # equal after cursor movement and leave the previous image in
                 # place (or prevent the next image's escape from being emitted).
                 identity = hashlib.blake2s(
                     os.fsencode(norm(entry.path)), digest_size=6).hexdigest()
-                cell_style = f"class:preview.sixel-cell-{identity}"
+                cell_style = f"class:preview.image-cell-{identity}"
                 blank = " " * columns
                 for row in range(rows):
                     if row == rows - 1:
@@ -1152,7 +1178,7 @@ class PreviewView:
                         frags.append((cell_style, blank[:-1]))
                         up = f"\x1b[{rows - 1}A" if rows > 1 else ""
                         left = f"\x1b[{columns - 1}D" if columns > 1 else ""
-                        raw = f"\x1b7{left}{up}{sixel}\x1b8"
+                        raw = f"\x1b7{left}{up}{encoded}\x1b8"
                         frags.append(("[ZeroWidthEscape]", raw))
                         frags.append((cell_style, " "))
                     else:
