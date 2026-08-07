@@ -311,10 +311,13 @@ A jump host can also be entered explicitly as
 destination's `ProxyJump` setting. Each hop resolves its own SSH config and is
 closed in reverse order when the connection ends or fails.
 
-When no jump host or `ProxyJump` is active, nsh also opens the expanded
-`ProxyCommand` as the SSH transport socket. Standard tokens such as `%h`, `%p`,
-and `%r` are expanded by the SSH config parser. The proxy process is closed when
-the connection ends or fails. You may enter either the `Host` alias or its
+When no jump host or `ProxyJump` is active, nsh also supports `ProxyCommand`.
+A standard `ssh -W %h:%p configured-alias` form (including combined flags such
+as `ssh -AW`) uses nsh's native `direct-tcpip` jump path, so the alias's User,
+Port and IdentityFile are applied just like an explicit jump host. Other proxy
+commands open as the SSH transport socket. Standard tokens such as `%h`, `%p`,
+and `%r` are expanded by the SSH config parser, and any proxy process is closed
+when the connection ends or fails. You may enter either the `Host` alias or its
 literal `HostName` in nsh; when exactly one matching alias defines proxy
 routing, nsh applies that alias's `ProxyJump` or `ProxyCommand` automatically.
 When this routing is detected after entering the SFTP target, nsh skips the

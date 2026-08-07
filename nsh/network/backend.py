@@ -4,6 +4,7 @@ import ftplib
 import hashlib
 import os
 import posixpath
+import shlex
 import stat
 from dataclasses import dataclass
 from pathlib import Path
@@ -69,6 +70,35 @@ def has_configured_proxy(target):
         value and str(value).strip().lower() != "none"
         for value in (values.get("proxyjump"), values.get("proxycommand"))
     )
+
+
+def _proxycommand_jump_alias(command, host, port):
+    """Return the jump alias from a standard ``ssh -W`` ProxyCommand.
+
+    OpenSSH commonly writes this as ``ssh -W %h:%p alias`` or combines the
+    no-argument options as ``ssh -AW %h:%p alias``.  Such a command is
+    equivalent to nsh's native jump-host channel and is more reliable there,
+    especially on Windows where subprocess pipe sockets are problematic.
+    Other ProxyCommand programs and shapes continue through Paramiko unchanged.
+    """
+    try:
+        parts = shlex.split(str(command), posix=True)
+    except ValueError:
+        return None
+    if len(parts) < 4 or os.path.basename(parts[0]).lower() not in ("ssh", "ssh.exe"):
+        return None
+
+    forward = None
+    for index, part in enumerate(parts[:-1]):
+        if part == "-W" or (part.startswith("-") and part.endswith("W")):
+            if index + 1 < len(parts):
+                forward = parts[index + 1]
+            break
+    expected = {f"{host}:{port}", f"[{host}]:{port}"}
+    alias = parts[-1]
+    if forward not in expected or alias.startswith("-"):
+        return None
+    return alias
 
 
 @dataclass
@@ -285,6 +315,13 @@ class SFTPBackend(RemoteBackend):
                 jump_host, jump_port, jump_user, _path = parse_target(
                     "sftp", spec.strip())
                 jump_nodes.append(node(jump_host, jump_port, jump_user))
+        elif destination["proxycommand"]:
+            proxy_alias = _proxycommand_jump_alias(
+                destination["proxycommand"],
+                destination["host"], destination["port"])
+            configured_hosts = config.get_hostnames()
+            if proxy_alias and proxy_alias in configured_hosts:
+                jump_nodes.append(node(proxy_alias))
 
         clients = []
         proxy_commands = []

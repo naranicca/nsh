@@ -582,6 +582,92 @@ class NetworkBackendTests(unittest.TestCase):
         backend.close()
         self.assertTrue(proxies[0].closed)
 
+    def test_sftp_proxycommand_with_combined_AW_and_jump_alias(self):
+        """Reproduce an OpenSSH config whose ProxyCommand names another Host."""
+        clients = []
+        proxies = []
+        channel = object()
+
+        class Transport:
+            def is_active(self):
+                return True
+
+            def open_channel(self, kind, destination, source):
+                self.call = (kind, destination, source)
+                return channel
+
+        class Proxy:
+            def __init__(self, command):
+                self.command = command
+                proxies.append(self)
+
+            def close(self):
+                pass
+
+        class Client:
+            def __init__(self):
+                self.transport = Transport()
+                clients.append(self)
+
+            def load_system_host_keys(self):
+                pass
+
+            def set_missing_host_key_policy(self, policy):
+                pass
+
+            def connect(self, hostname, **kwargs):
+                self.connect_args = (hostname, kwargs)
+
+            def get_transport(self):
+                return self.transport
+
+            def open_sftp(self):
+                return SimpleNamespace(normalize=lambda path: "/home/naranicca",
+                                       close=lambda: None)
+
+            def close(self):
+                pass
+
+        with TemporaryDirectory() as temp:
+            home = Path(temp)
+            ssh_dir = home / ".ssh"
+            ssh_dir.mkdir()
+            (ssh_dir / "config").write_text(
+                "Host mlp-jumping-host\n"
+                "  HostName jumping-host.example.com\n"
+                "  User naranicca\n"
+                "  Port 3307\n"
+                "  IdentityFile ~/.ssh/id.pem\n"
+                "\n"
+                "Host mlp-container\n"
+                "  ProxyCommand ssh -AW %h:%p mlp-jumping-host\n"
+                "  HostName 10.20.30.40\n"
+                "  User naranicca\n"
+                "  IdentityFile ~/.ssh/key.pem\n",
+                encoding="utf-8")
+            with mock.patch("paramiko.SSHClient", Client), mock.patch(
+                    "paramiko.ProxyCommand", Proxy), mock.patch(
+                    "nsh.network.backend.Path.home", return_value=home), \
+                    mock.patch.dict("os.environ", {"USERPROFILE": str(home)}):
+                self.assertTrue(has_configured_proxy("mlp-container"))
+                backend = SFTPBackend.connect(
+                    "mlp-container", 22, "", "")
+
+        self.assertEqual([], proxies)
+        jump_hostname, jump_kwargs = clients[0].connect_args
+        self.assertEqual("jumping-host.example.com", jump_hostname)
+        self.assertEqual(3307, jump_kwargs["port"])
+        self.assertEqual("naranicca", jump_kwargs["username"])
+        self.assertEqual(home / ".ssh" / "id.pem",
+                         Path(jump_kwargs["key_filename"][0]))
+        hostname, kwargs = clients[1].connect_args
+        self.assertEqual("10.20.30.40", hostname)
+        self.assertIsNotNone(kwargs["sock"])
+        self.assertEqual(home / ".ssh" / "key.pem",
+                         Path(kwargs["key_filename"][0]))
+        self.assertIsNone(kwargs["password"])
+        backend.close()
+
     def test_sftp_finds_proxycommand_alias_by_configured_hostname(self):
         clients = []
         proxies = []
