@@ -441,6 +441,7 @@ honoured). On first run nsh seeds a commented template. It is a simple INI file:
 # editor for the "Edit" action; unset -> $EDITOR/$VISUAL, then notepad/vi
 editor = code -w
 two_pane = false                     # start with two explorer panes side by side
+restore_tabs = true                  # restore tabs and pane paths on next launch
 search_exclude = .git node_modules   # directories fuzzy search skips
 external_commands = mc, lazygit      # run these on the real terminal without !
 
@@ -460,7 +461,8 @@ quit   = q
 ```
 
 `[general]` sets the **Edit** editor (Tab menu, text files only), whether to
-start in `two_pane` view, `search_exclude` (the directories fuzzy search skips),
+start in `two_pane` view, whether `restore_tabs` restores the previous tab set,
+`search_exclude` (the directories fuzzy search skips),
 and `external_commands` (commands that always receive a real terminal).
 `[colors]` overrides any UI style class; `[keys]` remaps the explorer action
 keys. Invalid entries are ignored, never fatal.

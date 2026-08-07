@@ -195,7 +195,16 @@ class NshApp:
         self._two_pane_default = (
             self.settings.get("two_pane", "false").strip().lower()
             in ("true", "1", "yes", "on"))
-        self.shells = ShellTabs(self, initial_cwd)
+        self._restore_tabs = (
+            self.settings.get("restore_tabs", "true").strip().lower()
+            in ("true", "1", "yes", "on"))
+        saved_tabs = (state.get("explorer_tabs")
+                      if self._restore_tabs and not picker else None)
+        self.shells = ShellTabs(self, initial_cwd, saved_tabs)
+        try:
+            os.chdir(self.explorer.cwd)
+        except OSError:
+            pass
         # zoom: when on, the split gives the focused pane a 9:1 share instead of
         # an even 5:5 (the big pane follows the focus). See toggle_zoom / _pane_dim.
         # (zoom stays app-wide, applied to whichever tab is current.)
@@ -503,6 +512,9 @@ class NshApp:
         self.settings = settings
         self._two_pane_default = (
             settings.get("two_pane", "false").strip().lower()
+            in ("true", "1", "yes", "on"))
+        self._restore_tabs = (
+            settings.get("restore_tabs", "true").strip().lower()
             in ("true", "1", "yes", "on"))
         self.style = config.build_style(color_overrides)
         self.application.style = self.style
@@ -2635,6 +2647,13 @@ class NshApp:
         except Exception:
             pass
 
+    def _save_tab_state(self):
+        """Persist normal explorer sessions, never a one-shot search picker."""
+        if self.picker:
+            return
+        state.set("explorer_tabs", self.shells.snapshot()
+                  if self._restore_tabs else None)
+
     async def _watch_cwd(self):
         """Poll the current directory and auto-refresh when it changes."""
         while True:
@@ -2656,6 +2675,7 @@ class NshApp:
     async def run_async(self):
         for ex in self.explorers:  # both panes start at the initial directory
             ex.load()
+        self.shells.current()._needs_initial_load = False
         self.schedule_git()
         if self._start_mode == SHELL:
             self.switch_mode(SHELL)
@@ -2666,4 +2686,5 @@ class NshApp:
             await self.application.run_async()
         finally:
             watcher.cancel()
+            self._save_tab_state()
         return self.search_result

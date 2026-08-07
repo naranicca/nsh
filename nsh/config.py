@@ -278,6 +278,8 @@ DEFAULT_SETTINGS = {
     "sort_reverse": "false",
     # start in two-pane view (two explorers side by side; F7/F8 switch panes)
     "two_pane": "false",
+    # restore explorer tabs and their pane paths on the next normal launch
+    "restore_tabs": "true",
     # directory names skipped in fuzzy file search (comma/space separated). This
     # is the full list (not additive), so it can be edited to add or remove names
     "search_exclude": _DEFAULT_SEARCH_EXCLUDE,
@@ -312,6 +314,9 @@ DEFAULT_NSHRC = """\
 # with its own directory. F7/F8 move the cursor between them. Toggle any time
 # from the F10 menu.
 # two_pane = false
+
+# Restore tabs, pane paths, active tab and custom tab names on startup.
+# restore_tabs = true
 
 # Directories skipped by fuzzy file search (/ key), comma or space separated.
 # This is the full list — edit it to add names (e.g. a noisy build/) or remove
@@ -449,7 +454,7 @@ def validate_preference(section, name, value):
         value = "" if value is None else value.strip()
         if name == "sort" and value not in ("name", "size", "date", "type"):
             raise ValueError("sort must be name, size, date, or type")
-        if name in ("sort_reverse", "two_pane"):
+        if name in ("sort_reverse", "two_pane", "restore_tabs"):
             lowered = value.lower()
             if lowered not in ("true", "false", "1", "0", "yes", "no", "on", "off"):
                 raise ValueError(f"{name} must be true or false")

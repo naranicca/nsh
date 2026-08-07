@@ -7,6 +7,8 @@ a thin tab bar below the prompt lists the others; a tab whose command is still
 running is tinted orange. Commands entered while it is busy are queued in that
 tab; a new tab can be opened explicitly with Ctrl-T.
 """
+from pathlib import Path
+
 from prompt_toolkit.layout.containers import (
     DynamicContainer,
     HSplit,
@@ -22,15 +24,68 @@ from .view import ShellView
 
 MAX_TAB_LABEL = 14
 NEW_TAB = "+"  # sentinel span id for the "+ new tab" button (vs integer tab ids)
+MAX_RESTORED_TABS = 50
+
+
+def restored_tab_specs(snapshot):
+    """Validate persisted tab data and return safe, normalized tab specs."""
+    if not isinstance(snapshot, dict) or not isinstance(snapshot.get("tabs"), list):
+        return [], 0
+    try:
+        saved_active = int(snapshot.get("active", 0))
+    except (TypeError, ValueError):
+        saved_active = 0
+    specs = []
+    active = 0
+    for saved_index, saved in enumerate(snapshot["tabs"][:MAX_RESTORED_TABS]):
+        if not isinstance(saved, dict):
+            continue
+        raw_paths = saved.get("paths")
+        if not isinstance(raw_paths, list):
+            continue
+        paths = []
+        for raw in raw_paths[:2]:
+            try:
+                path = Path(raw).expanduser()
+                if path.is_dir():
+                    paths.append(path)
+            except (OSError, TypeError, ValueError):
+                pass
+        if not paths:
+            continue
+        if len(paths) == 1:
+            paths.append(paths[0])
+        title = saved.get("title")
+        specs.append({
+            "paths": paths,
+            "active_pane": 1 if saved.get("active_pane") == 1 else 0,
+            "two_pane": bool(saved.get("two_pane", False)),
+            "title": title if isinstance(title, str) and title.strip() else None,
+        })
+        if saved_index <= saved_active:
+            active = len(specs) - 1
+    return specs, active
 
 
 class ShellTabs:
-    def __init__(self, app, initial_cwd):
+    def __init__(self, app, initial_cwd, snapshot=None):
         self.app = app
         # the first tab's explorer starts at the launch directory; later tabs
         # open at whatever directory was current when they were created
-        self.sessions = [self._new_tab(initial_cwd)]
-        self.active = 0
+        specs, active = restored_tab_specs(snapshot)
+        self.sessions = []
+        for spec in specs:
+            session = self._new_tab(spec["paths"][0])
+            for explorer, path in zip(session.explorers, spec["paths"]):
+                explorer.cwd = path
+            session.active_pane = spec["active_pane"]
+            session.two_pane = spec["two_pane"]
+            session.custom_title = spec["title"]
+            session._needs_initial_load = True
+            self.sessions.append(session)
+        if not self.sessions:
+            self.sessions = [self._new_tab(initial_cwd)]
+        self.active = active
         self._tab_spans = []  # [(start_col, end_col, idx)] for click hit-testing
 
         self._tabbar = Window(
@@ -119,9 +174,31 @@ class ShellTabs:
         self.app._after_tab_switch()
         return session
 
+    def snapshot(self):
+        """Serializable explorer state used for next-launch restoration."""
+        return {
+            "version": 1,
+            "active": self.active,
+            "tabs": [{
+                "paths": [str(ex.cwd) for ex in session.explorers],
+                "active_pane": session.active_pane,
+                "two_pane": session.two_pane,
+                "title": session.custom_title,
+            } for session in self.sessions],
+        }
+
+    def ensure_loaded(self, session=None):
+        session = session or self.current()
+        if not getattr(session, "_needs_initial_load", False):
+            return
+        for explorer in session.explorers:
+            explorer.load()
+        session._needs_initial_load = False
+
     def select(self, idx):
         if 0 <= idx < len(self.sessions):
             self.active = idx
+            self.ensure_loaded()
             self.app._after_tab_switch()
 
     def next(self):
