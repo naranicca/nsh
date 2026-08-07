@@ -15,6 +15,9 @@ dependencies = [
     "paramiko>=2.12",
 ]
 
+[project.optional-dependencies]
+images = ["Pillow>=9.1"]
+
 [project.scripts]
 nsh = "nsh.__main__:main"
 

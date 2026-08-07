@@ -7,6 +7,7 @@ files. Reads happen in a worker thread and results are cached per path, so
 scrolling the listing never blocks the UI.
 """
 import asyncio
+import hashlib
 import os
 import stat
 from types import SimpleNamespace
@@ -31,6 +32,102 @@ READ_BYTES = 64 * 1024   # cap how much of a file we pull in for preview
 MAX_LINES = 400
 MAX_DIR_ITEMS = 300
 HEX_BYTES = 256
+SIXEL_COLORS = 64
+MAX_SIXEL_CACHE = 8
+CELL_PIXEL_WIDTH = 8
+CELL_PIXEL_HEIGHT = 16
+
+
+def sixel_supported():
+    """Best-effort detection for terminals where nsh can safely emit Sixel."""
+    return bool(os.environ.get("WT_SESSION") or
+                "sixel" in os.environ.get("TERM", "").lower())
+
+
+def _sixel_run(values):
+    """Run-length encode one Sixel colour plane."""
+    out = []
+    index = 0
+    while index < len(values):
+        value = values[index]
+        end = index + 1
+        while end < len(values) and values[end] == value:
+            end += 1
+        count = end - index
+        char = chr(63 + value)
+        out.append(f"!{count}{char}" if count >= 4 else char * count)
+        index = end
+    return "".join(out)
+
+
+def encode_sixel(path, columns, rows):
+    """Return a pane-sized Sixel DCS string, or ``None`` without Pillow."""
+    try:
+        from PIL import Image
+    except ImportError:
+        return None
+
+    columns, rows = max(1, columns), max(1, rows)
+    with Image.open(path) as source:
+        source.seek(0)  # animated images preview their first frame
+        rgba = source.convert("RGBA")
+        rgba.thumbnail(
+            (columns * CELL_PIXEL_WIDTH, rows * CELL_PIXEL_HEIGHT),
+            Image.Resampling.LANCZOS)
+        width, height = rgba.size
+        if width <= 0 or height <= 0:
+            return None
+        alpha_image = rgba.getchannel("A")
+        alpha = list(alpha_image.get_flattened_data()
+                     if hasattr(alpha_image, "get_flattened_data")
+                     else alpha_image.getdata())
+        rgb = Image.new("RGB", rgba.size, (0, 0, 0))
+        rgb.paste(rgba, mask=rgba.getchannel("A"))
+        quantized = rgb.quantize(colors=SIXEL_COLORS)
+        indices = list(quantized.get_flattened_data()
+                       if hasattr(quantized, "get_flattened_data")
+                       else quantized.getdata())
+        palette = quantized.getpalette() or []
+
+    used = sorted({index for index, opacity in zip(indices, alpha)
+                   if opacity >= 16})
+    if not used:
+        return None
+    output = [f'\x1bP0;1;0q"1;1;{width};{height}']
+    for color in used:
+        offset = color * 3
+        if offset + 2 >= len(palette):
+            continue
+        red, green, blue = palette[offset:offset + 3]
+        output.append(
+            f"#{color};2;{red * 100 // 255};{green * 100 // 255};"
+            f"{blue * 100 // 255}")
+
+    for top in range(0, height, 6):
+        planes = []
+        for color in used:
+            values = []
+            last_nonzero = -1
+            for x in range(width):
+                bits = 0
+                for bit in range(6):
+                    y = top + bit
+                    if y >= height:
+                        continue
+                    pos = y * width + x
+                    if alpha[pos] >= 16 and indices[pos] == color:
+                        bits |= 1 << bit
+                values.append(bits)
+                if bits:
+                    last_nonzero = x
+            if last_nonzero >= 0:
+                planes.append(f"#{color}" + _sixel_run(
+                    values[:last_nonzero + 1]))
+        output.append("$".join(planes))
+        if top + 6 < height:
+            output.append("-")
+    output.append("\x1b\\")
+    return "".join(output)
 
 
 def image_dimensions(path):
@@ -120,6 +217,7 @@ class PreviewView:
     def __init__(self, app):
         self.app = app
         self._cache = {}
+        self._image_cache_keys = []
         self._inflight = set()
         self._diff_hunks = {}
         self._hunk_selection = {}
@@ -625,7 +723,10 @@ class PreviewView:
     def _key(self, entry):
         try:
             st = entry.path.stat()
-            return (norm(entry.path), st.st_mtime_ns, st.st_size)
+            key = (norm(entry.path), st.st_mtime_ns, st.st_size)
+            if entry.is_image and sixel_supported():
+                key += (self._content_width(), self._visible_height())
+            return key
         except OSError:
             return (norm(entry.path), 0, 0)
 
@@ -933,6 +1034,13 @@ class PreviewView:
         except Exception as exc:  # noqa: BLE001 - shown in the pane
             frags = [("class:preview.dim", f" preview error: {exc}")]
         self._cache[key] = frags
+        if entry.is_image and any(style == "[ZeroWidthEscape]"
+                                  for style, _text in frags):
+            self._image_cache_keys.append(key)
+            while len(self._image_cache_keys) > MAX_SIXEL_CACHE:
+                expired = self._image_cache_keys.pop(0)
+                if expired != key:
+                    self._cache.pop(expired, None)
         self._inflight.discard(key)
         self.app.invalidate()
 
@@ -1017,6 +1125,39 @@ class PreviewView:
             parts.append(f"{dims[0]}×{dims[1]} px")
         frags = self._header(entry) + self._meta_line(entry, parts)
         frags.append(("class:preview", "\n"))
+        if sixel_supported():
+            columns = max(1, self._content_width() - 2)
+            rows = max(1, self._visible_height() - 4)
+            try:
+                sixel = encode_sixel(entry.path, columns, rows)
+            except Exception:  # noqa: BLE001 - metadata preview remains usable
+                sixel = None
+            if sixel:
+                # Give every rendered image a distinct screen-cell identity.
+                # Sixel pixels live in the terminal rather than prompt_toolkit's
+                # text screen, so ordinary blank cells can otherwise compare
+                # equal after cursor movement and leave the previous image in
+                # place (or prevent the next image's escape from being emitted).
+                identity = hashlib.blake2s(
+                    os.fsencode(norm(entry.path)), digest_size=6).hexdigest()
+                cell_style = f"class:preview.sixel-cell-{identity}"
+                blank = " " * columns
+                for row in range(rows):
+                    if row == rows - 1:
+                        # A ZeroWidthEscape is emitted only when prompt_toolkit
+                        # redraws the character cell that owns it.  Keep it on a
+                        # real, specially styled final cell; attaching it after
+                        # the line's last character makes incremental redraws
+                        # skip it (a terminal resize happened to mask that).
+                        frags.append((cell_style, blank[:-1]))
+                        up = f"\x1b[{rows - 1}A" if rows > 1 else ""
+                        left = f"\x1b[{columns - 1}D" if columns > 1 else ""
+                        raw = f"\x1b7{left}{up}{sixel}\x1b8"
+                        frags.append(("[ZeroWidthEscape]", raw))
+                        frags.append((cell_style, " "))
+                    else:
+                        frags.append((cell_style, blank))
+                    frags.append(("class:preview", "\n"))
         return frags
 
     def _build_text(self, entry, text, truncated):

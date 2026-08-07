@@ -150,6 +150,9 @@ also appear on its changed files and collapsed subdirectories.
 When the Explorer cursor is on a tracked modified, staged, or conflicted file,
 the preview shows that file's Git diff instead of its complete contents. Clean
 and untracked files keep the normal file preview.
+On Windows Terminal 1.22 or newer, image files can be rendered inline using
+Sixel when Pillow is installed (`pip install "nsh[images]"`). Without Pillow or
+on a terminal without Sixel support, the preview keeps showing image metadata.
 With focus in a Git diff preview, `Up`/`Down` jump between contiguous `-`/`+`
 change blocks and `u` reverts only the current block after confirmation;
 `s` stages or unstages only that block, and `j`/`k` move between change blocks
