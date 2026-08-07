@@ -237,7 +237,7 @@ class RemoteShellView:
 
     def _output_text(self):
         out = []
-        for line in self.lines[-2000:]:
+        for line in self.lines:
             out.extend(line)
             out.append(("", "\n"))
         return out
@@ -251,7 +251,7 @@ class RemoteShellView:
         """Wrapped output rows, used by the shared/fullscreen layout switch."""
         columns = max(1, columns)
         total = 0
-        for fragments in self.lines[-2000:]:
+        for fragments in self.lines:
             width = text_width("".join(text for _style, text in fragments))
             total += max(1, -(-width // columns))
             if limit is not None and total > limit:
@@ -261,9 +261,23 @@ class RemoteShellView:
     def append(self, text, style="class:shell.output"):
         for line in str(text).splitlines() or [""]:
             if "\x1b[" in line:
-                self.lines.append(list(to_formatted_text(ANSI(line))))
+                self._push(list(to_formatted_text(ANSI(line))))
             else:
-                self.lines.append([(style, line)])
+                self._push([(style, line)])
+
+    def _push(self, fragments):
+        self.lines.append(fragments)
+        self.trim_scrollback()
+
+    def trim_scrollback(self):
+        try:
+            limit = max(1, min(100000, int(self.app.settings.get(
+                "scrollback_lines", "2000"))))
+        except (AttributeError, TypeError, ValueError):
+            limit = 2000
+        excess = len(self.lines) - limit
+        if excess > 0:
+            del self.lines[:excess]
 
     def _accept(self, buffer):
         command = buffer.text.strip()
@@ -411,7 +425,7 @@ class RemoteShellView:
             ("class:explorer.dir", f"{self.app.networkview.location} "),
             ("", "$ "), ("class:shell.output", command),
         ])
-        self.lines.append(line)
+        self._push(line)
         self._last_result = None
         self._started_at = time.monotonic()
         self.busy = True

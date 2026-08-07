@@ -442,6 +442,7 @@ honoured). On first run nsh seeds a commented template. It is a simple INI file:
 editor = code -w
 two_pane = false                     # start with two explorer panes side by side
 restore_tabs = true                  # restore tabs, paths and command history
+scrollback_lines = 2000              # retained lines per local/SSH shell tab
 search_exclude = .git node_modules   # directories fuzzy search skips
 external_commands = mc, lazygit      # run these on the real terminal without !
 
@@ -463,6 +464,7 @@ quit   = q
 `[general]` sets the **Edit** editor (Tab menu, text files only), whether to
 start in `two_pane` view, whether `restore_tabs` restores the previous tab set,
 pane paths, recent per-tab command history and unfinished command input,
+the per-shell `scrollback_lines` limit (1–100000),
 `search_exclude` (the directories fuzzy search skips),
 and `external_commands` (commands that always receive a real terminal).
 `[colors]` overrides any UI style class; `[keys]` remaps the explorer action

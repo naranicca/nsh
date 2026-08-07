@@ -516,6 +516,9 @@ class NshApp:
         self._restore_tabs = (
             settings.get("restore_tabs", "true").strip().lower()
             in ("true", "1", "yes", "on"))
+        for session in self.shells.sessions:
+            session.trim_scrollback()
+        self.remote_shell.trim_scrollback()
         self.style = config.build_style(color_overrides)
         self.application.style = self.style
         self._pane_kb = self._build_pane_keys()

@@ -18,7 +18,13 @@ from .lexer import ShellLexer, lex_line
 from .prompt import prompt_fragments
 from .runner import CommandRunner
 
-MAX_SCROLLBACK = 2000
+
+def _scrollback_limit(app):
+    try:
+        return max(1, min(100000, int(app.settings.get(
+            "scrollback_lines", "2000"))))
+    except (AttributeError, TypeError, ValueError):
+        return 2000
 
 # CSI escape sequence (e.g. colour SGR "\x1b[31m"); matched so backspace
 # resolution can step over escapes without counting them as printable columns.
@@ -537,8 +543,16 @@ class ShellView:
 
     def _push(self, fragments):
         self.lines.append(fragments)
-        if len(self.lines) > MAX_SCROLLBACK:
-            self.lines = self.lines[-MAX_SCROLLBACK:]
+        self.trim_scrollback()
+
+    def trim_scrollback(self):
+        """Apply the live Preferences limit while preserving scroll position."""
+        excess = len(self.lines) - _scrollback_limit(self.app)
+        if excess <= 0:
+            return
+        del self.lines[:excess]
+        if self.scroll_top is not None:
+            self.scroll_top = max(0, self.scroll_top - excess)
 
     # -- streamed command output ---------------------------------------------
     def feed_output(self, text):

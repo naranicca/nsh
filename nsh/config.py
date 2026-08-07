@@ -280,6 +280,8 @@ DEFAULT_SETTINGS = {
     "two_pane": "false",
     # restore explorer tabs and their pane paths on the next normal launch
     "restore_tabs": "true",
+    # logical output lines retained by each local and SSH shell session
+    "scrollback_lines": "2000",
     # directory names skipped in fuzzy file search (comma/space separated). This
     # is the full list (not additive), so it can be edited to add or remove names
     "search_exclude": _DEFAULT_SEARCH_EXCLUDE,
@@ -317,6 +319,9 @@ DEFAULT_NSHRC = """\
 
 # Restore tabs, pane paths, active tab and custom tab names on startup.
 # restore_tabs = true
+
+# Logical output lines retained independently by each local/SSH shell.
+# scrollback_lines = 2000
 
 # Directories skipped by fuzzy file search (/ key), comma or space separated.
 # This is the full list — edit it to add names (e.g. a noisy build/) or remove
@@ -454,6 +459,14 @@ def validate_preference(section, name, value):
         value = "" if value is None else value.strip()
         if name == "sort" and value not in ("name", "size", "date", "type"):
             raise ValueError("sort must be name, size, date, or type")
+        if name == "scrollback_lines":
+            try:
+                lines = int(value)
+            except ValueError as exc:
+                raise ValueError("scrollback_lines must be an integer") from exc
+            if not 1 <= lines <= 100000:
+                raise ValueError("scrollback_lines must be between 1 and 100000")
+            value = str(lines)
         if name in ("sort_reverse", "two_pane", "restore_tabs"):
             lowered = value.lower()
             if lowered not in ("true", "false", "1", "0", "yes", "no", "on", "off"):
