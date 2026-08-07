@@ -4,6 +4,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+from prompt_toolkit.buffer import Buffer
+from prompt_toolkit.history import InMemoryHistory
+
 from nsh import config
 from nsh.app import NshApp
 from nsh.shell.tabs import ShellTabs, restored_tab_specs
@@ -27,7 +30,8 @@ class TabRestoreTests(unittest.TestCase):
                 "tabs": [
                     {"paths": [str(first), str(first)]},
                     {"paths": [str(second), str(first)], "active_pane": 1,
-                     "two_pane": True, "title": "work"},
+                     "two_pane": True, "title": "work",
+                     "history": ["pwd", "git status"], "input": "echo draft"},
                 ],
             }
 
@@ -39,6 +43,8 @@ class TabRestoreTests(unittest.TestCase):
         self.assertEqual(1, specs[1]["active_pane"])
         self.assertTrue(specs[1]["two_pane"])
         self.assertEqual("work", specs[1]["title"])
+        self.assertEqual(["pwd", "git status"], specs[1]["history"])
+        self.assertEqual("echo draft", specs[1]["input"])
 
     def test_missing_tabs_are_skipped_and_active_index_is_remapped(self):
         with tempfile.TemporaryDirectory() as root:
@@ -64,7 +70,11 @@ class TabRestoreTests(unittest.TestCase):
         tabs.sessions = [SimpleNamespace(
             explorers=[SimpleNamespace(cwd=Path("left")),
                        SimpleNamespace(cwd=Path("right"))],
-            active_pane=1, two_pane=True, custom_title="pair")]
+            active_pane=1, two_pane=True, custom_title="pair",
+            command_buffer=SimpleNamespace(
+                history=SimpleNamespace(
+                    get_strings=lambda: ["old", "pwd", "git status"]),
+                text="echo draft"))]
 
         snapshot = tabs.snapshot()
 
@@ -72,6 +82,29 @@ class TabRestoreTests(unittest.TestCase):
         self.assertEqual(1, snapshot["tabs"][0]["active_pane"])
         self.assertTrue(snapshot["tabs"][0]["two_pane"])
         self.assertEqual("pair", snapshot["tabs"][0]["title"])
+        self.assertEqual(["old", "pwd", "git status"],
+                         snapshot["tabs"][0]["history"])
+        self.assertEqual("echo draft", snapshot["tabs"][0]["input"])
+
+    def test_constructor_restores_history_and_unfinished_input(self):
+        with tempfile.TemporaryDirectory() as root:
+            root = Path(root)
+            snapshot = {"tabs": [{
+                "paths": [str(root)],
+                "history": ["pwd", "git status"],
+                "input": "echo draft",
+            }]}
+            buffer = Buffer(history=InMemoryHistory())
+            session = SimpleNamespace(
+                explorers=[SimpleNamespace(cwd=root), SimpleNamespace(cwd=root)],
+                command_buffer=buffer, active_pane=0, two_pane=False,
+                custom_title=None, container=SimpleNamespace())
+            with mock.patch.object(ShellTabs, "_new_tab", return_value=session):
+                tabs = ShellTabs(SimpleNamespace(), root, snapshot)
+
+        self.assertEqual(["pwd", "git status"],
+                         tabs.current().command_buffer.history.get_strings())
+        self.assertEqual("echo draft", tabs.current().command_buffer.text)
 
     def test_save_state_respects_setting_and_skips_search_picker(self):
         app = NshApp.__new__(NshApp)
