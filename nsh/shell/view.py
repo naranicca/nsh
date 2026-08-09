@@ -86,14 +86,14 @@ class ShellView:
         # Output scroll: None = follow the bottom; otherwise the top visible
         # line the viewport is pinned to (set when the user scrolls up).
         self.scroll_top = None
-        # this session's process runner, and the tab label (last command's name)
+        # this session's process runner; its automatic tab label is derived from
+        # the active explorer pane's cwd by ShellTabs
         self.runner = CommandRunner(app, self)
         # commands the user chose to queue while an earlier one was still
         # running; they run one after another in this same tab (see app.run_in_shell)
         self.pending = []
-        self.title = "shell"
         # a name set by the user (tab rename); when present it overrides the
-        # auto title so a later command doesn't clobber it.
+        # cwd-derived automatic title.
         self.custom_title = None
 
         self.command_buffer = Buffer(

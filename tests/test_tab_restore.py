@@ -140,6 +140,29 @@ class TabRestoreTests(unittest.TestCase):
         self.assertEqual(["left", "right"], loads)
         self.assertFalse(session._needs_initial_load)
 
+    def test_automatic_title_tracks_active_pane_directory(self):
+        session = SimpleNamespace(
+            explorers=[SimpleNamespace(cwd=Path("work/project")),
+                       SimpleNamespace(cwd=Path("other/assets"))],
+            active_pane=0, custom_title=None)
+
+        self.assertEqual("project", ShellTabs.title_for(session))
+        session.explorers[0].cwd = Path("work/source")
+        self.assertEqual("source", ShellTabs.title_for(session))
+        session.active_pane = 1
+        self.assertEqual("assets", ShellTabs.title_for(session))
+
+    def test_custom_title_overrides_directory_until_cleared(self):
+        session = SimpleNamespace(
+            explorers=[SimpleNamespace(cwd=Path("work/project"))],
+            active_pane=0, custom_title="build")
+
+        self.assertEqual("build", ShellTabs.title_for(session))
+        session.explorers[0].cwd = Path("work/source")
+        self.assertEqual("build", ShellTabs.title_for(session))
+        session.custom_title = None
+        self.assertEqual("source", ShellTabs.title_for(session))
+
 
 if __name__ == "__main__":
     unittest.main()

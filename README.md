@@ -74,6 +74,9 @@ These work from both the explorer and the command line. The tab bar is also
 clickable: click a tab to switch to it, double-click it to close it, and click
 the **`+`** button at its right end to open a new tab. The two-pane view (`2`) is
 per-tab, so one tab can be split while another shows a single pane.
+Unless renamed with `F2`, a tab is named after its current directory and the
+name follows directory changes (and the active pane in a two-pane tab). Clearing
+a custom name in the rename dialog restores this automatic naming.
 **`Shift+H`** / **`Shift+L`** move focus left / right across the on-screen
 columns — the two panes, or (in single-pane view) the list and its preview — or
 click a pane to focus it.
@@ -129,7 +132,9 @@ marker and so can be added too.
 Repository status uses one `git status --porcelain=v2 --branch --show-stash`
 process per refresh, providing branch, upstream, ahead/behind, stash, and file
 state together. Repository roots and operation markers are read from `.git`
-metadata without starting additional Git processes.
+metadata without starting additional Git processes. The background watcher also
+tracks lightweight Git metadata, so commits, staging, branch movement, and
+similar state-only changes refresh even when no worktree file changes.
 
 Commit, Revert, and Log make their scope explicit in the action menu. The `.`
 entry targets the current directory, while a second entry targets the selected

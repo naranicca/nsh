@@ -352,6 +352,26 @@ class GitStatusTests(unittest.TestCase):
         self.assertEqual(status.code_for(root / "conflict.txt"), "C")
         self.assertIn(str(root / "new").lower(), status.untracked_dirs)
 
+    def test_metadata_signature_changes_with_index_and_current_branch_ref(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            gitdir = root / ".git"
+            branch = gitdir / "refs" / "heads" / "main"
+            branch.parent.mkdir(parents=True)
+            (gitdir / "HEAD").write_text(
+                "ref: refs/heads/main\n", encoding="utf-8")
+            (gitdir / "index").write_bytes(b"one")
+            branch.write_text("first\n", encoding="utf-8")
+            initial = git.metadata_signature(root)
+
+            (gitdir / "index").write_bytes(b"a longer index")
+            staged = git.metadata_signature(root)
+            branch.write_text("a-longer-commit-id\n", encoding="utf-8")
+            committed = git.metadata_signature(root)
+
+        self.assertNotEqual(initial, staged)
+        self.assertNotEqual(staged, committed)
+
     def test_visible_nested_directories_are_scanned_for_repositories(self):
         root = Path("work").resolve()
         top = SimpleNamespace(

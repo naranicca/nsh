@@ -27,6 +27,7 @@ class ExplorerRefreshTests(unittest.TestCase):
         view.selected = set()
         view.cursor = 0
         view._signature = ()
+        view._git_signature = ()
         view._watch_scan_running = False
         return view
 
@@ -35,7 +36,7 @@ class ExplorerRefreshTests(unittest.TestCase):
             view = self._view("one")
             listing = [_entry("one")]
             with mock.patch("nsh.explorer.view.run_in_thread",
-                            mock.AsyncMock(return_value=listing)) as worker:
+                            mock.AsyncMock(return_value=(listing, ()))) as worker:
                 changed = await view.check_external_change()
                 await asyncio.sleep(0)
             return view, worker, changed
@@ -51,7 +52,7 @@ class ExplorerRefreshTests(unittest.TestCase):
     def test_external_refresh_discards_result_after_cwd_changes(self):
         async def scan(_func, *_args):
             await asyncio.sleep(0)
-            return [_entry("old")]
+            return [_entry("old")], ()
 
         async def scenario():
             view = self._view("old")
@@ -76,7 +77,7 @@ class ExplorerRefreshTests(unittest.TestCase):
             nonlocal calls
             calls += 1
             await release.wait()
-            return []
+            return [], ()
 
         async def scenario():
             view = self._view("one")
@@ -92,6 +93,26 @@ class ExplorerRefreshTests(unittest.TestCase):
 
         self.assertFalse(second)
         self.assertEqual(calls, 1)
+
+    def test_git_metadata_change_refreshes_status_without_listing_change(self):
+        async def scenario():
+            view = self._view("one")
+            listing = [_entry("one")]
+            view.entries = listing
+            view._signature = view._sig(listing)
+            view._git_signature = ("old",)
+            with mock.patch("nsh.explorer.view.run_in_thread",
+                            mock.AsyncMock(return_value=(listing, ("new",)))):
+                changed = await view.check_external_change()
+                await asyncio.sleep(0)
+            return view, changed
+
+        view, changed = asyncio.run(scenario())
+
+        self.assertTrue(changed)
+        self.assertEqual(("new",), view._git_signature)
+        view.app.invalidate.assert_not_called()
+        view.app.refresh_git.assert_awaited_once_with()
 
 
 if __name__ == "__main__":

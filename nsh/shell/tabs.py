@@ -143,6 +143,25 @@ class ShellTabs:
         for s in self.sessions:
             s.runner.interrupt()
 
+    @staticmethod
+    def automatic_title(session) -> str:
+        """Current directory name for a tab without a user title.
+
+        Derive this at render time instead of storing it, because a tab can
+        change directory through the shell, bookmarks, restored state, or by
+        moving focus between its two explorer panes.
+        """
+        try:
+            explorer = session.explorers[session.active_pane]
+            cwd = Path(explorer.cwd)
+        except (AttributeError, IndexError, TypeError, ValueError):
+            return "shell"
+        return cwd.name or cwd.anchor or str(cwd) or "shell"
+
+    @classmethod
+    def title_for(cls, session) -> str:
+        return session.custom_title or cls.automatic_title(session)
+
     # -- tab operations -------------------------------------------------------
     def _new_tab(self, cwd, mode=None) -> ShellView:
         """Build a tab: a shell session carrying its own pair of explorer panes
@@ -241,7 +260,7 @@ class ShellTabs:
         """Close a tab, but if its command is still running, confirm first."""
         session = session or self.current()
         if session.busy():
-            label = session.custom_title or session.title or "shell"
+            label = self.title_for(session)
             self.app.confirm(
                 f"'{label}' is still running. Close the tab and stop it?",
                 lambda ok: self.close(session) if ok else None)
@@ -326,7 +345,7 @@ class ShellTabs:
                     base = "class:shell.tab.err"
                 else:
                     base = "class:shell.tab"
-            label = cut_to_width(s.custom_title or s.title or "shell", MAX_TAB_LABEL)
+            label = cut_to_width(self.title_for(s), MAX_TAB_LABEL)
             main = f" {i + 1}:{label} "
             start = col
             frags.append((base, main))

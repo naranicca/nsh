@@ -1762,7 +1762,6 @@ class NshApp:
             if not cmd:
                 self._drain_pending(session)
                 return
-        session.title = self._cmd_title(cmd)
         # a `source FILE` line: each command runs in its own subprocess, so note
         # the file and re-source it ahead of every later command (CommandRunner)
         src = session.runner.sourced_file(cmd)
@@ -1817,11 +1816,6 @@ class NshApp:
         path = os.path.normpath(path)
         if os.path.isfile(path) and path not in self.sourced_files:
             self.sourced_files.append(path)
-
-    @staticmethod
-    def _cmd_title(cmd):
-        parts = cmd.split()
-        return os.path.basename(parts[0]) if parts else "shell"
 
     def _handle_builtin(self, session, cmd):
         stripped = cmd.strip()
@@ -2027,6 +2021,7 @@ class NshApp:
         # pane's directory too)
         for ex in self._git_panes():
             ex.git_status = await git.query(ex.cwd, self._child_directories(ex))
+            ex._git_signature = ex._git_watch_signature(ex.entries)
         self.gitview.on_status_changed()
         self.invalidate()
 

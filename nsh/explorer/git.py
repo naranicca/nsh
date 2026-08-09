@@ -215,6 +215,54 @@ def _common_gitdir(gitdir):
     return common if common.is_absolute() else (Path(gitdir) / common).absolute()
 
 
+def metadata_signature(directory, child_directories=()):
+    """Cheap fingerprint for Git state changes outside the worktree."""
+    layouts = {}
+    primary = _repository_layout(directory)
+    candidates = ((directory,) if primary is not None
+                  else (directory, *child_directories))
+    for candidate in candidates:
+        layout = primary if candidate == directory else _repository_layout(candidate)
+        if layout is None:
+            continue
+        root, gitdir = layout
+        # Descendants of the current repository share its metadata. Only add a
+        # child layout when that child is itself a repository root.
+        if candidate != directory and norm(root) != norm(candidate):
+            continue
+        layouts[norm(gitdir)] = (Path(root), Path(gitdir))
+
+    signatures = []
+    for _key, (root, gitdir) in sorted(layouts.items()):
+        common = _common_gitdir(gitdir)
+        candidates = {
+            gitdir / "HEAD", gitdir / "index", gitdir / "MERGE_HEAD",
+            gitdir / "CHERRY_PICK_HEAD", gitdir / "REVERT_HEAD",
+            gitdir / "BISECT_LOG", common / "packed-refs",
+            common / "refs" / "stash",
+        }
+        try:
+            head = (gitdir / "HEAD").read_text(
+                encoding="utf-8", errors="replace").strip()
+        except OSError:
+            head = ""
+        if head.lower().startswith("ref:"):
+            candidates.add(common / head.split(":", 1)[1].strip())
+        for operation in ("rebase-apply", "rebase-merge", "sequencer"):
+            candidates.add(gitdir / operation)
+
+        files = []
+        for path in sorted(candidates, key=lambda item: str(item)):
+            try:
+                stat_result = path.stat()
+                value = (stat_result.st_mtime_ns, stat_result.st_size)
+            except OSError:
+                value = None
+            files.append((str(path), value))
+        signatures.append((norm(root), tuple(files)))
+    return tuple(signatures)
+
+
 def _has_remote(gitdir):
     """Best-effort remote detection from private/common Git config files."""
     candidates = {Path(gitdir) / "config", _common_gitdir(gitdir) / "config"}

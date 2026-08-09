@@ -79,6 +79,7 @@ class ExplorerView:
         self._flash = set()
         self._flash_task = None
         self._signature = ()   # snapshot used to auto-refresh on external change
+        self._git_signature = ()  # .git state can change without worktree files
         self._watch_scan_running = False
         # inline rename state: edits the cursor row's name in place (no dialog)
         self._renaming = False
@@ -184,6 +185,7 @@ class ExplorerView:
     def load(self):
         self.entries = self._list()
         self._signature = self._sig(self.entries)
+        self._git_signature = self._git_watch_signature(self.entries)
         if self.cursor >= len(self.entries):
             self.cursor = max(0, len(self.entries) - 1)
         if self.cursor == 0:  # don't rest on the leading ".." by default
@@ -215,6 +217,18 @@ class ExplorerView:
         self.app.invalidate()
         asyncio.ensure_future(self.app.refresh_git())
 
+    def _git_watch_signature(self, entries):
+        children = tuple(entry.path for entry in entries
+                         if entry.is_dir and not entry.is_parent)
+        return git.metadata_signature(self.cwd, children)
+
+    @classmethod
+    def _watch_snapshot(cls, cwd, show_hidden, sort, reverse, expanded):
+        entries = cls._list_snapshot(cwd, show_hidden, sort, reverse, expanded)
+        children = tuple(entry.path for entry in entries
+                         if entry.is_dir and not entry.is_parent)
+        return entries, git.metadata_signature(cwd, children)
+
     async def check_external_change(self):
         """Re-list in a worker, discarding stale or overlapping scans."""
         if self._watch_scan_running:
@@ -225,17 +239,24 @@ class ExplorerView:
         )
         self._watch_scan_running = True
         try:
-            entries = await run_in_thread(self._list_snapshot, *snapshot)
+            entries, git_signature = await run_in_thread(
+                self._watch_snapshot, *snapshot)
         finally:
             self._watch_scan_running = False
         current = (
             self.cwd, self.show_hidden, self.sort, self.reverse,
             frozenset(self.expanded),
         )
-        if current != snapshot or self._sig(entries) == self._signature:
+        if current != snapshot:
             return False
-        self._apply_listing(entries)
-        self.app.invalidate()
+        listing_changed = self._sig(entries) != self._signature
+        git_changed = git_signature != self._git_signature
+        if not listing_changed and not git_changed:
+            return False
+        if listing_changed:
+            self._apply_listing(entries)
+            self.app.invalidate()
+        self._git_signature = git_signature
         asyncio.ensure_future(self.app.refresh_git())
         return True
 
