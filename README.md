@@ -1,10 +1,32 @@
 # nsh
 
+## Table of contents
+
+- [Overview](#nsh-is-not-a-shell)
+- [Install / run](#install--run)
+- [Keys](#keys)
+  - [Tabs](#tabs)
+  - [Global shortcuts](#global-shortcuts)
+  - [Explorer mode](#explorer-mode)
+  - [Git mode](#git-mode)
+  - [Command-line mode](#command-line-mode)
+  - [Fuzzy search mode](#fuzzy-search-mode)
+  - [Notes mode](#notes-mode)
+  - [System mode](#system-mode)
+- [Network mode](#network-mode-ftp--ssh-sftp)
+  - [SSH config and jump hosts](#ssh-config-and-jump-hosts)
+  - [Browsing and file operations](#browsing-and-file-operations)
+- [Configuration](#configuration)
+- [Architecture](#architecture)
+  - [Design notes](#design-notes)
+
 ## nsh is Not a SHell!
 
 A cross-platform (Windows / Linux / macOS) interactive **file explorer + shell**,
 rewritten in Python on top of [`prompt_toolkit`](https://python-prompt-toolkit.readthedocs.io/).
 It is CJK-aware throughout and includes FTP/SFTP remote browsing.
+
+Current version: **1.0.0**.
 
 Its primary modes are:
 
@@ -22,6 +44,10 @@ Its primary modes are:
 Everything runs in **tabs**: each tab is its own explorer + shell pair, so you
 can keep several working directories — each with its own command-line session —
 open at once and switch between them with `F7`/`F8`.
+
+Git/diff and log views, persistent Notes, the System process viewer, recursive
+text Find, and the searchable Preferences editor are integrated into the same
+keyboard- and mouse-driven interface.
 
 ## Install / run
 
@@ -68,6 +94,7 @@ once and the process working directory follows the active tab.
 | --- | --- |
 | `Ctrl+T` | new tab (a fresh explorer at the current directory) |
 | `Ctrl+W` | close the current tab |
+| `F2` (in shell) | set or clear the current tab's custom name |
 | `F7` / `F8`, `Alt+←` / `Alt+→` | previous / next tab |
 
 These work from both the explorer and the command line. The tab bar is also
@@ -81,18 +108,31 @@ a custom name in the rename dialog restores this automatic naming.
 columns — the two panes, or (in single-pane view) the list and its preview — or
 click a pane to focus it.
 
+### Global shortcuts
+
+| Key | Action |
+| --- | --- |
+| `F10` | open the main menu: bookmarks, find, network/disconnect, notes, system, preferences, and about |
+| `Ctrl+F` | choose file-name fuzzy search or recursive text search (Explorer/Git) |
+| `Ctrl+N` | open Notes from Explorer, Git, shell, or System |
+| `Ctrl+G` | toggle Git mode |
+| `Ctrl+Q` | quit nsh |
+| `Ctrl+C` | interrupt the active local/SSH command; with no running shell command, clear its input |
+
 ### Explorer mode
 The action keys (everything below the navigation block) are remappable in
 `nshrc` — see [Configuration](#configuration).
 
 | Key | Action |
 | --- | --- |
+| `g` / `Home`, `G` / `End` | first / last row |
 | `↑`/`↓`, `k`/`j` | move cursor |
 | `↵` | open the file / enter the directory |
 | `l`, `→` | expand/collapse a directory inline; **on a file, focus the preview** |
 | `⌫`, `h`, `←` | collapse the directory, else go to the parent |
 | `Shift+H` / `Shift+L` | move focus left / right; only Explorer single-pane may open the cursor directory as a new right pane, while existing two-pane and SSH/Network views only move focus |
 | `Space` | select / deselect the entry (multi-select) |
+| `*` | select entries by substring or glob pattern |
 | `Tab` | open the **action menu** (copy, rename, delete, git…) — drops from the cursor row, beside the filename |
 | `y` / `x` / `p` | copy / cut / paste — the picked rows briefly flash; **paste lands in the directory at the cursor**. The clipboard is shared across tabs, so you can copy in one tab and paste in another |
 | `F2` / `i` | rename (inline) |
@@ -101,6 +141,11 @@ The action keys (everything below the navigation block) are remappable in
 | `D` | permanently delete (asks to confirm) |
 | `Tab` → `chmod…` | change permissions using `755`, `rwxr-xr-x`, `u+x`, or interactive read/write/execute checks |
 | `b` | bookmarks — add/remove this directory, or jump to a saved one |
+| `~` | jump to the home directory |
+| `-` | open the recently visited directories menu |
+| `s` | sort by name, size, date, or type, ascending or descending |
+| `2` | toggle two independent Explorer panes |
+| `z` | zoom the focused pane |
 | `/` | fuzzy-find a file |
 | `Ctrl+G` | **git mode** — the repository's changed files (see below) |
 | `:` | switch to command-line mode |
@@ -215,8 +260,9 @@ it in (a new tab opens in your current mode, so `Ctrl+T` keeps your workflow).
 | `↵` | run the command |
 | `PgUp`/`PgDn`, `Alt+↑`/`Alt+↓`, wheel, `Ctrl+End` | scroll the output (the prompt hides while scrolled up) |
 | `Ctrl+T` / `Ctrl+W` | open / close a tab |
+| `F2` | rename the current tab; an empty name restores its directory-based name |
 | `Alt+←` / `Alt+→` (or `F7` / `F8`) | previous / next tab |
-| `ESC` | switch back to explorer mode |
+| `ESC` | clear a non-empty command line; when already empty, switch back to Explorer |
 
 Each **tab** pairs this shell session with its own explorer (see [Tabs](#tabs)),
 so switching tabs swaps the whole working context. Entering a command while the
@@ -263,6 +309,23 @@ indexing progresses. While that index is still running, a query containing `/`
 or `\` follows its fuzzy-matched directory components and lists that specific
 subdirectory immediately. Remote search follows the same visible-results-first
 model.
+
+### Notes mode
+
+Open Notes with `Ctrl+N` or **F10 → Notes**. Notes are persistent, multi-line
+scratch entries. Type in the upper editor and press `Ctrl+S` to add or update a
+note; `Down` moves into the list. In the list, arrows or `j`/`k` navigate,
+`Enter` edits, `/` searches, `y` copies the full note to the system clipboard,
+`d`/`x` deletes, and `u` restores the last deletion. `Esc` clears an active
+search or edit first, then returns to the originating view.
+
+### System mode
+
+Open **F10 → System** for a live process list. Arrows or `j`/`k`, page keys, and
+`g`/`G` navigate; `c`, `m`, and `n` sort by CPU, memory, and name; `v` toggles
+the detailed command line; `/` filters; `r` refreshes; and `x`, `Delete`, or
+`K` asks to terminate the selected process. `Esc` clears a search first, then
+returns to the originating view.
 
 ### Network mode (FTP / SSH-SFTP)
 
@@ -492,6 +555,10 @@ nsh/
     shell.py           command shell over the active SSH connection
   preferences/
     view.py            searchable variables/colors/shortcuts editor
+  notes/
+    view.py            persistent multi-line notes editor/list/search
+  system/
+    view.py            sortable, searchable process viewer and terminate action
   config.py           styles, icons, key map, nshrc loading
   util/
     width.py          wcwidth-based truncate/pad (CJK-correct columns)
@@ -504,8 +571,8 @@ nsh/
     git.py            async git status / branch / stage / commit / diff
     gitview.py        git mode: flat changed-file list (Ctrl+G)
     logview.py        scoped directory/file history and commit actions
-    fileops.py        copy / move / delete / rename / mkdir (threaded)
-    preview.py        side preview pane (text / dir / image dims / hexdump / diff)
+    fileops.py        copy / move / trash / delete / rename / mkdir (threaded)
+    preview.py        text/dir/hex/diff preview plus Sixel/iTerm2 inline images
     view.py           file-list rendering, navigation, multi-select, action menu
   search/
     fuzzy.py          fzf-style scorer + directory indexer
