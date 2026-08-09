@@ -51,6 +51,16 @@ class ExplorerModelTests(unittest.TestCase):
             "settings -> config/settings.json",
         )
 
+    def test_directory_link_target_has_exactly_one_trailing_separator(self):
+        for target in ("../releases/v2/", "../releases/v2\\"):
+            entry = Entry(
+                Path("current"), "current", True, True, False, False, 0,
+                link_target=target)
+            self.assertEqual(
+                "current" + os.sep + " -> ../releases/v2" + os.sep,
+                ExplorerView._display_name(entry),
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

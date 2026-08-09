@@ -361,6 +361,9 @@ class NetworkBackendTests(unittest.TestCase):
         self.assertTrue(missing.is_broken)
         self.assertEqual(
             NetworkView._display_name(docs), "docs/ -> shared/docs/")
+        docs.link_target = "shared/docs/"
+        self.assertEqual(
+            NetworkView._display_name(docs), "docs/ -> shared/docs/")
         self.assertEqual(
             NetworkView._display_name(missing), "missing -> gone")
 

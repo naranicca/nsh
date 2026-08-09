@@ -140,7 +140,9 @@ class ExplorerView:
         suffix = os.sep if entry.is_dir else ""
         if entry.is_link:
             target = entry.link_target or "?"
-            return f"{entry.name}{suffix} -> {target}{suffix}"
+            if entry.is_dir:
+                target = target.rstrip("/\\") + suffix
+            return f"{entry.name}{suffix} -> {target}"
         return entry.name + suffix
 
     def _list(self):

@@ -961,7 +961,10 @@ class NetworkView:
             return ".."
         suffix = "/" if entry.is_dir else ""
         if entry.is_symlink:
-            return f"{entry.name}{suffix} -> {entry.link_target or '?'}{suffix}"
+            target = entry.link_target or "?"
+            if entry.is_dir:
+                target = target.rstrip("/\\") + suffix
+            return f"{entry.name}{suffix} -> {target}"
         return entry.name + suffix
 
     def _preview_text(self):
