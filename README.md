@@ -156,6 +156,9 @@ The action keys (everything below the navigation block) are remappable in
 | `ESC` | clear the selection |
 | `q` | quit |
 
+Read-only files inside deleted directories are made writable automatically. Any
+file-operation error opens an error dialog with the affected paths and details.
+
 Local symbolic links use the link icon and display their recorded target as
 `name -> target`, matching the SFTP file view. Directory links end in the local
 platform's path separator on both sides of the arrow, such as

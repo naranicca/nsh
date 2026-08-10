@@ -2495,6 +2495,15 @@ class NshApp:
         self.application.layout.focus(self.about_dialog.control)
         self.invalidate()
 
+    def show_error(self, title, lines):
+        """Show an operation error in a modal instead of losing it in the status bar."""
+        if isinstance(lines, str):
+            lines = [lines]
+        self._capture_dialog_focus()
+        self.about_dialog.open(title, list(lines))
+        self.application.layout.focus(self.about_dialog.control)
+        self.invalidate()
+
     # -- remote connections --------------------------------------------------
     def open_network_menu(self):
         items = [

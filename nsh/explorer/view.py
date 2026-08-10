@@ -633,6 +633,16 @@ class ExplorerView:
         return [entry.path] if entry and not entry.is_parent else []
 
     # -- file operations ------------------------------------------------------
+    def _show_operation_errors(self, title, errors):
+        if not errors:
+            return
+        lines = [str(error) for error in errors]
+        show_error = getattr(self.app, "show_error", None)
+        if show_error:
+            show_error(title, lines)
+        else:
+            self.app.set_message(lines[-1])
+
     def _flash_paths(self, paths):
         """Briefly blink ``paths`` in the listing so a copy / cut is visible.
 
@@ -719,6 +729,7 @@ class ExplorerView:
         async def do():
             done = 0
             last = None
+            errors = []
             for i, src in enumerate(paths, 1):
                 if not src.exists():
                     continue
@@ -731,13 +742,14 @@ class ExplorerView:
                         last = await fileops.move(src, dest)
                     done += 1
                 except Exception as exc:  # noqa: BLE001 - surfaced to the user
-                    self.app.set_message(f"{src.name}: {exc}")
+                    errors.append(f"{src.name}: {exc}")
             if op == "cut":
                 self.clipboard = None
             self._reveal_target(require_expanded=True)  # expand only if pasted inside
             self.refresh_listing(select_name=last.name if last else None)
             verb = "copied" if op == "copy" else "moved"
             self.app.set_message(f"{verb} {done}/{len(paths)} item(s)")
+            self._show_operation_errors(f"{verb.title()} failed", errors)
             await self.app.refresh_git()
         asyncio.ensure_future(do())
 
@@ -784,6 +796,7 @@ class ExplorerView:
         async def do():
             done = 0
             last = None
+            errors = []
             for i, src in enumerate(targets, 1):
                 if not src.exists():
                     continue
@@ -796,7 +809,7 @@ class ExplorerView:
                         last = await fileops.move(src, dest)
                     done += 1
                 except Exception as exc:  # noqa: BLE001 - surfaced to the user
-                    self.app.set_message(f"{src.name}: {exc}")
+                    errors.append(f"{src.name}: {exc}")
             self.selected.clear()
             # both panes changed: the destination gained files, and on a move the
             # source lost them
@@ -804,6 +817,7 @@ class ExplorerView:
             self.refresh_listing()
             verb = "copied" if op == "copy" else "moved"
             self.app.set_message(f"{verb} {done}/{len(targets)} item(s) to other pane")
+            self._show_operation_errors(f"{verb.title()} failed", errors)
             await self.app.refresh_git()
         asyncio.ensure_future(do())
 
@@ -834,15 +848,17 @@ class ExplorerView:
 
         async def do():
             done = 0
+            errors = []
             for path in targets:
                 try:
                     await fileops.trash(path)
                     done += 1
                 except Exception as exc:  # noqa: BLE001
-                    self.app.set_message(f"{path.name}: {exc}")
+                    errors.append(f"{path.name}: {exc}")
             self.selected.clear()
             self.refresh_listing()
             self.app.set_message(f"moved {done} item(s) to Trash")
+            self._show_operation_errors("Move to Trash failed", errors)
             await self.app.refresh_git()
         asyncio.ensure_future(do())
 
@@ -853,15 +869,17 @@ class ExplorerView:
 
         async def do():
             done = 0
+            errors = []
             for path in targets:
                 try:
                     await fileops.delete(path)
                     done += 1
                 except Exception as exc:  # noqa: BLE001
-                    self.app.set_message(f"{path.name}: {exc}")
+                    errors.append(f"{path.name}: {exc}")
             self.selected.clear()
             self.refresh_listing()
             self.app.set_message(f"deleted {done} item(s)")
+            self._show_operation_errors("Delete failed", errors)
             await self.app.refresh_git()
         asyncio.ensure_future(do())
 
@@ -897,7 +915,7 @@ class ExplorerView:
         self.selected.clear()
         self.refresh_listing()
         if err:
-            self.app.set_message(err)
+            self._show_operation_errors("Chmod failed", [err])
         else:
             self.app.set_message(f"chmod {mode:03o} · {done} item(s)")
         self.app.invalidate()
@@ -962,7 +980,7 @@ class ExplorerView:
             self.app.set_message(f"renamed to: {target.name}")
             asyncio.ensure_future(self.app.refresh_git())
         except Exception as exc:  # noqa: BLE001
-            self.app.set_message(f"rename failed: {exc}")
+            self._show_operation_errors("Rename failed", [str(exc)])
         self.app.invalidate()
 
     def _rename_name_fragments(self, name_w):
@@ -1005,7 +1023,7 @@ class ExplorerView:
             self.refresh_listing(select_name=target.name)
             self.app.set_message(f"created folder: {target.name}")
         except Exception as exc:  # noqa: BLE001
-            self.app.set_message(f"mkdir failed: {exc}")
+            self._show_operation_errors("Create folder failed", [str(exc)])
 
     def new_file(self):
         self.app.open_input_dialog("New file", "", 0, self._do_new_file)
@@ -1024,7 +1042,7 @@ class ExplorerView:
             self.app.set_message(f"created file: {target.name}")
             asyncio.ensure_future(self.app.refresh_git())
         except Exception as exc:  # noqa: BLE001
-            self.app.set_message(f"touch failed: {exc}")
+            self._show_operation_errors("Create file failed", [str(exc)])
 
     def edit_entry(self):
         entry = self.current()

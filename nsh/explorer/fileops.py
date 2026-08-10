@@ -10,6 +10,7 @@ Nothing here ever clobbers an existing path: paste targets are de-duplicated by
 """
 import ctypes
 import os
+import stat
 import shutil
 import sys
 from datetime import datetime
@@ -71,11 +72,23 @@ async def delete(path) -> None:
     """Permanently delete ``path`` (file, symlink, or directory tree)."""
     path = Path(path)
 
+    def remove_readonly(func, item, _exc_info):
+        """Clear a read-only bit and retry the failed rmtree operation."""
+        os.chmod(item, stat.S_IWRITE | stat.S_IREAD)
+        func(item)
+
+    def _unlink():
+        try:
+            path.unlink()
+        except PermissionError:
+            os.chmod(path, stat.S_IWRITE | stat.S_IREAD)
+            path.unlink()
+
     def _do():
         if path.is_dir() and not path.is_symlink():
-            shutil.rmtree(path)
+            shutil.rmtree(path, onerror=remove_readonly)
         else:
-            path.unlink()
+            _unlink()
 
     await run_in_thread(_do)
 
