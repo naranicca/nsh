@@ -243,12 +243,42 @@ class NetworkBackendTests(unittest.TestCase):
     def test_cancel_remote_search_restores_network_remote_pane(self):
         app = SimpleNamespace(
             picker=False, _search_return="network", _search_remote=True,
+            networkview=mock.Mock(),
             switch_mode=mock.Mock(), focus_network_pane=mock.Mock())
 
         NshApp.cancel_search(app)
 
         app.switch_mode.assert_called_once_with("network")
         app.focus_network_pane.assert_called_once_with(1)
+        app.networkview.cancel_indexing.assert_called_once_with()
+
+    def test_esscpe_from_remote_search_cancels_indexing(self):
+        app = object.__new__(NshApp)
+        app.picker = False
+        app._search_remote = True
+        app._search_return = "network"
+        app.networkview = mock.Mock()
+        app.switch_mode = mock.Mock()
+        app.focus_network_pane = mock.Mock()
+
+        app.cancel_search()
+
+        app.networkview.cancel_indexing.assert_called_once_with()
+        app.switch_mode.assert_called_once_with("network")
+        app.focus_network_pane.assert_called_once_with(1)
+
+    def test_escape_from_local_search_leaves_remote_indexing_alone(self):
+        app = object.__new__(NshApp)
+        app.picker = False
+        app._search_remote = False
+        app._search_return = "explorer"
+        app.networkview = mock.Mock()
+        app.focus_network_pane = mock.Mock()
+
+        app.cancel_search()
+
+        app.networkview.cancel_indexing.assert_not_called()
+        app.switch_mode.assert_called_once_with("explorer")
 
     def test_notes_and_system_restore_originating_network_pane(self):
         notes_app = SimpleNamespace(

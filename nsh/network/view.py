@@ -570,6 +570,9 @@ class NetworkView:
         return out
 
     def open_search_result(self, relative):
+        # leaving the search: stop the background index walk so a later `/`
+        # is not blocked by a stale `indexing` flag
+        self.cancel_indexing()
         target = posixpath.normpath(posixpath.join(
             self.path, relative.rstrip("/")))
         is_dir = relative.endswith("/")

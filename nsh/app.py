@@ -1601,6 +1601,10 @@ class NshApp:
             self.search_result = None
             self.exit()
             return
+        if self._search_remote:
+            # Stop the background remote index walk so the next '/' press can
+            # start a fresh search instead of being blocked by `indexing`
+            self.networkview.cancel_indexing()
         self.switch_mode(self._search_return)
         if self._search_return == NETWORK:
             self.focus_network_pane(1 if self._search_remote else -1)
