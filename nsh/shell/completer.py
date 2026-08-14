@@ -255,6 +255,15 @@ class ShellCompleter(Completer):
 
     # -- commands -------------------------------------------------------------
     def _command_completions(self, raw, value):
+        # PowerShell functions/aliases/cmdlets from $PROFILE aren't files, so
+        # the $PATH scan below can never find them; ask the runner for its
+        # (background-cached) list top, A no-op off PowerShell.
+        try:
+            runner = self.app.shell.runner
+        except Exception: # noqa: BLE001 - no active shell session yet
+            runner = None
+        if runner is not None:
+            runner.ensure_powershell_commands()
         seen = set()
         count = 0
         for directory in os.environ.get("PATH", "").split(os.pathsep):
@@ -267,10 +276,24 @@ class ShellCompleter(Completer):
             for name in names:
                 if not name.lower().startswith(value.lower()):
                     continue
-                if name in seen:
+                key = name.lower()
+                if key in seen:
                     continue
-                seen.add(name)
+                seen.add(key)
                 yield self._completion(raw, name, name, False, "fg:ansigreen")
                 count += 1
                 if count >= MAX_COMMANDS:
                     return
+        if runner is None:
+            return
+        for name in sorted(runner.powershell_commands):
+            if not name.lower().startswith(value.lower()):
+                continue
+            key = name.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            yield self._completion(raw, name, name, False, "fg:ansigreen")
+            count += 1
+            if count >= MAX_COMMANDS:
+                return
