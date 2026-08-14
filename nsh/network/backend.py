@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
+from ..explorer.model import IMAGE_EXTS
+
 
 class HostKeyRequired(Exception):
     """An SSH server presented a host key that is not trusted yet."""
@@ -113,6 +115,10 @@ class RemoteEntry:
     is_symlink: bool = False
     link_target: str = ""
     is_broken: bool = False
+
+    @property
+    def is_image(self) -> bool:
+        return not self.is_dir and Path(self.name).suffix.lower() in IMAGE_EXTS
 
 
 def parse_target(protocol, target):

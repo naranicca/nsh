@@ -931,7 +931,8 @@ class NetworkView:
             base_style = ("class:git.conflict" if entry.is_broken else
                           ("class:explorer.link" if entry.is_symlink else
                            ("class:explorer.dir" if entry.is_dir
-                            else "class:explorer.file")))
+                            else ("class:explorer.image" if entry.is_image
+                                else "class:explorer.file"))))
             style = "class:explorer.selected" if selected else base_style
             cursor_style = (style + " reverse").strip() if on else style
             name = self._display_name(entry)
@@ -943,7 +944,8 @@ class NetworkView:
             icon = (" " if entry.is_parent else
                     ("▾" if entry.is_dir and entry.path in self.expanded
                      else (config.ICONS["dir"] if entry.is_dir
-                           else config.ICONS["file"])))
+                           else (config.ICONS["image"] if entry.is_image
+                                 else config.ICONS["file"]))))
             if entry.is_symlink:
                 icon = config.ICONS["link"]
             out.extend([

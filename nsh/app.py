@@ -429,7 +429,7 @@ class NshApp:
         def _(event):
             pass
         tab_mode = Condition(
-            lambda: self.mode in (EXPLORER, SHELL, GIT, LOG)
+            lambda: self.mode in (EXPLORER, SHELL, GIT, LOG, NETWORK, REMOTE_SHELL)
             and not self._overlay_active())
 
         def add(key, filt, handler, eager=False):
@@ -471,11 +471,6 @@ class NshApp:
     def shell_escape(self, remote=False):
         """Clear a typed command first; leave the local/SSH shell when empty."""
         shell = self.remote_shell if remote else self.shell
-        if shell.command_buffer.text:
-            shell.command_buffer.reset()
-            shell.command_window.horizontal_scroll = 0
-            self.invalidate()
-            return
         if remote:
             self.switch_mode(NETWORK)
         else:
@@ -715,6 +710,8 @@ class NshApp:
         # and Alt+Left/Right switch them from there, just like the explorer
         git_mode = Condition(lambda: self.mode == GIT)
         log_mode = Condition(lambda: self.mode == LOG)
+        network_mode = Condition(lambda: self.mode == NETWORK)
+        remote_shell_mode = Condition(lambda: self.mode == REMOTE_SHELL)
 
         @kb.add("escape", "left", filter=explorer_mode | git_mode | log_mode)
         def _(event):
@@ -731,7 +728,7 @@ class NshApp:
 
         # Ctrl+T opens a new tab — a fresh explorer + shell — from the explorer,
         # the shell and git / log modes alike, staying in whichever mode you're in.
-        @kb.add("c-t", filter=~overlay_open & (shell_mode | explorer_mode | git_mode | log_mode))
+        @kb.add("c-t", filter=~overlay_open & (shell_mode | explorer_mode | git_mode | log_mode | network_mode | remote_shell_mode))
         def _(event):
             self.shells.new_session()
 
@@ -741,7 +738,7 @@ class NshApp:
 
         # Ctrl+W closes the current tab from the explorer, the shell and git / log
         # modes (closing the last tab just clears its shell and stays put).
-        @kb.add("c-w", filter=~overlay_open & (shell_mode | explorer_mode | git_mode | log_mode))
+        @kb.add("c-w", filter=~overlay_open & (shell_mode | explorer_mode | git_mode | log_mode | network_mode | remote_shell_mode))
         def _(event):
             self.close_shell_tab()
 
@@ -804,6 +801,14 @@ class NshApp:
             buff = event.current_buffer
             buff.complete_state = None  # accept the highlighted item…
             buff.insert_text(" ")       # …and end it with a space
+
+        # Esc while the menu is open should just close the menu and revert the
+        # highlighted items's text preview, not fall through to the global Esc
+        # handler below (which clears the whole command line) - eager to it
+        # wins over that ~overlay_open binding
+        @kb.add("escape", filter=completing, eager=True)
+        def _(event):
+            event.current_buffer.cancel_completion()
 
         @kb.add("up", filter=completing)
         @kb.add("k", filter=completing)
@@ -901,6 +906,20 @@ class NshApp:
             self.remote_shell.container,
         ])
 
+        _net_pane_sep = Window(width=1, char=PANE_SEPARATOR, style="class:preview.border")
+
+        def _with_network(inner):
+            return VSplit([
+                VSplit([inner], width=Dimension(weight=3)),
+                _net_pane_sep,
+                self.networkview.window,
+            ])
+
+        self._explorer_with_network = _with_network(explorer_area)
+        self._git_with_network = _with_network(git_area)
+        self._log_with_network = _with_network(log_area)
+        self._shell_with_network = _with_network(self._shell_split)
+
         def _body():
             if self.mode == SEARCH:
                 return self.search.container
@@ -916,14 +935,17 @@ class NshApp:
                 return (self.remote_shell.container
                         if self.remote_shell_fullscreen()
                         else self._remote_shell_split)
+            connected = self.networkview.connected
             if self.mode == GIT:
-                return git_area
+                return self._git_with_network if connected else git_area
             if self.mode == LOG:
-                return log_area
+                return self._log_with_network if connected else log_area
             if self.mode == SHELL:
                 # grow with output, then take the whole screen at the cap
-                return self.shells.container if self.shell_fullscreen() else self._shell_split
-            return explorer_area
+                if self.shell_fullscreen():
+                    return self.shells.container
+                return self._shell_with_network if connected else self._shell_split
+            return self._explorer_with_network if connected else explorer_area
 
         body = DynamicContainer(_body)
 
