@@ -286,7 +286,7 @@ class ShellCompleter(Completer):
                     return
         if runner is None:
             return
-        for name in sorted(runner.powershell_commands):
+        for name in sorted(runner.powershell_commands()):
             if not name.lower().startswith(value.lower()):
                 continue
             key = name.lower()
