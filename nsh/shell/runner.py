@@ -341,7 +341,7 @@ class CommandRunner:
     def powershell_commands(self):
         """Cached function/alias/cmdlet names for this shell, or empty before
         the background fetch (see :meth:`ensure_powershell_commands`) completes."""
-        return self._ps_command_cache.get(self.shell, frozenset())
+        return _ps_command_cache.get(self.shell, frozenset())
 
     @property
     def _sink(self):
