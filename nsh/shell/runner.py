@@ -95,10 +95,17 @@ def _utf8_safe_cut(buf: bytes) -> int:
     return n
 
 
-def _windows_parent_process():
-    """Return the executable name of nsh's parent process on Windows."""
+def _windows_process_ancestors(max_depth=6):
+    """Return nsh's ancestor process executable names, nearest first.
+
+    nsh is normally started through a ``console_scripts`` launcher (pip's
+    ``nsh.exe`` wrppaer on Windows), which execs python.exe as a *child* and
+    waits for it - so the host shell (PowerShell, say) is nsh's grandparent,
+    not its immediate parent. Walking a few levels up lets callers see past
+    that launcher indirection instead of stopping one hop too early.
+    """
     if os.name != "nt":
-        return ""
+        return []
     try:
         import ctypes
         from ctypes import wintypes
@@ -122,31 +129,36 @@ def _windows_parent_process():
         kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
         snapshot = kernel32.CreateToolhelp32Snapshot(0x00000002, 0)
         if snapshot == ctypes.c_void_p(-1).value:
-            return ""
+            return []
         try:
+            by_pid = {}
             entry = PROCESSENTRY32W()
             entry.dwSize = ctypes.sizeof(entry)
             if not kernel32.Process32FirstW(snapshot, ctypes.byref(entry)):
-                return ""
-            pid = os.getpid()
+                return []
             while True:
-                if entry.th32ProcessID == pid:
-                    parent_pid = entry.th32ParentProcessID
+                by_pid[entry.th32ProcessID] = (
+                    entry.th32ParentProcessID, entry.szExeFile)
+                if not kernel32.Process32NextW(snapshot, ctypes.byref(entry)):
                     break
-                if not kernel32.Process32NextW(snapshot, ctypes.byref(entry)):
-                    return ""
-            entry.dwSize = ctypes.sizeof(entry)
-            if not kernel32.Process32FirstW(snapshot, ctypes.byref(entry)):
-                return ""
-            while True:
-                if entry.th32ProcessID == parent_pid:
-                    return entry.szExeFile
-                if not kernel32.Process32NextW(snapshot, ctypes.byref(entry)):
-                    return ""
         finally:
             kernel32.CloseHandle(snapshot)
+        names = []
+        pid = os.getpid()
+        seen = {pid}
+        for _ in range(max_depth):
+            parent = by_pid.get(pid)
+            if not parent:
+                break
+            ppid, name = parent
+            if ppid in seen:
+                break
+            seen.add(ppid)
+            names.append(name)
+            pid = ppid
+        return names
     except Exception:  # noqa: BLE001 - shell detection must degrade gracefully
-        return ""
+        return []
 
 
 class _StreamDecoder:
@@ -197,10 +209,12 @@ def detect_shell():
             bash = shutil.which("bash")
             if bash:
                 return bash, ["-c"], True
-        parent = _windows_parent_process()
-        parent_base = os.path.basename(parent).lower()
-        if parent and ("powershell" in parent_base or "pwsh" in parent_base):
-            return parent, ["-Command"], False
+        # look past any launcher processes (nsh.exe's pip wrapper, etc) for
+        # the ancestor that's actually the interactive host shell
+        for name in _windows_process_ancestors():
+            base = os.path.basename(name).lower()
+            if "powershell" in base or "pwsh" in base:
+                return name, ["-Command"], False
         comspec = os.environ.get("COMSPEC", "cmd.exe")
         base = os.path.basename(comspec).lower()
         if "powershell" in base or "pwsh" in base:
@@ -249,6 +263,39 @@ def _wait_for_key():
         pass
 
 
+# PowerShell functions/aliases/cmdlets available under $PROFILE, keyed by the
+# shell executable so every tab shares one fetch instead of repeating it.
+# Populated once par process lifetime (see CommandRunner.ensure_powershell_commands)
+# -a anme added to $PROFILE mid-session needs a fresh nsh session to show up.
+_ps_command_cache = {}
+
+
+async def _fetch_powershell_commands(shell_exe):
+    """Ask PowerShell for every function, alias and cmdlet name it knows about.
+    
+    Deliverately omits ``-NoProfile``: the whiole point is to pick up functions
+    and aliases the user defined in ``$PROFILE``, which nsh's own command
+    completion (a plain ``$PATH`` directory scan) can never see since they
+    aren't files. Returns an empty set on any failure - completion just falls
+    back to $PATH-only, same as before this existed.
+    """
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            shell_exe, "-NoLogo", "-NonInteractive", "-Command",
+            "Get-Command -CommandType Function,Alias,Cmdlet "
+            "-ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+            stdin=asyncio.subprocess.DEVNULL,
+        )
+        out, _ = await proc.communicate()
+    except OSError:
+        return frozenset()
+    return frozenset(
+        line.strip() for line in out.decode("utf-8", "replace").splitlines()
+        if line.strip())
+
+
 class CommandRunner:
     def __init__(self, app, session=None):
         self.app = app
@@ -271,6 +318,30 @@ class CommandRunner:
         self._last_duration = None
         self._last_rc = None
         self._tail = ""  # rolling buffer of recent output, for auth detection
+        self._ps_fetch_task = None  # in-flight Get-Command query, if any
+
+    def ensure_powershell_commands(self):
+        """Kick off (once per shell executable, in the background) a query for
+        this PowerShell's functions/aliases/cmdlets, so Tab-completion can offer
+        them alongside $PATH executables. A no-op off PowerShell, or once a
+        fetch has been started/cached for this shell. Safe to call on every
+        completion request - cheap after the first call."""
+        if not self._is_powershell:
+            return
+        if self.shell in _ps_command_cache:
+            return
+        if self._ps_fetch_task is not None and not self._ps_fetch_task.done():
+            return
+
+        async def _run():
+            _ps_command_cache[self.shell] = await _fetch_powershell_commands(self.shell)
+
+        self._ps_fetch_task = asyncio.ensure_future(_run())
+
+    def powershell_commands(self):
+        """Cached function/alias/cmdlet names for this shell, or empty before
+        the background fetch (see :meth:`ensure_powershell_commands`) completes."""
+        return _ps_command_cache.get(self.shell, frozenset())
 
     @property
     def _sink(self):

@@ -791,7 +791,7 @@ async def squash_onto(commit, message, cwd):
 
 async def is_clean(cwd):
     """True when the working tree has no changes (safe to rebase / squash)."""
-    out = await _out(["status", "--porcelain"], cwd)
+    out = await _out(["status", "--porcelain", "untracked-files=no"], cwd)
     return not (out and out.strip())
 
 
