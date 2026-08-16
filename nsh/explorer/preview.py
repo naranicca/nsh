@@ -717,7 +717,9 @@ class PreviewView:
                           "content_before": content, "content_after": updated,
                           "index_info": index_info}
                 self._conflict_undo.setdefault(norm(hunk["path"]), []).append(record)
-                if b"<<<<<<<" not in updated:
+                if self._has_conflict_block(updated):
+                    self.app.set_message(f"accepted {choice}")
+                else:
                     rc, out = await git.stage_resolved_file(hunk["path"], hunk["cwd"])
                     if rc:
                         self.app.set_message(
@@ -725,8 +727,6 @@ class PreviewView:
                     else:
                         self.app.set_message(
                             await self._finish_operation(hunk["cwd"]))
-                else:
-                    self.app.set_message(f"accepted {choice}")
                 self.clear()
                 await self.app.refresh_git()
                 self.focus()
@@ -922,6 +922,19 @@ class PreviewView:
         self._cache[key] = frags
         self._inflight.discard(key)
         self.app.invalidate()
+
+    @staticmethod
+    def _has_conflict_block(content):
+        """Whether ``content`` still opens a conflict block.
+        
+        This has to use _parse_conflicts' rule - a marker only counts at the
+        start of a line. A plain ``b"<<<<<<<" in content`` also matches the
+        seven characters insdie a string literal, a comment or documentation
+        (this very module contains some), and such a file could never be
+        staged however many blocks the user resolved.
+        """
+        return any(line.startswith(b"<<<<<<<")
+                   for line in content.splitlines())
 
     @staticmethod
     def _parse_conflicts(content, entry, cwd):

@@ -259,5 +259,72 @@ class PreviewKeyTests(unittest.TestCase):
         view._open_conflict_menu.assert_not_called()
         self.assertFalse(view.has_conflict_hunk())
 
+    @staticemethod
+    def _finishing_view():
+        view = object.__new__(PreviewView)
+        view._conflict_undo = {"a.txt": [{"any": "record"}]}
+        return view
+
+    def _finish(self, view, unmerged, operation):
+        with mock.patch("nsh.explorer.preview.git.has_unmerged",
+                        new=mock.AsyncMock(return_value=unmerged)), \
+             mock.patch("nsh.explorer.preview.git.operation_in_progress",
+                        return_value=operation), \
+             mock.patch("nsh.explorer.preview.git.commit_pending_operation",
+                        new=mock.AsyncMock(return_value=(0, ""))) as commit:
+            message = asyncio.run(view._finish_operation(Path("repo")))
+        return message, commit
+
+    def test_last_resolved_conflict_commits_the_merge(self):
+        view = self._finishing_view()
+
+        message, commit = self._finish(view, unmerged=False, operation="merge")
+
+        commit.assert_awaited_once_with(Path("repo"))
+        self.assertIn("merge committed", message)
+        # the blocks are committed now; 'u' must not rewrite a finished merge
+        self.assertEqual({}, view._conflict_undo)
+
+    def test_other_conflicted_files_postpone_the_commit(self):
+        view = self._finishing_view()
+
+        message, commit = self._finish(view, unmerged=True, operation="merge")
+
+        commit.assert_not_awaited()
+        self.assertNotIn("committed", message)
+        self.assertTrue(view._conflict_undo)
+
+    def test_rebase_is_left_to_its_own_sequencer(self):
+        view = self._finishing_view()
+
+        message, commit = self._finish(view, unmerged=False, operation="rebase")
+
+        commit.assert_not_awaited()
+        self.assertIn("continue the rebase", message)
+
+    def test_a_lone_conflicted_file_outside_an_operation_is_not_committed(self):
+        view = self._finishing_view()
+
+        message, commit = self._finish(view, unmerged=False, operation=None)
+
+        commit.assert_not_awaited()
+        self.assertIn("file staged", message)
+
+    def test_a_failed_commit_its_reported_and_keeps_the_undo_history(self):
+        view = self._finishing_view()
+
+        with mock.patch("nsh.explorer.preview.git.has_unmerged",
+                        new=mock.AsyncMock(return_value=False)), \
+             mock.patch("nsh.explorer.preview.git.operation_in_progress",
+                        return_value="merge"), \
+             mock.patch("nsh.explorer.preview.git.commit_pending_operation",
+                        new=mock.AsyncMock(
+                            return_value=(1, "hook refused\nnothing added"))):
+            message = asyncio.run(view._finish_operation(Path("repo")))
+
+        self.assertIn("commit failed: nothing added", message)
+        self.assertTrue(view._conflict_undo)
+
+
 if __name__ == "__main__":
     unittest.main()
