@@ -501,9 +501,8 @@ class NshApp:
         Keeping the half-written command is deliberate: the session holds it
         (and the tab persists it across restarts), so re-opening the shell
         resumes where you left off and a stray Esc costs a keystroke rather
-        than the line
+        than the line.
         """
-        shell = self.remote_shell if remote else self.shell
         if remote:
             self.switch_mode(NETWORK)
         else:
