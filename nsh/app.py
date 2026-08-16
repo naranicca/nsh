@@ -471,6 +471,10 @@ class NshApp:
         next_key = self.keys.get("pane_next")
         add(prev_key, tab_mode, self.shells.prev)
         add(next_key, tab_mode, self.shells.next)
+        add(self.keys.get("tab_move_prev"), tab_mode,
+            lambda: self.shells.move(-1))
+        add(self.keys.get("tab_move_next"), tab_mode,
+            lambda: self.shells.move(1))
 
         # Ctrl+Z normally suspends a terminal application on POSIX. Inside a
         # command shell it instead removes only the newest waiting queue item.
