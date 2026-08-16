@@ -2596,10 +2596,16 @@ class NshApp:
             if network is not None and network.connected
             else ("Network", self.open_network_menu)
         )
-        self.open_menu("nsh", [
+        status = getattr(self, "git_status", None)
+        git_item = None
+        if status is not None and status.is_repo:
+            git_item = ("Git: Exit" if self.mode == GIT else "Git",
+                        self.toggle_git_mode)
+        self.open_menu("nsh", [item for item in [
             ("Bookmarks", self.open_bookmark_menu),
             ("Tab", self.open_tab_menu),
             ("Find", self.open_find),
+            git_item,
             network_item,
             (SEPARATOR, None),
             ("Notes", self.open_notes),
@@ -2608,7 +2614,7 @@ class NshApp:
             ("Preferences", self.open_preferences),
             (SEPARATOR, None),
             ("About", self.show_about),
-        ])
+        ] if item is not None])
 
     def open_tab_menu(self):
         """F10 > Tab: open, close and reorder tabs"""
