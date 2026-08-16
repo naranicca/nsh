@@ -504,6 +504,14 @@ class PreviewView:
             if not self.jump_hunk(-1):
                 self.scroll(-1)
 
+        # Enter picks a side on the selected conflict block. Only a conflict
+        # offers a choice, so it stays inert on an ordinary diff hunk - those
+        # have 's' to stage and 'u' to revert.
+        @kb.add("enter")
+        @kb.add("tab")
+        def _(event):
+            self.resolve_current_conflict()
+
         @kb.add("u")
         def _(event):
             self.confirm_revert_hunk()
@@ -593,6 +601,19 @@ class PreviewView:
         self._scroll = hunks[current]["line"]
         self.app.invalidate()
         return True
+
+    def has_conflict_hunk(self):
+        """whether the selected block is a conflict, so Enter offers a choice.
+        Drives the status-bar hint, which otherwise advertises stage/revert."""
+        hunk = self._current_hunk()
+        return hunk is not None and hunk.get("kind") == "conflict"
+
+    def resolve_current_conflict(self):
+        """Enter on a conflict block: ask which side to keep."""
+        hunk = self._current_hunk()
+        if hunk is None or hunk.get("kind") != "conflict":
+            return
+        self._open_conflict_menu(hunk)
 
     def _current_hunk(self):
         key = self._current_diff_key()
