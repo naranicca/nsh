@@ -929,7 +929,7 @@ class PreviewView:
         
         This has to use _parse_conflicts' rule - a marker only counts at the
         start of a line. A plain ``b"<<<<<<<" in content`` also matches the
-        seven characters insdie a string literal, a comment or documentation
+        seven characters inside a string literal, a comment or documentation
         (this very module contains some), and such a file could never be
         staged however many blocks the user resolved.
         """

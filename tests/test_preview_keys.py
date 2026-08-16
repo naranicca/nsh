@@ -209,6 +209,22 @@ class PreviewKeyTests(unittest.TestCase):
         self.assertEqual(hunks[0]["both"], b"ours\ntheirs\n")
         self.assertEqual(lines[0], "before")
 
+    def test_marker_text_inside_a_line_does_count_as_a_conflict(self):
+        # a source file may legitimately mention the markers; only a line that
+        # *starts* one is a block, which is what _parse_conflicts matches
+        quoted = b'    sep = b"<<<<<<< HEAD"\n    other = b">>>>>>> topic"\n'
+
+        self.assertFalse(PreviewView._has_conflict_block(quoted))
+        self.assertEqual(
+            [], PreviewView._parse_conflicts(
+                quoted, SimpleNamespace(path=Path("a.py"), rel="a.py"),
+                Path("repo"))[0])
+
+    def test_a_real_block_still_counts_as_a_conflict(self):
+        content = b"<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> topic\n"
+
+        self.assertTrue(PreviewView._has_conflict_block(content))
+
     def test_s_opens_resolution_menu_for_conflict_block(self):
         view = object.__new__(PreviewView)
         hunk = {"kind": "conflict"}
@@ -223,7 +239,7 @@ class PreviewKeyTests(unittest.TestCase):
     def test_enter_and_tab_open_the_resolution_menu_for_a_conflict(self) :
         for key in ("enter", "tab"):
             with self.subTest(key=key):
-                view = object. new (PreviewView)
+                view = object.__new__(PreviewView)
                 hunk = {"kind": "conflict"}
                 view._current_hunk = mock.Mock(return_value=hunk)
                 view._open_conflict_menu = mock.Mock()
@@ -244,7 +260,7 @@ class PreviewKeyTests(unittest.TestCase):
         view._current_hunk = mock.Mock(return_value={"staged": False})
         view._open_conflict_menu = mock.Mock()
 
-        view.resolve_current_conflict
+        view.resolve_current_conflict()
 
         view._open_conflict_menu.assert_not_called()
         self.assertFalse(view.has_conflict_hunk())
@@ -254,12 +270,12 @@ class PreviewKeyTests(unittest.TestCase):
         view._current_hunk = mock.Mock(return_value=None)
         view._open_conflict_menu = mock.Mock()
 
-        view.resolve_current_conflict
+        view.resolve_current_conflict()
 
         view._open_conflict_menu.assert_not_called()
         self.assertFalse(view.has_conflict_hunk())
 
-    @staticemethod
+    @staticmethod
     def _finishing_view():
         view = object.__new__(PreviewView)
         view._conflict_undo = {"a.txt": [{"any": "record"}]}
@@ -310,7 +326,7 @@ class PreviewKeyTests(unittest.TestCase):
         commit.assert_not_awaited()
         self.assertIn("file staged", message)
 
-    def test_a_failed_commit_its_reported_and_keeps_the_undo_history(self):
+    def test_a_failed_commit_is_reported_and_keeps_the_undo_history(self):
         view = self._finishing_view()
 
         with mock.patch("nsh.explorer.preview.git.has_unmerged",
