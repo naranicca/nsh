@@ -209,6 +209,22 @@ class PreviewKeyTests(unittest.TestCase):
         self.assertEqual(hunks[0]["both"], b"ours\ntheirs\n")
         self.assertEqual(lines[0], "before")
 
+    def test_marker_text_inside_a_line_does_count_as_a_conflict(self):
+        # a source file may legitimately mention the markers; only a line that
+        # *starts* one is a block, which is what _parse_conflicts matches
+        quoted = b'    sep = b"<<<<<<< HEAD"\n    other = b">>>>>>> topic"\n'
+
+        self.assertFalse(PreviewView._has_conflict_block(quoted))
+        self.assertEqual(
+            [], PreviewView._parse_conflicts(
+                quoted, SimpleNamespace(path=Path("a.py"), rel="a.py"),
+                Path("repo"))[0])
+
+    def test_a_real_block_still_counts_as_a_conflict(self):
+        content = b"<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> topic\n"
+
+        self.assertTrue(PreviewView._has_conflict_block(content))
+
     def test_s_opens_resolution_menu_for_conflict_block(self):
         view = object.__new__(PreviewView)
         hunk = {"kind": "conflict"}
@@ -220,23 +236,23 @@ class PreviewKeyTests(unittest.TestCase):
 
         view._open_conflict_menu.assert_called_once_with(hunk)
 
-    def test_enter_and_tab_open_the_resolution_menu_for_a_conflict(self) :
-        for key in ("enter", "tab"):
-            with self.subTest(key=key):
-                view = object. new (PreviewView)
+    def test_enter_and_tab_open_the_resolution_menu_for_a_conflict(self):
+        for name, key in (("enter", "c-m"), ("tab", "c-i")):
+            with self.subTest(key=name):
+                view = object.__new__(PreviewView)
                 hunk = {"kind": "conflict"}
                 view._current_hunk = mock.Mock(return_value=hunk)
                 view._open_conflict_menu = mock.Mock()
                 view.app = SimpleNamespace(keys={})
                 bindings = view._kb().get_bindings_for_keys((key,))
 
-                self .assertEqual(len(bindings), 1)
-                # calls the no-argument entry point, not resolve conflict(hunk
-                # choice) - which the menu's 07m items invoke with a side
-                bindings [0].handler(SimpleNamespace())
+                self.assertEqual(len(bindings), 1)
+                # calls the no-argument entry point, not resolve conflict(hunk,
+                # choice) - which the menu's own items invoke with a side
+                bindings[0].handler(SimpleNamespace())
 
                 view._open_conflict_menu.assert_called_once_with(hunk)
-                self .assertTrue(view.has_conflict_hunk())
+                self.assertTrue(view.has_conflict_hunk())
 
     def test_enter_is_inert_on_an_ordinary_diff_hunk(self):
         view = object.__new__(PreviewView)
@@ -244,7 +260,7 @@ class PreviewKeyTests(unittest.TestCase):
         view._current_hunk = mock.Mock(return_value={"staged": False})
         view._open_conflict_menu = mock.Mock()
 
-        view.resolve_current_conflict
+        view.resolve_current_conflict()
 
         view._open_conflict_menu.assert_not_called()
         self.assertFalse(view.has_conflict_hunk())
@@ -254,10 +270,77 @@ class PreviewKeyTests(unittest.TestCase):
         view._current_hunk = mock.Mock(return_value=None)
         view._open_conflict_menu = mock.Mock()
 
-        view.resolve_current_conflict
+        view.resolve_current_conflict()
 
         view._open_conflict_menu.assert_not_called()
         self.assertFalse(view.has_conflict_hunk())
+
+    @staticmethod
+    def _finishing_view():
+        view = object.__new__(PreviewView)
+        view._conflict_undo = {"a.txt": [{"any": "record"}]}
+        return view
+
+    def _finish(self, view, unmerged, operation):
+        with mock.patch("nsh.explorer.preview.git.has_unmerged",
+                        new=mock.AsyncMock(return_value=unmerged)), \
+             mock.patch("nsh.explorer.preview.git.operation_in_progress",
+                        return_value=operation), \
+             mock.patch("nsh.explorer.preview.git.commit_pending_operation",
+                        new=mock.AsyncMock(return_value=(0, ""))) as commit:
+            message = asyncio.run(view._finish_operation(Path("repo")))
+        return message, commit
+
+    def test_last_resolved_conflict_commits_the_merge(self):
+        view = self._finishing_view()
+
+        message, commit = self._finish(view, unmerged=False, operation="merge")
+
+        commit.assert_awaited_once_with(Path("repo"))
+        self.assertIn("merge committed", message)
+        # the blocks are committed now; 'u' must not rewrite a finished merge
+        self.assertEqual({}, view._conflict_undo)
+
+    def test_other_conflicted_files_postpone_the_commit(self):
+        view = self._finishing_view()
+
+        message, commit = self._finish(view, unmerged=True, operation="merge")
+
+        commit.assert_not_awaited()
+        self.assertNotIn("committed", message)
+        self.assertTrue(view._conflict_undo)
+
+    def test_rebase_is_left_to_its_own_sequencer(self):
+        view = self._finishing_view()
+
+        message, commit = self._finish(view, unmerged=False, operation="rebase")
+
+        commit.assert_not_awaited()
+        self.assertIn("continue the rebase", message)
+
+    def test_a_lone_conflicted_file_outside_an_operation_is_not_committed(self):
+        view = self._finishing_view()
+
+        message, commit = self._finish(view, unmerged=False, operation=None)
+
+        commit.assert_not_awaited()
+        self.assertIn("file staged", message)
+
+    def test_a_failed_commit_is_reported_and_keeps_the_undo_history(self):
+        view = self._finishing_view()
+
+        with mock.patch("nsh.explorer.preview.git.has_unmerged",
+                        new=mock.AsyncMock(return_value=False)), \
+             mock.patch("nsh.explorer.preview.git.operation_in_progress",
+                        return_value="merge"), \
+             mock.patch("nsh.explorer.preview.git.commit_pending_operation",
+                        new=mock.AsyncMock(
+                            return_value=(1, "hook refused\nnothing added"))):
+            message = asyncio.run(view._finish_operation(Path("repo")))
+
+        self.assertIn("commit failed: nothing added", message)
+        self.assertTrue(view._conflict_undo)
+
 
 if __name__ == "__main__":
     unittest.main()
