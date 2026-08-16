@@ -1188,6 +1188,8 @@ class ExplorerView:
         ("two_pane", "toggle two-pane view"),
         ("pane_prev", "prev tab / switch pane / focus list"),
         ("pane_next", "next tab / switch pane / focus preview"),
+        ("tab_move_prev", "move this tab left"),
+        ("tab_move_next", "move this tab right"),
         ("zoom", "enlarge the focused pane (9:1)"),
         ("menu", "action menu (copy, rename, git…)"),
         ("copy", "copy"), ("cut", "cut"), ("paste", "paste"),

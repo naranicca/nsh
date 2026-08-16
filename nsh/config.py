@@ -195,6 +195,8 @@ DEFAULT_KEYS = {
     # in two-pane mode, and list <-> preview focus. Remappable (ctrl combos OK).
     "pane_prev": "f7",
     "pane_next": "f8",
+    "tab_move_prev": "c-f7",
+    "tab_move_next": "c-f8",
     # enlarge the focused pane to a 9:1 split (the big pane follows the focus)
     "zoom": "z",
     "menu": "tab",
@@ -352,6 +354,8 @@ DEFAULT_NSHRC = """\
 # two_pane = 2         (toggle the two-pane view)
 # pane_prev = f7       (previous tab)
 # pane_next = f8       (next tab)
+# tab_move_prev = c-f7 (move this tab left in the tab bar)
+# tab_move_next = c-f8 (move this tab right in the tab bar)
 # zoom = z             (enlarge the focused pane to a 9:1 split)
 # menu = tab
 # copy = y
