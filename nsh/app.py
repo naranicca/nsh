@@ -1129,12 +1129,13 @@ class NshApp:
             return "class:titlebar.branch.behind", f"⎇ {gs.branch} +{gs.ahead}"
         return "class:titlebar.branch", f"⎇ {gs.branch}"
 
-    def _pane_git_segs(self, i):
-        """Branch (+ in-progress merge/rebase) and selected-count badge for pane
-        ``i``, from that pane's own git status / selection — so each pane in the
-        two-pane title shows its own branch."""
+    def _pane_git_segs(self, view):
+        """Branch (+ in-proress merge/rebase) and selected-count badge for the
+        explorer pane ``view``, from its own git status / selection - so each
+        pane of the two-pane title, and the local half of the local|remote
+        split, shows its own branch."""
         segs = []
-        gs = self.explorers[i].git_status
+        gs = view.git_status
         branch = self._branch_seg(gs)
         if branch:
             segs.append(("class:titlebar", " on "))
@@ -1142,7 +1143,7 @@ class NshApp:
             if gs.in_progress:
                 segs.append(("class:titlebar", " "))
                 segs.append(("class:titlebar.branch.dirty", f"⚠ {gs.in_progress}"))
-        sel = self.explorers[i].selected
+        sel = view.selected
         if sel:
             segs.append(("class:titlebar", "  "))
             segs.append(("class:titlebar.sel", f"● {len(sel)} selected"))
@@ -1181,6 +1182,25 @@ class NshApp:
         PREFERENCES: "preferences",
     }
 
+    def _network_split_on_screen(self):
+        """Whether _body() is showing the local|remote split at the top, so the
+        title bar should align its halves to it.
+        
+        Mirros _body(): the explorer and network modes show it whenever the
+        connection is live, the local and remote shells keep it above their
+        output until it goes full screen, and git / log keep their own 3:1
+        column beside the remote pane instead (so they stay on the plain
+        title). A stale network mode with no connection falls back too."""
+        if not self.networkview.connected:
+            return False
+        if self.mode in (EXPLORER, NETWORK):
+            return True
+        if self.mode == SHELL:
+            return not self.shell_fullscreen()
+        if self.mode == REMOTE_SHELL:
+            return not self.remote_shell_fullscreen()
+        return False
+
     def _name_label(self):
         """The leading ``nsh`` label, suffixed with the active mode (e.g.
         ``nsh|git``) so the mode is visible right next to the program name."""
@@ -1196,10 +1216,7 @@ class NshApp:
         tint = self.menu.active and not self._menu_at_cursor
         name_style = "class:menu.title" if tint else "class:titlebar.name"
         clock = [("class:titlebar.clock", f" {datetime.now().strftime('%H:%M:%S')} ")]
-        # the local|remote split is on screen in network mode and in any tab
-        # holding the explorer while the connection is live
-        if self.mode == NETWORK or (self.mode == EXPLORER
-                                    and self.networkview.connected):
+        if self._network_split_on_screen():
             try:
                 total = get_app().output.get_size().columns
             except Exception:
@@ -1238,9 +1255,15 @@ class NshApp:
         label_width = sum(text_width(text) for _style, text in label)
         local = self.networkview.local_view or self.explorer
 
-        local_room = max(0, left_width - label_width)
+        # the local half is a normal explorer pane, so it carries the same
+        # branch / merge-in-progress / selected badge the other layouts show.
+        # Like the two-pane title, the badge keeps its width and the path is
+        # clipped to what is left, so the branch stays visible on narrow panes.
+        local_git = self._pane_git_segs(local)
+        local_git_width = sum(text_width(text) for _style, text in local_git)
+        local_room = max(0, left_width - label_width - local_git_width)
         local_text = self._clip_path(shorten_home(local.cwd), local_room)
-        left = label + [("class:titlebar.path", local_text)]
+        left = label + [("class:titlebar.path", local_text)] + local_git
         left = self._clip_segs(left, left_width, "class:titlebar")
 
         remote_room = max(0, right_width - clock_width)
@@ -1271,7 +1294,7 @@ class NshApp:
             """Path segment for pane ``i`` followed by its own branch/selected
             badge, fitting ``avail`` cells: the branch keeps its width and the
             path is clipped to whatever's left (so the branch stays visible)."""
-            git_segs = self._pane_git_segs(i)
+            git_segs = self._pane_git_segs(self.explorers[i])
             git_w = sum(text_width(t) for _, t in git_segs)
             path = self._clip_path(
                 shorten_home(self.explorers[i].cwd),
