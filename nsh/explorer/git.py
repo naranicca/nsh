@@ -6,6 +6,7 @@ never blocks while status is computed for a large repository.
 import asyncio
 import os
 import sys
+import stat as stat_module
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -162,17 +163,24 @@ async def child_repositories(directories):
 
     async def inspect(path):
         async with semaphore:
-            layout = _repository_layout(path)
-            if layout is None or norm(layout[0]) != norm(path):
+            # One unreadable directory must not fail the whole gather: this
+            # walks every visible child of a non-repository directory, so it
+            # meets system folders and other user's homes routinely. Those are
+            # simply "not a repository".
+            try:
+                layout = _repository_layout(path)
+                if layout is None or norm(layout[0]) != norm(path):
+                    return None
+                root, gitdir = layout
+                rc, porcelain = await run_git(_STATUS_ARGS, path)
+                if rc != 0:
+                    return None
+                status = GitStatus(is_repo=True, root=root)
+                _parse_porcelain_v2(status, porcelain)
+                status.has_remote = _has_remote(gitdir) or status.has_upstream
+                status.in_progress = _operation_in_progress(gitdir)
+            except OSError:
                 return None
-            root, gitdir = layout
-            rc, porcelain = await run_git(_STATUS_ARGS, path)
-            if rc != 0:
-                return None
-            status = GitStatus(is_repo=True, root=root)
-            _parse_porcelain_v2(status, porcelain)
-            status.has_remote = _has_remote(gitdir) or status.has_upstream
-            status.in_progress = _operation_in_progress(gitdir)
             return norm(path), status
 
     found = await asyncio.gather(*(inspect(Path(path)) for path in directories))
@@ -184,15 +192,35 @@ _STATUS_ARGS = [
     "--porcelain=v2", "--branch", "--show-stash",
 ]
 
+def _stat_or_none(path):
+    """``path.stat()``, or ``None`` when the path cannot be read.
+    
+    pathlib's ``is_dir`` / ``is_file`` / ``exists`` only swallow "it isn't
+    there" errors (ENOENT, ENOTDIR, EBADF, ELOOP) - anything else, a directory
+    the user may not stat above all, is re-raised. Explorer probes ``.git`` in
+    whatever it happens to be listing, so ``/root/``.git and friends have to
+    read as "not a repository" rather than crash the app.
+    """
+    try:
+        return path.stat()
+    except (OSError, ValueError):
+        return None
 
+def _exists(path):
+    """Permission-safe ``Path.exists()`` - see :func:`_stat_or_none`."""
+    return _stat_or_none(path) is not None
+ 
 def _repository_layout(directory):
     """Return ``(worktree root, git dir)`` without starting ``git.exe``."""
     path = Path(directory).absolute()
     for root in (path, *path.parents):
         marker = root / ".git"
-        if marker.is_dir():
+        info = _stat_or_none(marker)
+        if info is None:  # missing, or not ours to look at
+            continue
+        if stat_module.S_ISDIR(info.st_mode):
             return root, marker
-        if marker.is_file():
+        if stat_module.S_ISREG(info.st_mode):
             try:
                 line = marker.read_text(encoding="utf-8", errors="replace").strip()
             except OSError:
@@ -840,13 +868,14 @@ def _operation_in_progress(gitdir):
     if gitdir is None:
         return None
     g = Path(gitdir)
-    if (g / "rebase-merge").exists() or (g / "rebase-apply").exists():
+    # a readable .git can still hold unreadable entries, so probe permissively
+    if _exists(g / "rebase-merge") or _exists(g / "rebase-apply"):
         return "rebase"
-    if (g / "MERGE_HEAD").exists():
+    if _exists(g / "MERGE_HEAD"):
         return "merge"
-    if (g / "CHERRY_PICK_HEAD").exists():
+    if _exists(g / "CHERRY_PICK_HEAD"):
         return "cherry-pick"
-    if (g / "REVERT_HEAD").exists():
+    if _exists(g / "REVERT_HEAD"):
         return "revert"
     return None
 
