@@ -212,10 +212,6 @@ def _exists(path):
     return _stat_or_none(path) is not None
  
 
-def _exists(path):
-    """Permission-safe ``Path.exists()`` - see :func:`_stat_or_none`."""
-    return _stat_or_none(path) is not None
- 
 def _repository_layout(directory):
     """Return ``(worktree root, git dir)`` without starting ``git.exe``."""
     path = Path(directory).absolute()

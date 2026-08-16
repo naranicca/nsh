@@ -1361,8 +1361,13 @@ class NshApp:
             ]
             if self.preview.has_diff_hunks():
                 hints[0] = (hints[0][0], "change")
-                hints.insert(1, ("u", "revert change"))
-                hints.insert(1, ("s", "stage/unstage"))
+                if self.preview.has_conflict_hunk():
+                    hints.insert(1, ("u", "undo resolve"))
+                    hints.insert(1, ("↵", "resolve",
+                                     self.preview.resolve_current_conflict))
+                else:
+                    hints.insert(1, ("u", "revert change"))
+                    hints.insert(1, ("s", "stage/unstage"))
         elif self.mode == EXPLORER:
             hints = [
                 ("Space", "select", ex.toggle_select),
