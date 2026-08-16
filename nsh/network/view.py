@@ -142,7 +142,7 @@ class NetworkView:
                     remote.connect, protocol, target, password, jump,
                     accept_host_key)
                 old = self.backend
-                # Adpot the pane that is current *now*, not the one the
+                # Adopt the pane that is current *now*, not the one the
                 # connection was started from: the handshake takes seconds, and
                 # a tab switch during it could not re-point us (connected() was
                 # still False, so _sync_network_local_pane did nothing). That

@@ -2113,7 +2113,7 @@ class NshApp:
         """The explorer panes actually on screen.
 
         While connected the left half is the network view's own local pane, and
-        the second explorer pane is not on scren at all (the remote pane owns
+        the second explorer pane is not on screen at all (the remote pane owns
         that column). Anything that keeps a pane fresh has to follow what is
         displayed rather than the tab's ``active_pane``: the two normally agree,
         but nothing enforces it, and when they drift the listing you are looking
@@ -2122,7 +2122,7 @@ class NshApp:
         if self.networkview.connected:
             return [self.networkview.local_view or self.explorer]
         if self.two_pane:  # so the inactive pane's markers stay correct too
-            return list(self.explorerss)
+            return list(self.explorers)
         return [self.explorer]
 
     def _git_panes(self):
