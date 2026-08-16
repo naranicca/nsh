@@ -956,7 +956,11 @@ class NshApp:
 
         self._git_with_network = _with_network(git_area)
         self._log_with_network = _with_network(log_area)
-        self._shell_with_network = _with_network(self._shell_split)
+        self._shell_with_network = HSplit([
+            self._network_split,
+            Window(height=1, char="─", style="class:preview.border"),
+            self.shells.container,
+        ])
 
         def _body():
             if self.mode == SEARCH:
@@ -974,7 +978,7 @@ class NshApp:
                 return self._network_split if connected else explorer_area
             if self.mode == REMOTE_SHELL:
                 if not connected:  # same fallback as a stale network mode
-                    return exolorer_area
+                    return explorer_area
                 return (self.remote_shell.container
                         if self.remote_shell_fullscreen()
                         else self._remote_shell_split)
@@ -2457,7 +2461,7 @@ class NshApp:
             # local | remote: teh lone local list shares the width with the
             # remote pane, whatever the tab's own two-pane flag says - an even
             # split, or the 3:1 one the shell's overlaid listing sits in
-            w_local = 3 if self.mode == SHELL else self._pane_dim(
+            w_local = self._pane_dim(
                 self._explorer_focused(self.active_pane)).weight
             return max(4, round(avail * w_local / (w_local + 1)))
         # no split on screen: the listing owns the whole width
