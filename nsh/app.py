@@ -954,17 +954,6 @@ class NshApp:
             self.remote_shell.container,
         ])
 
-        _net_pane_sep = Window(width=1, char=PANE_SEPARATOR, style="class:preview.border")
-
-        def _with_network(inner):
-            return VSplit([
-                VSplit([inner], width=Dimension(weight=3)),
-                _net_pane_sep,
-                self.networkview.window,
-            ])
-
-        self._git_with_network = _with_network(git_area)
-        self._log_with_network = _with_network(log_area)
         self._shell_with_network = HSplit([
             self._network_split,
             Window(height=1, char="─", style="class:preview.border"),
@@ -992,9 +981,9 @@ class NshApp:
                         if self.remote_shell_fullscreen()
                         else self._remote_shell_split)
             if self.mode == GIT:
-                return self._git_with_network if connected else git_area
+                return git_area
             if self.mode == LOG:
-                return self._log_with_network if connected else log_area
+                return log_area
             if self.mode == SHELL:
                 # grow with output, then take the whole screen at the cap
                 if self.shell_fullscreen():
@@ -1757,8 +1746,9 @@ class NshApp:
     def _preview_on_screen(self):
         """Whether the preview pane is actually laid out beside the list. While
         a remote connection is up it isn't: the remote pane holds the right half
-        of the explorer, network and shell views - only the git / log diff
-        preview keeps its column."""
+        of the explorer, network and shell views. Git and the log are the
+        exception - they replace the remote pane rather than share with it, so
+        their diff keeps its column."""
         if self.networkview.connected and self.mode not in (GIT, LOG):
             return False
         return self.show_preview and self._wide_enough()
