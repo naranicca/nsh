@@ -510,7 +510,7 @@ class PreviewView:
         @kb.add("enter")
         @kb.add("tab")
         def _(event):
-            self._resolve_conflict()
+            self.resolve_current_conflict()
 
         @kb.add("u")
         def _(event):
