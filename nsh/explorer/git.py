@@ -569,6 +569,32 @@ async def stage_resolved_file(path, cwd):
     return await run_git(["add", "--", str(path)], cwd)
 
 
+# Operations that a plain ``git commit`` concludes. A rebase is deliberately
+# absent: it is driven by its own sequencer and needs ``git rebase --continue``.
+COMMIT_FINISHES = frozenset({"merge", "cherry-pick", "revert"})
+
+
+async def has_unmerged(cwd):
+    """Whether any path in the repository is still unmerged.
+    
+    Resolving the last block of *one* file does not end the operation - other
+    conflicted files may remain, so ask the index rather than assuming.
+    """
+    rc, out = await run_git(["ls-files", "--unmerged"], cwd)
+    return bool(rc == 0 and out.strip())
+
+
+def operation_in_progress(directory):
+    """Which multi-step operation the repository holding ``directory`` is in."""
+    layout = _repository_layout(directory)
+    return _operation_in_progress(layout[1]) if layout is not None else None
+
+
+async def commit_pending_operation(cwd):
+    """Conclude a mertge / checrry-pick / reveret with the message Git prepared."""
+    return await run_git(["commit", "--no-edit"], cwd)
+
+
 async def restore_conflict_index(path, cwd, index_info):
     """Replace a stage-0 entry with its saved stage 1/2/3 conflict entries."""
     rc, out = await run_git(["update-index", "--force-remove", "--", str(path)], cwd)

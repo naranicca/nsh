@@ -220,6 +220,44 @@ class PreviewKeyTests(unittest.TestCase):
 
         view._open_conflict_menu.assert_called_once_with(hunk)
 
+    def test_enter_and_tab_open_the_resolution_menu_for_a_conflict(self) :
+        for key in ("enter", "tab"):
+            with self.subTest(key=key):
+                view = object. new (PreviewView)
+                hunk = {"kind": "conflict"}
+                view._current_hunk = mock.Mock(return_value=hunk)
+                view._open_conflict_menu = mock.Mock()
+                view.app = SimpleNamespace(keys={})
+                bindings = view._kb().get_bindings_for_keys((key,))
+
+                self .assertEqual(len(bindings), 1)
+                # calls the no-argument entry point, not resolve conflict(hunk
+                # choice) - which the menu's 07m items invoke with a side
+                bindings [0].handler(SimpleNamespace())
+
+                view._open_conflict_menu.assert_called_once_with(hunk)
+                self .assertTrue(view.has_conflict_hunk())
+
+    def test_enter_is_inert_on_an_ordinary_diff_hunk(self):
+        view = object.__new__(PreviewView)
+        # a staged/unstaged block has 's' and 'u'; there is no side to pick
+        view._current_hunk = mock.Mock(return_value={"staged": False})
+        view._open_conflict_menu = mock.Mock()
+
+        view.resolve_current_conflict
+
+        view._open_conflict_menu.assert_not_called()
+        self.assertFalse(view.has_conflict_hunk())
+
+    def test_enter_is_inert_without_any_selected_block(self):
+        view = object.__new__(PreviewView)
+        view._current_hunk = mock.Mock(return_value=None)
+        view._open_conflict_menu = mock.Mock()
+
+        view.resolve_current_conflict
+
+        view._open_conflict_menu.assert_not_called()
+        self.assertFalse(view.has_conflict_hunk())
 
 if __name__ == "__main__":
     unittest.main()

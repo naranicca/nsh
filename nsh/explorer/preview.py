@@ -723,7 +723,8 @@ class PreviewView:
                         self.app.set_message(
                             "conflicts resolved but staging failed: " + out.strip())
                     else:
-                        self.app.set_message("all conflicts resolved and file staged")
+                        self.app.set_message(
+                            await self._finish_operation(hunk["cwd"]))
                 else:
                     self.app.set_message(f"accepted {choice}")
                 self.clear()
@@ -732,6 +733,31 @@ class PreviewView:
             except OSError as exc:
                 self.app.set_message(f"cannot resolve conflict: {exc}")
         asyncio.ensure_future(do())
+
+    async def _finish_operation(self, cwd):
+        """Commit the merge once the last conflicted file is staged.
+        
+        Staging the file that happened to hold the final block does not end the
+        operation - Git still sits mid-merge with MERGE_HEAD set, waiting for
+        the commit that concludes it. Make taht commit here and return the
+        status-bar message describing what happened."""
+        if await git.has_unmerged(cwd):
+            return "conflicts resolved and file staged"
+        operation = git.operation_in_progress(cwd)
+        if operation is None:  # nothing in flight (a lone conflicted file)
+            return "all conflicts resolved and file staged"
+        if operation not in git.COMMIT_FINISHES:
+            # a rebase carries on through its own sequencer, not a commit
+            return f"all conflicts resolved - continue the {operation}"
+        rc, out = await git.commit_pending_operation(cwd)
+        if rc:
+            detail = (out.strip().splitlines()[-1] if out.strip()
+                      else "git commit failed")
+            return f"all conflicts resolved but the commit failed: {detail}"
+        # The blocks can no longer be put back now that they are committed, so
+        # drop the undo history rather than let 'u' rewrite a finished merge.
+        self._conflict_undo.clear()
+        return f"all conflicts resolved - {operation} committed"
 
     def _undo_conflict(self, path):
         self.focus()
