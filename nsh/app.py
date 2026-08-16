@@ -2594,6 +2594,7 @@ class NshApp:
         )
         self.open_menu("nsh", [
             ("Bookmarks", self.open_bookmark_menu),
+            ("Tab", self.open_tab_menu),
             ("Find", self.open_find),
             network_item,
             (SEPARATOR, None),
@@ -2604,6 +2605,23 @@ class NshApp:
             (SEPARATOR, None),
             ("About", self.show_about),
         ])
+
+    def open_tab_menu(self):
+        """F10 > Tab: open, close and reorder tabs"""
+        tabs = self.shells
+        items = [
+            ("New tab", tabs.new_session),
+            ("Close tab", tabs.request_close),
+        ]
+        moves = []
+        if tabs.active > 0:
+            moves.append(("Move left", lambda: tabs.move(-1)))
+        if tabs.active < len(tabs.sessions) - 1:
+            moves.append(("Move right", lambda: tabs.move(1)))
+        if moves:
+            items.append((SEPARATOR, None))
+            items += moves
+        self.open_menu("Tab", items)
 
     def open_preferences(self):
         """Open the searchable, full-screen configuration editor."""

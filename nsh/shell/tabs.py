@@ -253,6 +253,18 @@ class ShellTabs:
     def prev(self):
         self.select((self.active - 1) % len(self.sessions))
 
+    def move(self, direction):
+        """Reorder: swap the current tab with its neighbour and follow it."""
+        target = self.active + direction
+        if not 0 <= target < len(self.sessions):
+            return False
+        sessions = self.sessions
+        sessions[self.active], sessions[target] = (
+            sessions[target], sessions[self.active])
+        self.active = target  # the index moved; the current session did not
+        self.app.invalidate()
+        return True
+
     def rename(self, session=None):
         """Prompt for a custom label for a tab (default: the active one)."""
         session = session or self.current()
