@@ -2109,10 +2109,25 @@ class NshApp:
             self.switch_mode(EXPLORER)
         self.invalidate()
 
+    def _visible_panes(self):
+        """The explorer panes actually on screen.
+
+        While connected the left half is the network view's own local pane, and
+        the second explorer pane is not on scren at all (the remote pane owns
+        that column). Anything that keeps a pane fresh has to follow what is
+        displayed rather than the tab's ``active_pane``: the two normally agree,
+        but nothing enforces it, and when they drift the listing you are looking
+        at silently stops updating while a hidden pane is refreshed in its place.
+        """
+        if self.networkview.connected:
+            return [self.networkview.local_view or self.explorer]
+        if self.two_pane:  # so the inactive pane's markers stay correct too
+            return list(self.explorerss)
+        return [self.explorer]
+
     def _git_panes(self):
-        """The panes whose git status should be kept fresh: both when two-pane
-        view is on (so the inactive pane's markers show too), else just active."""
-        return list(self.explorers) if self.two_pane else [self.explorer]
+        """The panes whose git status should be kept fresh: the visible ones."""
+        return self._visible_panes()
 
     def schedule_git(self):
         if self._git_task and not self._git_task.done():
@@ -2816,11 +2831,10 @@ class NshApp:
                 if self.mode == GIT:
                     await self.refresh_git()  # reflect external edits in the list/diff
                 else:
-                    panes = [self.explorer]
-                    if self.two_pane:  # keep the inactive pane fresh too
-                        panes.append(self.explorers[1 - self.active_pane])
-                    await asyncio.gather(
-                        *(pane.check_external_change() for pane in panes))
+                    # poll what is on screen - while connected that is the
+                    # network view's local pane, not the tab's active_pane
+                    await asyncio.gather(*(pane.check_external_change()
+                                           for pane in self._visible_panes()))
             except asyncio.CancelledError:
                 raise
             except Exception:  # noqa: BLE001 - never let the watcher die

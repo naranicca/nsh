@@ -133,7 +133,6 @@ class NetworkView:
                 accept_host_key=None):
         if self.busy:
             return
-        local_view = self.app.explorer  # capture before the network handshake
         self.busy = True
         self.app.set_message(f"connecting to {target}…")
 
@@ -143,7 +142,13 @@ class NetworkView:
                     remote.connect, protocol, target, password, jump,
                     accept_host_key)
                 old = self.backend
-                self.local_view = local_view
+                # Adpot the pane that is current *now*, not the one the
+                # connection was started from: the handshake takes seconds, and
+                # a tab switch during it could not re-point us (connected() was
+                # still False, so _sync_network_local_pane did nothing). That
+                # left the displayed local half on one tab's pane while the
+                # refreshes all followed another's.
+                self.local_view = self.app.explorer
                 self.backend, self.path = backend, path
                 if old is not None:
                     await run_in_thread(old.close)
