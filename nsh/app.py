@@ -377,7 +377,7 @@ class NshApp:
         staying in the current mode rather than forcing shell mode."""
         # the connection owns the right pane in every tab, so a plain explorer
         # tab (a freshly opened one included) adopts the local|remote layout
-        # instead of growing a thrid pane beside the preview. It starts on its
+        # instead of growing a third pane beside the preview. It starts on its
         # own local list - the remote pane is a Shift+L away.
         promoted = self.networkview.connected and self.mode == EXPLORER
         if promoted:
@@ -1130,7 +1130,7 @@ class NshApp:
         return "class:titlebar.branch", f"⎇ {gs.branch}"
 
     def _pane_git_segs(self, view):
-        """Branch (+ in-proress merge/rebase) and selected-count badge for the
+        """Branch (+ in-progress merge/rebase) and selected-count badge for the
         explorer pane ``view``, from its own git status / selection - so each
         pane of the two-pane title, and the local half of the local|remote
         split, shows its own branch."""
@@ -1185,8 +1185,7 @@ class NshApp:
     def _network_split_on_screen(self):
         """Whether _body() is showing the local|remote split at the top, so the
         title bar should align its halves to it.
-        
-        Mirros _body(): the explorer and network modes show it whenever the
+        Mirrors _body(): the explorer and network modes show it whenever the
         connection is live, the local and remote shells keep it above their
         output until it goes full screen, and git / log keep their own 3:1
         column beside the remote pane instead (so they stay on the plain
@@ -2481,7 +2480,7 @@ class NshApp:
         column stranded mid-pane once a pane is zoomed wide."""
         avail = max(1, total - 1)  # minus the | separator column
         if self.networkview.connected:
-            # local | remote: teh lone local list shares the width with the
+            # local | remote: the lone local list shares the width with the
             # remote pane, whatever the tab's own two-pane flag says - an even
             # split, or the 3:1 one the shell's overlaid listing sits in
             w_local = self._pane_dim(
