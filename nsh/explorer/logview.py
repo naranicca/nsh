@@ -216,7 +216,27 @@ class LogView:
             ("Amend message (reword)", self.reword),
             ("Squash to here", self.squash),
             ("Interactive edit", self.interactive_rebase),
+            ("Tag this commit", self.tag),
         ], at_cursor=True)
+
+    def tag(self):
+        """Nmae this commit. Lightweight tags only - one field, no message."""
+        h = self.current_hash()
+        if not h:
+            return
+        self.app.open_input_dialog(
+            f"Tag {h[:8]}", "", 0, lambda name: self._do_tag(h, name))
+
+    def _do_tag(self, h, name):
+        name = name.strip()
+        if not name:
+            self.app.set_message("tag cacelled")
+            return
+        if name.startswith("-"):
+            self.app.set_message("a tag name cannot start with '-'")
+            return
+        self._run(git.create_tag(name, h, self.app.cwd),
+                  f"tagged {name}", "tag")
 
     def _run(self, coro, ok_msg, fail_label):
         """Await a git operation, report the outcome, then reload."""

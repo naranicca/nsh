@@ -625,6 +625,11 @@ async def create_branch(name, cwd):
     return await run_git(["checkout", "-b", name], cwd)
 
 
+async def create_tag(name, rev, cwd):
+    """Create a lightweight tag ``name`` pointing at ``rev``."""
+    return await run_git(["tag", name, rev], cwd)
+
+
 async def list_branches(cwd):
     """Return ``(local, remote, current)`` branch names.
 
