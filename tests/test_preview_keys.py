@@ -236,9 +236,9 @@ class PreviewKeyTests(unittest.TestCase):
 
         view._open_conflict_menu.assert_called_once_with(hunk)
 
-    def test_enter_and_tab_open_the_resolution_menu_for_a_conflict(self) :
-        for key in ("enter", "tab"):
-            with self.subTest(key=key):
+    def test_enter_and_tab_open_the_resolution_menu_for_a_conflict(self):
+        for name, key in (("enter", "c-m"), ("tab", "c-i")):
+            with self.subTest(key=name):
                 view = object.__new__(PreviewView)
                 hunk = {"kind": "conflict"}
                 view._current_hunk = mock.Mock(return_value=hunk)
@@ -246,13 +246,13 @@ class PreviewKeyTests(unittest.TestCase):
                 view.app = SimpleNamespace(keys={})
                 bindings = view._kb().get_bindings_for_keys((key,))
 
-                self .assertEqual(len(bindings), 1)
-                # calls the no-argument entry point, not resolve conflict(hunk
-                # choice) - which the menu's 07m items invoke with a side
-                bindings [0].handler(SimpleNamespace())
+                self.assertEqual(len(bindings), 1)
+                # calls the no-argument entry point, not resolve conflict(hunk,
+                # choice) - which the menu's own items invoke with a side
+                bindings[0].handler(SimpleNamespace())
 
                 view._open_conflict_menu.assert_called_once_with(hunk)
-                self .assertTrue(view.has_conflict_hunk())
+                self.assertTrue(view.has_conflict_hunk())
 
     def test_enter_is_inert_on_an_ordinary_diff_hunk(self):
         view = object.__new__(PreviewView)
