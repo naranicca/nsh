@@ -303,12 +303,13 @@ class ExplorerView:
         return cls._cursor_style(marker_style or row_style, on_cursor)
 
     def _cursor_visible(self):
-        visible = self.app.mode != "shell" and self is self.app.explorer
+        if self.app.mode in ("shell", "remote-shell"):
+            return False
         if self.app.mode == "network":
             network = getattr(self.app, "networkview", None)
-            visible = (network is not None and self is network.local_view and
-                       self.app.network_local_focused())
-        return visible
+            return (network is not None and self is network.local_view and
+                    self.app.network_local_focused())
+        return self is self.app.explorer
 
     def _formatted_text(self):
         if not self.entries:
