@@ -351,11 +351,26 @@ class NshApp:
     def focus_shell(self):
         self.application.layout.focus(self.shells.current().command_buffer)
 
+    def _sync_network_local_pane(self):
+        """Point the local half of the connected local|remote layout at the
+        current tab's active explorer, so each tab browses (and transfers to and
+        from) its *own* local directory beside the one shared remote pane."""
+        if self.networkview.connected:
+            self.networkview.local_view = self.explorer
+
     def _after_tab_switch(self):
         """Apply the consequences of a different tab becoming current: the
         process cwd, preview, git status and focus all follow the now-active
         tab's explorer. Used by every tab switch (keys / clicks) and tab close,
         staying in the current mode rather than forcing shell mode."""
+        # the connection owns the right pane in every tab, so a plain explorer
+        # tab (a freshly opened one included) adopts the local|remote layout
+        # instead of growing a thrid pane beside the preview. It starts on its
+        # own local list - the remote pane is a Shift+L away.
+        promoted = self.networkview.connected and self.mode == EXPLORER
+        if promoted:
+            self.mode = NETWORK
+        self._sync_network_local_pane()
         ex = self.explorer
         try:
             os.chdir(ex.cwd)  # the process cwd follows the active tab's pane
@@ -375,6 +390,8 @@ class NshApp:
         elif self.mode == LOG:
             self.logview.load()
         self._restore_focus()
+        if promoted:  # promoted tab keeps the cursor on its own local pane
+            self.focus_network_pane(-1)
         self.invalidate()
 
     def shell_insert_paths(self, paths):
@@ -557,11 +574,24 @@ class NshApp:
             e1.window,
         ])
 
+    def _network_local_container(self):
+        """The local half of the connected local|remote split: the pane the
+        transfers use, which is the current tab's (kept in sync on every tab
+        pane switch). Going through _ensure_tab_layout first means a tab first
+        shown while connected still gets its zoom-aware width."""
+        self._ensure_tab_layout(self.shells.current())
+        return (self.networkview.local_view or self.explorer).window
+
     def _explorer_area_container(self):
-        """The current tab's explorer area: both panes in two-pane view, the
-        single pane beside the preview when wide enough, else the bare listing."""
+        """The current tab's explorer area: the lone local pane while a remote
+        connection owns the right half, both panes in two-pane view, the single
+        pane beside the preview when wide enough, else the bare listing."""
         session = self.shells.current()
         self._ensure_tab_layout(session)
+        if self.networkview.connected:
+            # the remote pane already fills the right half, so the local side
+            # stays a single list - never a third pane beside it
+            return session.explorers[session.active_pane].window
         if self.two_pane:
             return session._two_split
         if self.show_preview and self._wide_enough():
@@ -889,14 +919,13 @@ class NshApp:
             ]
         )
 
-        # Network mode is a real two-pane transfer view: the explorer pane from
-        # which the connection was opened remains on the left, and the remote
-        # browser lives on the right. DynamicContainer keeps the captured local
-        # pane stable without inserting its Window into two visible layouts.
+        # Network mode is a real two-pane transfer view: the local explorer pane
+        # (the current tab's - see _sync_network_local_pane) sits on the left and
+        # the remote browser on the right. DynamicContainer resolves the local 
+        # pane per frame without inserting its window into two visible layouts.
         self.networkview.window.width = Dimension(min=0, preferred=0, weight=1)
         self._network_split = VSplit([
-            DynamicContainer(lambda: (
-                self.networkview.local_view or self.explorer).window),
+            DynamicContainer(self._network_local_container),
             Window(width=1, char=PANE_SEPARATOR, style="class:preview.border"),
             self.networkview.window,
         ])
@@ -915,7 +944,6 @@ class NshApp:
                 self.networkview.window,
             ])
 
-        self._explorer_with_network = _with_network(explorer_area)
         self._git_with_network = _with_network(git_area)
         self._log_with_network = _with_network(log_area)
         self._shell_with_network = _with_network(self._shell_split)
@@ -929,13 +957,17 @@ class NshApp:
                 return self.systemview.container
             if self.mode == PREFERENCES:
                 return self.preferencesview.container
+            connected = self.networkview.connected
             if self.mode == NETWORK:
-                return self._network_split
+                # a stale network mode (the connection dropped from elsewhere)
+                # falls back to the ordinary explorer, not a dead remote pane
+                return self._network_split if connected else explorer_area
             if self.mode == REMOTE_SHELL:
+                if not connected:  # same fallback as a stale network mode
+                    return exolorer_area
                 return (self.remote_shell.container
                         if self.remote_shell_fullscreen()
                         else self._remote_shell_split)
-            connected = self.networkview.connected
             if self.mode == GIT:
                 return self._git_with_network if connected else git_area
             if self.mode == LOG:
@@ -945,7 +977,9 @@ class NshApp:
                 if self.shell_fullscreen():
                     return self.shells.container
                 return self._shell_with_network if connected else self._shell_split
-            return self._explorer_with_network if connected else explorer_area
+            # explorer: while connected the remote pane owns the right half, so
+            # tha tab shows the same local|remote split as network mode
+            return self._network_split if connected else explorer_area
 
         body = DynamicContainer(_body)
 
@@ -1148,13 +1182,18 @@ class NshApp:
         tint = self.menu.active and not self._menu_at_cursor
         name_style = "class:menu.title" if tint else "class:titlebar.name"
         clock = [("class:titlebar.clock", f" {datetime.now().strftime('%H:%M:%S')} ")]
-        if self.mode == NETWORK:
+        # the local|remote split is on screen in network mode and in any tab
+        # holding the explorer while the connection is live
+        if self.mode == NETWORK or (self.mode == EXPLORER
+                                    and self.networkview.connected):
             try:
                 total = get_app().output.get_size().columns
             except Exception:
                 total = 80
             return self._network_title(name_style, clock, total)
-        if self.two_pane:
+        # the second explorer pane is never on screen while connected (the
+        # remote pane has its column), so its half of the title isn't either
+        if self.two_pane and not self.networkview.connected:
             return self._two_pane_title(name_style, clock)
         segs = [
             (name_style, self._name_label()),
@@ -1448,7 +1487,17 @@ class NshApp:
             self.focus_network_pane(self._shell_return_pane)
 
     def switch_mode(self, mode):
-        # remember where the shell was opened from, to return there on ESC
+        # the remote views need a live connection: a request left over from
+        # before a disconnect (a remembered "return tdo network" mode, say)
+        # lands in the explorer instead of an empty remote pane
+        if mode in (NETWORK, REMOTE_SHELL) and not self.networkview.connected:
+            mode = EXPLORER
+        # while connected the explorer *is* the local half of the local|remote
+        # split, so it enters network mode - with the focus on the local list
+        # rather than the remote one
+        local_half = mode == EXPLORER and self.networkview.connected
+        if local_half:
+            mode = NETWORK
         from_mode = self.mode
         if mode == SHELL and self.mode in (EXPLORER, GIT, NETWORK):
             self._shell_return = self.mode
@@ -1480,7 +1529,9 @@ class NshApp:
             self.preferencesview.start()
             self.application.layout.focus(self.preferencesview.query_control)
         elif mode == NETWORK:
-            self.application.layout.focus(self.networkview.control)
+            self.application.layout.focus(
+                (self.netowrkview.local_view or self.explorer).control
+                if local_half else self.networkview.control)
         elif mode == REMOTE_SHELL:
             self.application.layout.focus(self.remote_shell.buffer)
         else:
@@ -1653,10 +1704,19 @@ class NshApp:
         self.application.layout.focus(self._active_list_control())
         self.invalidate()
 
+    def _preview_on_screen(self):
+        """Whether the preview pane is actually laid out beside the list. While
+        a remote connection is up it isn't: the remote pane holds the right half
+        of the explorer, network and shell views - only the git / log diff
+        preview keeps its column."""
+        if self.networkview.connected and self.mode not in (GIT, LOG):
+            return False
+        return self.show_preview and self._wide_enough()
+
     def toggle_preview_focus(self):
         """Move focus between the list and the preview pane (explorer / git /
         log). Does nothing when the preview isn't actually on screen."""
-        if not (self.show_preview and self._wide_enough()):
+        if not self._preview_on_screen():
             return
         if self.preview_focused():
             self.focus_active_list()
@@ -1668,7 +1728,7 @@ class NshApp:
         Right on a non-expandable file (explorer) and on a changed file (the
         git / log diff). A no-op otherwise, so the key stays inert when there's
         no preview to step into."""
-        if not (self.show_preview and self._wide_enough()):
+        if not self._preview_on_screen():
             return
         # two-pane explorer replaces the preview with the second pane; git / log
         # always show the preview regardless of the explorer's two-pane flag
@@ -2256,6 +2316,7 @@ class NshApp:
             idx = self.active_pane
         if self.two_pane and idx != self.active_pane:
             self.active_pane = idx
+            self._sync_network_local_pane()
             try:
                 os.chdir(self.explorer.cwd)  # process cwd follows the active pane
             except OSError:
@@ -2298,7 +2359,7 @@ class NshApp:
             if entry is not None and entry.is_dir and not entry.is_parent:
                 self.open_dir_in_two_pane(entry.path)
                 return
-            if self.show_preview and self._wide_enough():
+            if self._preview_on_screen():
                 self.preview.focus()
                 self.invalidate()
         elif direction < 0 and self.preview_focused():
@@ -2334,6 +2395,7 @@ class NshApp:
         if not self.two_pane or idx == self.active_pane:
             return
         self.active_pane = idx
+        self._sync_network_local_pane()
         try:
             os.chdir(self.explorer.cwd)  # the process cwd follows the active pane
         except OSError:
@@ -2379,10 +2441,17 @@ class NshApp:
         right-align its size column. Mirrors the VSplit's weights — including
         zoom — instead of assuming an even split, which would leave the size
         column stranded mid-pane once a pane is zoomed wide."""
+        avail = max(1, total - 1)  # minus the | separator column
+        if self.networkview.connected:
+            # local | remote: teh lone local list shares the width with the
+            # remote pane, whatever the tab's own two-pane flag says - an even
+            # split, or the 3:1 one the shell's overlaid listing sits in
+            w_local = 3 if self.mode == SHELL else self._pane_dim(
+                self._explorer_focused(self.active_pane)).weight
+            return max(4, round(avail * w_local / (w_local + 1)))
         # no split on screen: the listing owns the whole width
         if not self.two_pane and not (self.show_preview and self._wide_enough()):
             return total
-        avail = max(1, total - 1)  # minus the │ separator column
         idx = 0 if view is self.explorers[0] else 1
         w_self = self._pane_dim(self._explorer_focused(idx)).weight
         if self.two_pane:
@@ -2402,6 +2471,9 @@ class NshApp:
         the other pane opened at ``path`` and focused, so it reads as stepping
         into the directory beside the current one rather than just previewing
         it. Mirrors :meth:`toggle_two_pane`'s second-pane setup."""
+        if self.networkview.connected:  # the remote pane owns the right half
+            self.set_message("two-pane is unavailable while connected")
+            return
         self.two_pane = True
         other = self.explorers[1 - self.active_pane]
         other.cwd = Path(path)
@@ -2421,6 +2493,11 @@ class NshApp:
         self.invalidate()
 
     def toggle_two_pane(self):
+        if self.networkview.connected:
+            # the remote pane holds the right half; a second local pane would
+            # be a third column, so the toggle waits for the disconnect
+            self.set_message("two-pane is unavailable while connected")
+            return
         self.two_pane = not self.two_pane
         if self.two_pane:
             # open the second pane at the active pane's directory; navigate it
@@ -2544,6 +2621,13 @@ class NshApp:
             ]
         self.open_menu("Network", items)
 
+    def leave_network_views(self):
+        """Drop every tab out of the remote views once the connection is gone
+        The local remote split was shared by all tabs, so each one goes back to
+        its own explorer layout - the right half returning to the preview."""
+        for session in self.shells.sessions:
+            if session.mode in (NETWORK, REMOTE_SHELL):
+                session.mode = EXPLORER
     def open_remote_shell(self):
         backend = self.networkview.backend
         if backend is None or not hasattr(backend, "execute"):

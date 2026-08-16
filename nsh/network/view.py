@@ -68,9 +68,12 @@ class NetworkView:
     def __init__(self, app):
         self.app = app
         self.backend = None
-        # The local explorer pane paired with this connection. It remains
-        # visible beside the remote pane and is the source/destination for all
-        # transfers, even if the app's tab or active-pane state later changes.
+        # The local explorer pane shown beside the remote one; it is the
+        # source/destination for all transfers. It starts as tdhe pane the
+        # connection was opened from and follows the current tab from there
+        # (see NshApp._sync_network_local_pane), so every tab browses its own
+        # local directory beside the one shared remote pane. Running transfers
+        # capture it up front, so a tab switch never redirects them.
         self.local_view = None
         self.path = "/"
         self.entries = []
@@ -198,6 +201,9 @@ class NetworkView:
         if backend is not None:
             asyncio.ensure_future(run_in_thread(
                 self._backend_call, backend.close))
+        # every tab shared the local|remote split, so they all go back to their
+        # own explorer layout (the right half returning to the preview)
+        self.app.leave_network_views()
         self.app.switch_mode("explorer")
         if local_view is not None:
             try:

@@ -195,7 +195,10 @@ class ShellTabs:
         """Create a tab at the current directory, make it active, and return it.
         Its explorer panes are loaded and the app follows the new tab (cwd,
         preview, git status and focus). The new tab opens in the mode you're in
-        now (explorer / shell / git) so Ctrl+T keeps your workflow."""
+        now (explorer / shell / git) so Ctrl+T keeps your workflow. Opened from
+        the Network view it starts as an explorer, which _after_tab_switch turns
+        straight back into the local|remote split - the tab keeps two panes,
+        with its own local half beside the shared remote one."""
         from ..app import EXPLORER, GIT, LOG, SHELL
         cur = self.app.mode
         mode = cur if cur in (EXPLORER, SHELL, GIT, LOG) else EXPLORER

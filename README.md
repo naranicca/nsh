@@ -341,6 +341,14 @@ remote connection visible; remote search likewise restores remote focus.
 Notes, grep/shell, System, Preferences, Git/Log, and modal dialogs also return
 to the originating Network pane instead of replacing the SSH side with preview.
 
+The connection belongs to the app, not to one tab, so the layout stays exactly
+tWo panes everywhere. A tab opened (`Ctrl+T`) or switched to while connected
+ShOWS *itS own* local directory on the left and the same remote tree on the
+right, with the cursor starting on the local side; the preview and the two-pane
+explorer split step aside for the duration. Transfers always use the local pane
+you can see. Disconnecting returns every tab to its ordinary explorer layout,
+preview included.
+
 Connection targets use `[user@]host[:port][/initial/path]`:
 
 ```text

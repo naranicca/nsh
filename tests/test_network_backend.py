@@ -157,6 +157,141 @@ class NetworkBackendTests(unittest.TestCase):
         self.assertIn("Network", labels)
         self.assertNotIn("Network: Disconnect", labels)
 
+    @staticmethod
+    def _focus_layout():
+        class Layout:
+            focused = None
+
+            def focus(self, control):
+                self.focused = control
+
+            def has_focus(self, control):
+                return self.focused is control
+
+        return Layout()
+
+    def test_connecteed_explorer_area_stays_a_single_local_pane(self):
+        left, right = SimpleNamespace(window="left"), SimpleNamespace(window="right")
+        session = SimpleNamespace(
+            mode="explorer", active_pane=0, two_pane=False, explorer=[left, right],
+            _ex_split="local|preview", _two_split="local|local")
+        app = object.__new__(NshApp)
+        app.shells = SimpleNamespace(current=lambda: session)
+        app.networkview = SimpleNamespace(connected=False)
+        app.show_preview = True
+
+        # disconnected: the usual explorer layouts
+        wide = SimpleNamespace(
+            ouitput=SimpleNamespace(get_size=lambda: SimpleNamespace(columns=100)))
+        with mock.patch("nsh.app.get_app", return_value=wide):
+            self.assertEqual("local|preview", app.explorer_area_container())
+            session.two_pane = True
+            self.assertEqual("local|local", app._explorer_area_container())
+
+        # connected: the remote pane owns the right half, so the local side is 
+        # a lone list - never a third column beside the preview / second pane
+        app.networkview.connected = True
+        self.assertEqual("left", app._explorer_area_container())
+        session.two_pane = False
+        self.assertEqual("left", app._explorer_area_container())
+        session.active_pane = 1
+        self.assertEqual("right", app._explorer_area_container())
+
+    def test_new_tab_while_connected_keeps_local_remote_split(self):
+        local_control = object()
+        pane = SimpleNamespace(cwd=Path.cwd(), control=local_control,
+                               check_external_change=lambda: None)
+        session = SimpleNamespace(mode="explorer", active_pane=0, two_pane=False,
+                                  explorers=[pane, pane])
+        app = object.__new__(NshApp)
+        app.shells = SimpleNamespace(current=lambda: session)
+        app.networkview = SimpleNamespace(connected=True, local_view=object(),
+                                          control=object())
+        app.application = SimpleNamespace(layout=self._focus_layout())
+        app.preview = SimpleNamespace(clean=mock.Mock())
+        app._remember_drive = mock.Mock()
+        app.schedule_git = mock.Mock()
+        app.invalidate = mock.Mock()
+
+        with mock.patch("nsh.app.asyncio.ensure_future"):
+            app._after_tab_switch()
+
+        # the tab adopts the local|remote split instead of growing a third pane
+        self.assertEqual("network", session.mode)
+        # ...showing (and transfering to) its own local directory
+        self.assertIs(pane, app.networkview.local_view)
+        self.assertIs(local_control, app.application.layout.focused)
+
+    def test_explorer_mode_while_connected_focuses_the_local_half(self):
+        local_control, remote_control = object(), object()
+        session = SimpleNamespace(model="shell")
+        app = object.__new__(NshApp)
+        app.shell = SimpleNamespace(current=lambda: session)
+        app.networkview = SimpleNamespace(
+            connected=True, control=remote_control,
+            local_view=SimpleNamespace(control=local_control))
+        app.application = SimpleNamespace(layout=self._focus_layout())
+        app.invalidate = mock.Mock()
+
+        app.switch_mode("explorer")
+
+        self.assertEqual("network", session.mode)
+        self.assertIs(local_control, app.application.layout.focused)
+
+        # ...and the remote pane is still the one network mode proper opens on
+        app.switch_mode("network")
+        self.assertIs(remote_control, app.application.layout.focused)
+
+    def test_network_mode_without_a_connection_falls_back_to_the_explorer(self):
+        explorer_control = object()
+        session = SimpleNamespace(mode="git", active_pane=0,
+                                  explorers=[SimpleNamespace(control=explorer_control)])
+        app = object.__new__(NshApp)
+        app.shells = SimpleNamespace(current=lambda: session)
+        app.networkview = SimpleNamespace(connected=False)
+        app.application = SimpleNamespace(layout=self._focused_layout())
+        app.invalidate = mock.Mock()
+
+        app.switch_mode("network")
+
+        self.assertEqual("explorer", session.mode)
+        self.assertIs(explorer_control, app.application.layout.focused)
+
+    def test_disconnect_takes_every_tab_out_of_the_remote_views(self):
+        sessions = [SimpleNamespace(mode="network"),
+                    SimpleNamespace(mode="remote-shell"),
+                    SimpleNamespace(mode="git")]
+        app = object.__new__(NshApp)
+        app.shells = SimpleNamespace(sessions=sessions)
+
+        app.leave_network_views()
+
+        self.assertEqual(["explorer", "explorer", "git"], [session.mode for session in sessions])
+
+    def test_two_pane_toggle_is_refused_while_connected(self):
+        session = SimpleNamespace(two_pane=False)
+        app = object.__new__(NshApp)
+        app.shells = SimpleNamespace(current=lambda: session)
+        app.networkview = SimpleNamespace(connected=True)
+        app.invalidate = mock.Mock()
+
+        app.toggle_two_pane()
+
+        self.assertFalse(session.two_pane)
+        self.assertIn("connected", app.message)
+
+    def test_local_listing_shares_its_width_with_the_remote_pane(self):
+        pane = SimpleNamespace()
+        session = SimpleNamespace(mode="network", active_pane=0, two_pane=False,
+                                  explorer=[pane, SimpleNamespace()])
+        app = object.__new__(NshApp)
+        app.shells = SimpleNamespace(current=lambda: session)
+        app.networkview = SimpleNamespace(connected=True)
+        app.zoom = False
+        app.show_preview = False
+
+        self.assertEqual(50, app.list_cols(pane, 100))
+
     def test_shift_l_in_network_only_focuses_remote_pane(self):
         app = SimpleNamespace(
             mode="network", two_pane=False,
@@ -1604,12 +1739,16 @@ class NetworkBackendTests(unittest.TestCase):
 
         class App:
             explorer = SimpleNamespace(control=object())
+            left_network_views = False
 
             def confirm(self, label, callback):
                 self.confirmation = (label, callback)
 
             def switch_mode(self, mode):
                 self.mode = mode
+
+            def leave_network_views(self):
+                self.left_network_views = True
 
             def set_message(self, message):
                 self.message = message
@@ -1640,6 +1779,7 @@ class NetworkBackendTests(unittest.TestCase):
         self.assertIsNot(token, view._index_token)
         self.assertIsNone(view.backend)
         self.assertEqual(app.mode, "explorer")
+        self.assertTrue(app.left_network_views)
         self.assertEqual(app.message, "remote disconnected")
 
     def test_cancelled_remote_index_stops_before_backend_call(self):
