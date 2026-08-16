@@ -496,7 +496,13 @@ class NshApp:
             self.set_message(f"removed from queue: {removed}")
 
     def shell_escape(self, remote=False):
-        """Clear a typed command first; leave the local/SSH shell when empty."""
+        """Esc closes the shell; whatever was typed stays on the command line.
+
+        Keeping the half-written command is deliberate: the session holds it
+        (and the tab persists it across restarts), so re-opening the shell
+        resumes where you left off and a stray Esc costs a keystroke rather
+        than the line
+        """
         shell = self.remote_shell if remote else self.shell
         if remote:
             self.switch_mode(NETWORK)

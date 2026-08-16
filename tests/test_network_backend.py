@@ -47,44 +47,33 @@ class NetworkBackendTests(unittest.TestCase):
         self.assertEqual(app.message, "connection failed: server closed")
         app.invalidate.assert_called_once_with()
 
-    def test_escape_clears_local_shell_input_before_leaving(self):
+    def test_escape_leaves_the_local_shell_keeping_the_typed_input(self):
         buffer = SimpleNamespace(text="unfinished", reset=mock.Mock())
-        local = SimpleNamespace(
-            command_buffer=buffer,
-            command_window=SimpleNamespace(horizontal_scroll=20))
+        local = SimpleNamespace(command_buffer=buffer)
         app = object.__new__(NshApp)
         app.shells = SimpleNamespace(current=lambda: local)
-        app.invalidate = mock.Mock()
         app.leave_shell = mock.Mock()
 
         app.shell_escape()
 
-        buffer.reset.assert_called_once_with()
-        self.assertEqual(local.command_window.horizontal_scroll, 0)
-        app.leave_shell.assert_not_called()
-
-        buffer.text = ""
-        app.shell_escape()
+        # one press closes the shell; the half-typed command survives it, so
+        # re-opening the shell resumes the line
         app.leave_shell.assert_called_once_with()
+        buffer.reset.assert_not_called()
+        self.assertEqual("unfinished", buffer.text)
 
-    def test_escape_clears_remote_shell_input_before_returning_to_files(self):
+    def test_escape_returns_to_files_keeping_the_remote_shell_input(self):
         buffer = SimpleNamespace(text="unfinished", reset=mock.Mock())
-        remote = SimpleNamespace(
-            command_buffer=buffer,
-            command_window=SimpleNamespace(horizontal_scroll=20))
+        remote = SimpleNamespace(command_buffer=buffer)
         app = object.__new__(NshApp)
         app.remote_shell = remote
-        app.invalidate = mock.Mock()
         app.switch_mode = mock.Mock()
 
         app.shell_escape(remote=True)
 
-        buffer.reset.assert_called_once_with()
-        app.switch_mode.assert_not_called()
-
-        buffer.text = ""
-        app.shell_escape(remote=True)
         app.switch_mode.assert_called_once_with("network")
+        buffer.reset.assert_not_called()
+        self.assertEqual("unfinished", buffer.text)
 
     def test_two_pane_and_network_use_single_cell_double_separator(self):
         self.assertEqual(PANE_SEPARATOR, "║")
@@ -95,7 +84,8 @@ class NetworkBackendTests(unittest.TestCase):
         session = SimpleNamespace(mode="network")
         app.shells = SimpleNamespace(current=lambda: session)
         app.networkview = SimpleNamespace(
-            local_view=SimpleNamespace(cwd=Path("C:/local")),
+            local_view=SimpleNamespace(cwd=Path("C:/local"), git_status=None,
+                                       selected=set()),
             location="sftp://host/remote")
         clock = [("class:titlebar.clock", " 12:34:56 ")]
 
@@ -173,7 +163,7 @@ class NetworkBackendTests(unittest.TestCase):
     def test_connecteed_explorer_area_stays_a_single_local_pane(self):
         left, right = SimpleNamespace(window="left"), SimpleNamespace(window="right")
         session = SimpleNamespace(
-            mode="explorer", active_pane=0, two_pane=False, explorer=[left, right],
+            mode="explorer", active_pane=0, two_pane=False, explorers=[left, right],
             _ex_split="local|preview", _two_split="local|local")
         app = object.__new__(NshApp)
         app.shells = SimpleNamespace(current=lambda: session)
@@ -182,9 +172,9 @@ class NetworkBackendTests(unittest.TestCase):
 
         # disconnected: the usual explorer layouts
         wide = SimpleNamespace(
-            ouitput=SimpleNamespace(get_size=lambda: SimpleNamespace(columns=100)))
+            output=SimpleNamespace(get_size=lambda: SimpleNamespace(columns=100)))
         with mock.patch("nsh.app.get_app", return_value=wide):
-            self.assertEqual("local|preview", app.explorer_area_container())
+            self.assertEqual("local|preview", app._explorer_area_container())
             session.two_pane = True
             self.assertEqual("local|local", app._explorer_area_container())
 
@@ -208,7 +198,7 @@ class NetworkBackendTests(unittest.TestCase):
         app.networkview = SimpleNamespace(connected=True, local_view=object(),
                                           control=object())
         app.application = SimpleNamespace(layout=self._focus_layout())
-        app.preview = SimpleNamespace(clean=mock.Mock())
+        app.preview = SimpleNamespace(clear=mock.Mock())
         app._remember_drive = mock.Mock()
         app.schedule_git = mock.Mock()
         app.invalidate = mock.Mock()
@@ -224,9 +214,9 @@ class NetworkBackendTests(unittest.TestCase):
 
     def test_explorer_mode_while_connected_focuses_the_local_half(self):
         local_control, remote_control = object(), object()
-        session = SimpleNamespace(model="shell")
+        session = SimpleNamespace(mode="shell")
         app = object.__new__(NshApp)
-        app.shell = SimpleNamespace(current=lambda: session)
+        app.shells = SimpleNamespace(current=lambda: session)
         app.networkview = SimpleNamespace(
             connected=True, control=remote_control,
             local_view=SimpleNamespace(control=local_control))
@@ -249,7 +239,7 @@ class NetworkBackendTests(unittest.TestCase):
         app = object.__new__(NshApp)
         app.shells = SimpleNamespace(current=lambda: session)
         app.networkview = SimpleNamespace(connected=False)
-        app.application = SimpleNamespace(layout=self._focused_layout())
+        app.application = SimpleNamespace(layout=self._focus_layout())
         app.invalidate = mock.Mock()
 
         app.switch_mode("network")
@@ -408,6 +398,7 @@ class NetworkBackendTests(unittest.TestCase):
         app._search_remote = False
         app._search_return = "explorer"
         app.networkview = mock.Mock()
+        app.switch_mode = mock.Mock()
         app.focus_network_pane = mock.Mock()
 
         app.cancel_search()
