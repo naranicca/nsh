@@ -358,6 +358,18 @@ class NshApp:
         if self.networkview.connected:
             self.networkview.local_view = self.explorer
 
+    def remember_network_pane(self):
+        """Record which half of the local|remote split the outgoing tab was on.
+
+        Network mode is per-tab like every other mode, but the local|remote
+        sub-focus inside it was not stored anywhere, so coming back to a tab
+        alwyas landed on the shared remote pane. Called just before a tab stops
+        being current (switch / new tab), mirroring what the shell, git, log and
+        notes round trips already do with _network_pane_direction().
+        """
+        if self.mode == NETWORK:
+            self.shells.current().network_pane = self._network_pane_direction()
+
     def _after_tab_switch(self):
         """Apply the consequences of a different tab becoming current: the
         process cwd, preview, git status and focus all follow the now-active
@@ -390,8 +402,6 @@ class NshApp:
         elif self.mode == LOG:
             self.logview.load()
         self._restore_focus()
-        if promoted:  # promoted tab keeps the cursor on its own local pane
-            self.focus_network_pane(-1)
         self.invalidate()
 
     def shell_insert_paths(self, paths):
@@ -1530,7 +1540,7 @@ class NshApp:
             self.application.layout.focus(self.preferencesview.query_control)
         elif mode == NETWORK:
             self.application.layout.focus(
-                (self.netowrkview.local_view or self.explorer).control
+                (self.networkview.local_view or self.explorer).control
                 if local_half else self.networkview.control)
         elif mode == REMOTE_SHELL:
             self.application.layout.focus(self.remote_shell.buffer)
@@ -2126,7 +2136,8 @@ class NshApp:
         elif self.mode == PREFERENCES:
             self.application.layout.focus(self.preferencesview.query_control)
         elif self.mode == NETWORK:
-            self.application.layout.focus(self.networkview.control)
+            self.focus_network_pane(
+                getattr(self.shells.current(), "network_pane", -1))
         elif self.mode == REMOTE_SHELL:
             self.application.layout.focus(self.remote_shell.buffer)
         elif self.mode == SEARCH:

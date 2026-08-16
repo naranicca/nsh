@@ -175,6 +175,11 @@ class ShellTabs:
             ex.session = session  # so its git output logs to this tab (not the active one)
         session.active_pane = 0
         session.two_pane = self.app._two_pane_default  # per-tab; seeded from nshrc
+        # which half of the connected local|remote split this tab sits on
+        # (-1 local, +1 remote). Per-tab, like the mode itself, so switching
+        # tabs restores the cursor where it was instead of always jumping to
+        # the one shared remote pane. A tab stars on its own local list
+        session.network_pane = -1
         # each tab also owns its own git mode and git log views (their own list,
         # cursor and selection), so F7/F8 swap them with the explorer
         session.gitview = GitView(self.app)
@@ -200,6 +205,7 @@ class ShellTabs:
         straight back into the local|remote split - the tab keeps two panes,
         with its own local half beside the shared remote one."""
         from ..app import EXPLORER, GIT, LOG, SHELL
+        self.app.remember_network_pane()  # the tab being left keeps its half
         cur = self.app.mode
         mode = cur if cur in (EXPLORER, SHELL, GIT, LOG) else EXPLORER
         session = self._new_tab(self.app.cwd, mode)
@@ -236,6 +242,7 @@ class ShellTabs:
 
     def select(self, idx):
         if 0 <= idx < len(self.sessions):
+            self.app.remember_network_pane()
             self.active = idx
             self.ensure_loaded()
             self.app._after_tab_switch()
