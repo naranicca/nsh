@@ -205,6 +205,11 @@ class PreferenceTests(unittest.TestCase):
             "class:git.staged class:preview-hunk-staged-selected")
         self.assertEqual(staged_attrs.color, "5fff5f")
         self.assertEqual(staged_attrs.bgcolor, "345f45")
+        self.assertNotIn("completion-menu.completion.current",
+                         config.STYLE_DEFAULTS)
+        current_attrs = config.build_style().get_attrs_for_style_str(
+            "class:completion-menu.completion.current")
+        self.assertTrue(current_attrs.reverse)
         for name, value in config.STYLE_DEFAULTS.items():
             self.assertEqual(config.validate_preference("colors", name, value),
                              value)

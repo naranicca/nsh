@@ -133,9 +133,9 @@ STYLE_DEFAULTS = {
         "shell.tab.active.err": "bg:#ff5f5f #000000 bold",
         # the "+" button at the right end of the tab bar (click to open a tab)
         "shell.tab.new": "bg:#303030 #87d7ff bold",
-        # completion popup
+        # completion popup; the current row is defined below as an internal
+        # reverse attribute so it inherits each completion's own colours.
         "completion-menu.completion": "bg:#303030 #d0d0d0",
-        "completion-menu.completion.current": "bg:#5fafff #000000 bold",
         "scrollbar.background": "bg:#303030",
         "scrollbar.button": "bg:#5fafff",
         # the preview scrollbar goes grayscale while the pane isn't focused
@@ -175,10 +175,19 @@ STYLE_DEFAULTS = {
         "system.row.sel": "bg:#005f87 #ffffff",
 }
 
+# Styles used by prompt_toolkit itself rather than user preferences.  Keeping
+# the current-completion rule out of STYLE_DEFAULTS prevents it from appearing
+# in Preferences while still giving the menu a stable visual rule.
+INTERNAL_STYLE_DEFAULTS = {
+    "completion-menu.completion.current": "reverse",
+    "completion-menu.meta.completion.current": "reverse",
+}
+
 
 def build_style(overrides=None):
     """A prompt_toolkit ``Style`` from the defaults plus user overrides."""
-    merged = dict(STYLE_DEFAULTS)
+    merged = dict(INTERNAL_STYLE_DEFAULTS)
+    merged.update(STYLE_DEFAULTS)
     merged.update(overrides or {})
     return Style.from_dict(merged)
 
