@@ -275,6 +275,9 @@ with a `⋯ N queued` count in the status bar. A tab bar marks each session's st
 while a command is still running, red once one finishes with a non-zero exit
 (cleared when the next command runs).
 
+The current completion row uses terminal reverse video while retaining its
+file/command colour; it is not a separate Preferences colour setting.
+
 `Ctrl+Z` removes the last waiting command without affecting the command already
 running. This shortcut is configurable as `queue_remove_last` in Preferences.
 
