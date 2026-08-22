@@ -194,7 +194,7 @@ _STATUS_ARGS = [
 
 def _stat_or_none(path):
     """``path.stat()``, or ``None`` when the path cannot be read.
-    
+
     pathlib's ``is_dir`` / ``is_file`` / ``exists`` only swallow "it isn't
     there" errors (ENOENT, ENOTDIR, EBADF, ELOOP) - anything else, a directory
     the user may not stat above all, is re-raised. Explorer probes ``.git`` in
@@ -210,7 +210,7 @@ def _stat_or_none(path):
 def _exists(path):
     """Permission-safe ``Path.exists()`` - see :func:`_stat_or_none`."""
     return _stat_or_none(path) is not None
- 
+
 
 def _repository_layout(directory):
     """Return ``(worktree root, git dir)`` without starting ``git.exe``."""
@@ -488,7 +488,7 @@ async def _query_uncached(directory, child_directories=()) -> GitStatus:
         return st
     st.root, gitdir = layout
     st.is_repo = True
-    rc, output = await run_git(_STATUS_ARGS, directory)
+    rc, output = await run_git(_STATUS_ARGS, st.root)
     if rc == 0:
         _parse_porcelain_v2(st, output)
     st.has_remote = _has_remote(gitdir) or st.has_upstream
@@ -576,7 +576,7 @@ COMMIT_FINISHES = frozenset({"merge", "cherry-pick", "revert"})
 
 async def has_unmerged(cwd):
     """Whether any path in the repository is still unmerged.
-    
+
     Resolving the last block of *one* file does not end the operation - other
     conflicted files may remain, so ask the index rather than assuming.
     """
