@@ -71,6 +71,14 @@ PREFERENCES = "preferences"
 # shell takes over the whole screen.
 SHELL_MIN_EXPLORER = 5
 
+# In EXPLORER-family modes, _watch_cwd()'s ls poll only catches a directory
+# listening change or a git-internal bookkeeping change (see check_external_change);
+# a tracked file edited elsewhere in the same repo (outside the visible/expanded
+# listing) trips neither. Every this-many ticks, force one full git refresh to
+# catch that too - a real `git status`, so it's throttled rather than run every
+# tick, and only spent on panes already known to be inside a repo.
+GIT_POLL_TICKS = 5
+
 # Status messages may include text supplied by external programs (notably SSH
 # and ProxyCommand failures). Never let terminal control sequences or line
 # breaks escape into prompt_toolkit's one-row status window.
@@ -940,7 +948,7 @@ class NshApp:
 
         # Network mode is a real two-pane transfer view: the local explorer pane
         # (the current tab's - see _sync_network_local_pane) sits on the left and
-        # the remote browser on the right. DynamicContainer resolves the local 
+        # the remote browser on the right. DynamicContainer resolves the local
         # pane per frame without inserting its window into two visible layouts.
         self.networkview.window.width = Dimension(min=0, preferred=0, weight=1)
         self._network_split = VSplit([
@@ -2853,16 +2861,28 @@ class NshApp:
 
     async def _watch_cwd(self):
         """Poll the current directory and auto-refresh when it changes."""
+        tick = 0
         while True:
             try:
                 await asyncio.sleep(1.0)
+                tick += 1
                 if self.mode == GIT:
                     await self.refresh_git()  # reflect external edits in the list/diff
-                else:
-                    # poll what is on screen - while connected that is the
-                    # network view's local pane, not the tab's active_pane
-                    await asyncio.gather(*(pane.check_external_change()
-                                           for pane in self._visible_panes()))
+                    continue
+                # poll what is on screen - while connected that is the
+                # network view's local pane, not the tab's active_pane
+                panes = self._visible_panes()
+                changed = await asyncio.gather(
+                    *(pane.check_external_change() for pane in panes))
+                # the cheap per-tick checks above only see a listing change or a
+                # elsewhere in the same repo trips neither (see
+                # check_external_change). Periodically force a real refresh too
+                # - only for panes already known to be inside a repo, so idle
+                # browsing outside one costs nothing extra.
+                if (not any(changed) and tick % GIT_POLL_TICKS == 0
+                        and any(pane.git_status and pane.git_status.is_repo
+                            for pane in panes)):
+                    await self.refresh_git()
             except asyncio.CancelledError:
                 raise
             except Exception:  # noqa: BLE001 - never let the watcher die

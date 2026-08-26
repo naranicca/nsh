@@ -337,7 +337,7 @@ class GitStatusTests(unittest.TestCase):
             with mock.patch("nsh.explorer.git.run_git", runner):
                 status = asyncio.run(git.query(sub))
 
-        runner.assert_awaited_once_with(git._STATUS_ARGS, sub)
+        runner.assert_awaited_once_with(git._STATUS_ARGS, root)
         self.assertTrue(status.is_repo)
         self.assertEqual(status.root, root)
         self.assertEqual(status.branch, "topic")
