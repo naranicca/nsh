@@ -222,7 +222,6 @@ class ShellTabs:
                 "title": session.custom_title,
                 "history": session.command_buffer.history.get_strings()[
                     -MAX_RESTORED_COMMANDS:],
-                "input": session.command_buffer.text[:MAX_RESTORED_INPUT],
             } for session in self.sessions],
         }
 
