@@ -549,7 +549,7 @@ quit   = q
 
 `[general]` sets the **Edit** editor (Tab menu, text files only), whether to
 start in `two_pane` view, whether `restore_tabs` restores the previous tab set,
-pane paths, recent per-tab command history and unfinished command input,
+pane paths and recent per-tab command history,
 the per-shell `scrollback_lines` limit (1–100000),
 `search_exclude` (the directories fuzzy search skips),
 and `external_commands` (commands that always receive a real terminal).

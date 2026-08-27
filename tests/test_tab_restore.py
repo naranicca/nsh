@@ -44,7 +44,7 @@ class TabRestoreTests(unittest.TestCase):
         self.assertTrue(specs[1]["two_pane"])
         self.assertEqual("work", specs[1]["title"])
         self.assertEqual(["pwd", "git status"], specs[1]["history"])
-        self.assertEqual("echo draft", specs[1]["input"])
+        self.assertEqual("input", specs[1])
 
     def test_missing_tabs_are_skipped_and_active_index_is_remapped(self):
         with tempfile.TemporaryDirectory() as root:
@@ -84,9 +84,9 @@ class TabRestoreTests(unittest.TestCase):
         self.assertEqual("pair", snapshot["tabs"][0]["title"])
         self.assertEqual(["old", "pwd", "git status"],
                          snapshot["tabs"][0]["history"])
-        self.assertEqual("echo draft", snapshot["tabs"][0]["input"])
+        self.assertEqual("input", snapshot["tabs"][0])
 
-    def test_constructor_restores_history_and_unfinished_input(self):
+    def test_constructor_restores_history_but_discards_legacy_input(self):
         with tempfile.TemporaryDirectory() as root:
             root = Path(root)
             snapshot = {"tabs": [{
@@ -104,7 +104,7 @@ class TabRestoreTests(unittest.TestCase):
 
         self.assertEqual(["pwd", "git status"],
                          tabs.current().command_buffer.history.get_strings())
-        self.assertEqual("echo draft", tabs.current().command_buffer.text)
+        self.assertEqual("", tabs.current().command_buffer.text)
 
     def test_save_state_respects_setting_and_skips_search_picker(self):
         app = NshApp.__new__(NshApp)

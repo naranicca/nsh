@@ -26,7 +26,6 @@ MAX_TAB_LABEL = 14
 NEW_TAB = "+"  # sentinel span id for the "+ new tab" button (vs integer tab ids)
 MAX_RESTORED_TABS = 50
 MAX_RESTORED_COMMANDS = 500
-MAX_RESTORED_INPUT = 1024 * 1024
 
 
 def restored_tab_specs(snapshot):
@@ -62,16 +61,12 @@ def restored_tab_specs(snapshot):
         history = ([item for item in raw_history if isinstance(item, str)
                     and item.strip()][-MAX_RESTORED_COMMANDS:]
                    if isinstance(raw_history, list) else [])
-        command_input = saved.get("input", "")
-        if not isinstance(command_input, str):
-            command_input = ""
         specs.append({
             "paths": paths,
             "active_pane": 1 if saved.get("active_pane") == 1 else 0,
             "two_pane": bool(saved.get("two_pane", False)),
             "title": title if isinstance(title, str) and title.strip() else None,
             "history": history,
-            "input": command_input[:MAX_RESTORED_INPUT],
         })
         if saved_index <= saved_active:
             active = len(specs) - 1
@@ -94,7 +89,6 @@ class ShellTabs:
             session.custom_title = spec["title"]
             for command in spec["history"]:
                 session.command_buffer.history.append_string(command)
-            session.command_buffer.text = spec["input"]
             session._needs_initial_load = True
             self.sessions.append(session)
         if not self.sessions:
