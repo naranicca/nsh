@@ -8,6 +8,7 @@ import asyncio
 import fnmatch
 import os
 import stat
+import sys
 from pathlib import Path
 
 from prompt_toolkit.application.current import get_app
@@ -1054,6 +1055,7 @@ class ExplorerView:
     # -- action menu (Tab) ----------------------------------------------------
     def open_command_menu(self):
         cur = self.current()
+        directory = Path(self.cwd)
         # With nothing selected yet, force-select the cursor entry so the menu's
         # actions have an explicit target. In particular Git: Commit then commits
         # that file; the whole directory is committed via Git: Commit all. This
@@ -1092,8 +1094,19 @@ class ExplorerView:
             # honours its writable/read-only subset, but keeping the action in
             # the same menu makes the interface predictable across machines.
             items.append(("chmod…", self.chmod_entry))
+            if os.name == "nt":
+                open_label = "Open in Explorer"
+            elif sys.platform == "darwin":
+                open_label = "Open in Finder"
+            else:
+                open_label = "Open in File Manager"
+            items.append((
+                open_label,
+                lambda directory=directory:
+                    self.app.open_in_file_manager(directory),
+            ))
         # Creation belongs to the contextual file menu. Keep it as a distinct
-        # group between ordinary file actions (ending in chmod) and Git.
+        # group between ordinary file actions and Git.
         items += [
             (SEPARATOR, None),
             ("New folder", self.new_dir),

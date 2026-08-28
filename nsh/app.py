@@ -2078,6 +2078,18 @@ class NshApp:
         except Exception as exc:  # noqa: BLE001
             self.set_message(f"cannot open: {exc}")
 
+    def open_in_file_manager(self, path):
+        """Opens a directory in the platform's graphical file manager."""
+        try:
+            if os.name == "nt":
+                os.startfile(str(path))  # type: ignore[attr-defined]
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", str(path)])
+            else:
+                subprocess.Popen(["xdg-open", str(path)])
+        except Exception as exc:  # noqa: BLE001
+            self.set_message(f"cannot open file manager: {exc}")
+
     # -- directory / git ------------------------------------------------------
     def set_cwd(self, path, select_name=None):
         # Keep the logical (cd -L) path: don't resolve symlinks. Crucially we
