@@ -250,6 +250,9 @@ class PreviewView:
         self._sb_total = 0        # full document line count (for the scrollbar)
         self._sb_view = 0         # visible line count (for the scrollbar)
         self._btn_chars = 0       # char count of the header's [+]/[-] button row
+        self._truncated_entries = {} # key -> True if initially truncated (lazy load)
+        self._pending_full_loads = {} # key -> asyncio.Task for full file loads
+        self._last_entry_key = None   # track current entry for interaction detection
         # focusable so F7/F8 (or a click) can move into the pane and scroll it
         # (the list keeps its own cursor); the pinned header is tinted while it's
         # focused.
@@ -292,6 +295,8 @@ class PreviewView:
         # rather than handing the big share over (the [+]/[-] button is for that)
         if self.app.zoom and not self.app.preview_focused():
             self.app.zoom = False
+        # on click: trigger lazy load if current entry is truncated
+        self._ensure_full_load_if_truncated()
         self.focus()
 
     def _visible_height(self):
@@ -422,6 +427,7 @@ class PreviewView:
 
     def scroll(self, delta):
         self._scroll = max(0, self._scroll + delta)
+        self._ensure_full_load_if_truncated()
         self.app.invalidate()
 
     def _visible_text(self):
@@ -800,6 +806,71 @@ class PreviewView:
         except OSError:
             return (norm(entry.path), 0, 0)
 
+    def _current_entry_key(self):
+        """Get the cache key for the currently visible entry, or None."""
+        if self.app.mode == "gitlog" or self.app.mode == "git":
+            return None  # git modes don't support lazy load yet
+        entry = self.app.explorer.current()
+        if entry is None:
+            return None
+        git_entry = self._explorer_git_entry(entry)
+        if git_entry is not None:
+            return None  # git diffs don't use lazy load
+        return self._key(entry)
+
+    def _ensure_full_load_if_truncated(self):
+        """If the current entry was truncated, load its full content in the background.
+
+        Triggered by scroll, click, or focus interaction. Starts an async task to read
+        the entire file and replace the cached truncated version."""
+        key = self._current_entry_key()
+        if key is None:
+            return
+        # if already fully loaded or full load in progress, skip
+        if not self._truncated_entries.get(key, False):
+            return
+        if key in self._pending_full_loads:
+            return
+        # start async full load
+        async def load_full():
+            try:
+                entry = self.app.explorer.current()
+                if entry is None:
+                    return
+                frags = await run_in_thread(self._build_full, entry)
+                self._cache[key] = frags
+                self._truncated_entries[key] = False
+                self.app.invalidate()
+            except Exception:
+                pass  # silently fail on background load
+            finally:
+                self._pending_full_loads.pop(key, None)
+        task = asyncio.ensure_future(load_full())
+        self._pending_full_loads[key] = task
+
+    def _build_full(self, entry):
+        """Build preview for entry without truncation (for lazy load completion).
+
+        Reads the entire file and renders all content, regardless of size."""
+        if entry.is_dir:
+            return self._build_dir(entry)
+        try:
+            with open(entry.path, "rb") as f:
+                chunk = f.read()  # whole file
+        except OSError as exc:
+            return [("class:preview.dim", f" cannot read: {exc}")]
+        if entry.is_image:
+            return self._build_image(entry)
+        if not chunk:
+            return self._header(entry) + self._meta_line(entry, ["empty file"])
+        if b"\x00" in chunk:
+            return self._build_binary(entry, chunk)
+        text = self._decode(chunk)
+        if text is None:
+            return self._build_binary(entry, chunk)
+        # build text without truncation (pass truncated=False always)
+        return self._build_text(entry, text, truncated=False)
+
     # -- reactive text --------------------------------------------------------
     def _text(self):
         if self.app.mode == "gitlog":
@@ -1117,6 +1188,9 @@ class PreviewView:
         except Exception as exc:  # noqa: BLE001 - shown in the pane
             frags = [("class:preview.dim", f" preview error: {exc}")]
         self._cache[key] = frags
+        # check if this entry was truncated (lazy load marker)
+        is_truncated = any("(truncated)" in text for _style, text in frags)
+        self._truncated_entries[key] = is_truncated
         if entry.is_image and any(style == "[ZeroWidthEscape]"
                                   for style, _text in frags):
             self._image_cache_keys.append(key)
@@ -1251,9 +1325,10 @@ class PreviewView:
         frags = self._header(entry) + self._meta_line(
             entry, [f"{len(lines)} lines", human_size(entry.size)])
         frags.append(("class:preview", "\n"))
-        for ln in lines[:MAX_LINES]:
+        line_limit = MAX_LINES if truncated else len(lines)
+        for ln in lines[:line_limit]:
             frags.append(("class:preview", _sanitize(ln) + "\n"))
-        if len(lines) > MAX_LINES or truncated:
+        if len(lines) > line_limit or truncated:
             frags.append(("class:preview.dim", "\n … (truncated)\n"))
         return frags
 
