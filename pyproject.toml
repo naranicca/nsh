@@ -12,11 +12,11 @@ license = { text = "GPL-3.0-or-later" }
 dependencies = [
     "prompt_toolkit>=3.0.39",
     "wcwidth>=0.2.6",
-    "paramiko>=2.12",
 ]
 
 [project.optional-dependencies]
 images = ["Pillow>=9.1"]
+network = ["paramiko>=2.12"]
 
 [project.scripts]
 nsh = "nsh.__main__:main"

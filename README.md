@@ -54,8 +54,20 @@ keyboard- and mouse-driven interface.
 Requires Python 3.7+.
 
 ```sh
-pip install -e .            # installs prompt_toolkit + wcwidth, and an `nsh` command
+pip install -e .            # installs local explorer/shell support and `nsh`
 ```
+
+SSH/SFTP support is optional because Paramiko may require native Rust/C
+dependencies on Android/Termux. Install it explicitly when those dependencies
+are available:
+
+```sh
+pip install -e ".[network]"
+```
+
+If Paramiko is not installed, nsh remains usable for local files and shell
+commands. The **F10 → Network** menu offers to run this installation command
+when SSH support is first requested; FTP remains available independently.
 
 The `-e` (editable) install puts an **`nsh` command on your PATH** that runs from
 any directory; because it's editable, later code edits take effect with no
