@@ -11,7 +11,6 @@ from pathlib import Path
 
 from prompt_toolkit.application import Application
 from prompt_toolkit.application.current import get_app
-from prompt_toolkit.application.run_in_terminal import run_in_terminal
 from prompt_toolkit.completion import CompleteEvent
 from prompt_toolkit.filters import Condition, has_completions
 from prompt_toolkit.key_binding import (
@@ -2740,11 +2739,17 @@ class NshApp:
         command = [sys.executable, "-m", "pip", "install", "-e", ".[network]"]
         self.set_message("Installing SSH support...")
 
-        async def run():
-            process = await asyncio.create_subprocess_exec(*command)
-            return await process.wait()
-
-        code = await run_in_terminal(run, in_executor=False)
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *command,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+            )
+            _output, _ = await process.communicate()
+            code = process.returncode
+        except Exception as exc:  # noqa: BLE001 - report installation failure
+            self.set_message(f"SSH support installation failed: {exc}")
+            return
         if code == 0:
             self.set_message("SSH support installed; reopen Network to connect")
         else:
