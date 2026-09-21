@@ -11,6 +11,7 @@ from pathlib import Path
 
 from prompt_toolkit.application import Application
 from prompt_toolkit.application.current import get_app
+from prompt_toolkit.application.run_in_terminal import run_in_terminal
 from prompt_toolkit.completion import CompleteEvent
 from prompt_toolkit.filters import Condition, has_completions
 from prompt_toolkit.key_binding import (
@@ -2709,8 +2710,13 @@ class NshApp:
 
     # -- remote connections --------------------------------------------------
     def open_network_menu(self):
+        import importlib.util
+        ssh_available = importlib.util.find_spec("paramiko") is not None
         items = [
-            ("Connect SFTP (SSH)", lambda: self._network_target("sftp")),
+            (("Connect SFTP (SSH)" if ssh_available else
+              "Install SSH support (Paramiko)"),
+             (lambda: self._network_target("sftp") if ssh_available
+              else self._confirm_network_install)),
             ("Connect FTP", lambda: self._network_target("ftp")),
         ]
         if self.networkview.connected:
@@ -2720,6 +2726,31 @@ class NshApp:
                 ("Disconnect", self.networkview.disconnect),
             ]
         self.open_menu("Network", items)
+
+    def _confirm_network_install(self):
+        """Offer to install the optional SSH dependency in the active venv."""
+        self.confirm(
+            "SSH support is not installed. Install Paramiko now?",
+            lambda ok: asyncio.ensure_future(self._install_network_support())
+            if ok else None,
+        )
+
+    async def _install_network_support(self):
+        """Run the editable project's network extra without blocking the UI."""
+        command = [sys.executable, "-m", "pip", "install", "-e", ".[network]"]
+        self.set_message("Installing SSH support...")
+
+        async def run():
+            process = await asyncio.create_subprocess_exec(*command)
+            return await process.wait()
+
+        code = await run_in_terminal(run, in_executor=False)
+        if code == 0:
+            self.set_message("SSH support installed; reopen Network to connect")
+        else:
+            self.set_message(
+                "SSH support installation failed; local features remain available"
+            )
 
     def leave_network_views(self):
         """Drop every tab out of the remote views once the connection is gone
