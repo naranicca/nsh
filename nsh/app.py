@@ -2715,7 +2715,7 @@ class NshApp:
             (("Connect SFTP (SSH)" if ssh_available else
               "Install SSH support (Paramiko)"),
              (lambda: self._network_target("sftp") if ssh_available
-              else self._confirm_network_install)),
+              else self._confirm_network_install())),
             ("Connect FTP", lambda: self._network_target("ftp")),
         ]
         if self.networkview.connected:
