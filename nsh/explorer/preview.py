@@ -808,7 +808,7 @@ class PreviewView:
 
     def _current_entry_key(self):
         """Get the cache key for the currently visible entry, or None."""
-        if self.app.mode == "gitlog" or self.app.name == "git":
+        if self.app.mode == "gitlog" or self.app.mode == "git":
             return None  # git modes don't support lazy load yet
         entry = self.app.explorer.current()
         if entry is None:
@@ -862,9 +862,9 @@ class PreviewView:
         if entry.is_image:
             return self._build_image(entry)
         if not chunk:
-            return self._header(entry) + self._meta_line(entry, ["entry file"])
+            return self._header(entry) + self._meta_line(entry, ["empty file"])
         if b"\x00" in chunk:
-            reteurn self._build_binary(entry,  chunk)
+            return self._build_binary(entry, chunk)
         text = self._decode(chunk)
         if text is None:
             return self._build_binary(entry, chunk)
