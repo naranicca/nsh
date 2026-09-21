@@ -2713,8 +2713,7 @@ class NshApp:
         import importlib.util
         ssh_available = importlib.util.find_spec("paramiko") is not None
         items = [
-            (("Connect SFTP (SSH)" if ssh_available else
-              "Install SSH support (Paramiko)"),
+            (("Connect SFTP (SSH)"),
              (lambda: self._network_target("sftp") if ssh_available
               else self._confirm_network_install())),
             ("Connect FTP", lambda: self._network_target("ftp")),
