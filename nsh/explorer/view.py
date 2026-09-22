@@ -1083,17 +1083,17 @@ class ExplorerView:
                     and not cur.is_dir and not cur.is_image
                     and model.is_text_file(cur.path)):
                 items.append(("Edit", self.edit_entry))
-            items += [("Copy", self.copy_entry), ("Cut", self.cut_entry)]
+            items += [("Copy                 c", self.copy_entry), ("Cut                  x", self.cut_entry)]
         if self.clipboard:
             items.append(("Paste", self.paste))
         if has_target:
-            items += [("Rename", self.rename_entry),
-                      ("Move to Trash", self.trash_entry),
-                      ("Delete permanently", self.delete_entry)]
+            items += [("Rename               F2", self.rename_entry),
+                      ("Move to Trash        d", self.trash_entry),
+                      ("Delete permanently   D", self.delete_entry)]
             # Python exposes chmod on every supported platform. Windows only
             # honours its writable/read-only subset, but keeping the action in
             # the same menu makes the interface predictable across machines.
-            items.append(("chmod…", self.chmod_entry))
+            items.append(("Chmod…", self.chmod_entry))
             if os.name == "nt":
                 open_label = "Open in Explorer"
             elif sys.platform == "darwin":

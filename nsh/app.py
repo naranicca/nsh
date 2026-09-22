@@ -1373,18 +1373,17 @@ class NshApp:
         elif self.mode == EXPLORER:
             hints = [
                 ("Space", "select", ex.toggle_select),
+                ("Tab", "action", ex.open_command_menu),
                 ("b", "marks", self.open_bookmark_menu),
                 ("/", "find", self.enter_search),
                 ("*", "select", ex.select_pattern),
-                ("^N", "note", self.open_notes),
                 (":", "cmd", lambda: self.switch_mode(SHELL)),
             ]
-            # F7/F8 switch tabs; the 2-pane toggle sits beside it
-            if len(self.shells.sessions) > 1:
-                hints.append((pane_pair, "tab", self.shells.next))
+            hints.append(("s", "sort", ex.open_sort_menu))
             hints.append(("2", "1-pane" if self.two_pane else "2-pane",
                           self.toggle_two_pane))
             hints.append((zk, "zoom", self.toggle_zoom))
+            hints.append(("F10", "menu", self.open_nsh_menu))
             hints.append(("q", "quit", self.exit))
         elif self.mode == SEARCH:
             hints = [
@@ -1394,6 +1393,7 @@ class NshApp:
         elif self.mode == GIT:
             hints = [
                 ("Space", "select", self.gitview.toggle_select),
+                ("Tab", "action", self.gitview.open_action_menu),
                 ("b", "marks", self.open_bookmark_menu),
                 (zk, "zoom", self.toggle_zoom),
                 (":", "cmd", lambda: self.switch_mode(SHELL)),
@@ -1402,6 +1402,7 @@ class NshApp:
             ]
         elif self.mode == LOG:
             hints = [
+                ("Tab", "action", self.logview.open_action_menu),
                 ("/", "search", self.logview.search),
                 ("n", "next", lambda: self.logview._find(1)),
                 (zk, "zoom", self.toggle_zoom),
@@ -1624,8 +1625,8 @@ class NshApp:
         """Find: choose between searching file *contents* (grep) or file *names*
         (the fuzzy finder)."""
         self.open_menu("Find", [
-            ("Text (grep)", self.find_text),
-            ("File (fuzzy)", lambda: self.enter_search()),
+            ("Text(grep)", self.find_text),
+            ("File(fuzzy)    /", lambda: self.enter_search()),
         ])
 
     def find_text(self):
@@ -2610,35 +2611,38 @@ class NshApp:
         status = getattr(self, "git_status", None)
         git_item = None
         if status is not None and status.is_repo:
-            git_item = ("Git: Exit" if self.mode == GIT else "Git",
+            git_item = ("Git: Exit" if self.mode == GIT else "Git         ^G",
                         self.toggle_git_mode)
         self.open_menu("nsh", [item for item in [
-            ("Bookmarks", self.open_bookmark_menu),
-            ("Tab", self.open_tab_menu),
-            ("Find", self.open_find),
+            ("Bookmarks   b", self.open_bookmark_menu),
+            ("Tab...", self.open_tab_menu),
+            ("Find...", self.open_find),
             git_item,
             network_item,
             (SEPARATOR, None),
-            ("Notes", self.open_notes),
+            ("Notes       ^N", self.open_notes),
             ("System", self.open_system),
             (SEPARATOR, None),
             ("Preferences", self.open_preferences),
             (SEPARATOR, None),
             ("About", self.show_about),
+            ("Exit        q", self.exit)
         ] if item is not None])
 
     def open_tab_menu(self):
         """F10 > Tab: open, close and reorder tabs"""
         tabs = self.shells
         items = [
-            ("New tab", tabs.new_session),
-            ("Close tab", tabs.request_close),
+            ("New tab     ^T", tabs.new_session),
+            ("Prev tab    F7", tabs.prev),
+            ("Next tab    F8", tabs.next),
+            ("Close tab   ^W", tabs.request_close),
         ]
         moves = []
         if tabs.active > 0:
-            moves.append(("Move left", lambda: tabs.move(-1)))
+            moves.append(("Move left   ^F7", lambda: tabs.move(-1)))
         if tabs.active < len(tabs.sessions) - 1:
-            moves.append(("Move right", lambda: tabs.move(1)))
+            moves.append(("Move right  ^F8", lambda: tabs.move(1)))
         if moves:
             items.append((SEPARATOR, None))
             items += moves
