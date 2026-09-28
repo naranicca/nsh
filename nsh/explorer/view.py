@@ -7,6 +7,7 @@ only active while the explorer has focus.
 import asyncio
 import fnmatch
 import os
+from types import SimpleNamespace
 import stat
 import sys
 from pathlib import Path
@@ -1053,8 +1054,20 @@ class ExplorerView:
         self.app.edit_file(entry.path)
 
     # -- action menu (Tab) ----------------------------------------------------
-    def open_command_menu(self):
+    def open_command_menu(self, target_path=None):
         cur = self.current()
+        if target_path is not None:
+            path = Path(target_path)
+            # Search results may point below the current Explorer listing. A
+            # lightweight entry keeps the existing menu actions (especially
+            # Edit) working without changing the user's Explorer directory.
+            cur = next((entry for entry in self.entries if entry.path == path), None)
+            if cur is None:
+                cur = SimpleNamespace(
+                    path=path, name=path.name, is_dir=path.is_dir(),
+                    is_image=path.suffix.lower() in model.IMAGE_EXTS,
+                    is_link=path.is_symlink(), is_parent=False,
+                )
         directory = Path(self.cwd)
         # With nothing selected yet, force-select the cursor entry so the menu's
         # actions have an explicit target. In particular Git: Commit then commits

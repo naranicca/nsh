@@ -3,6 +3,7 @@ import asyncio
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import time
@@ -43,6 +44,7 @@ from .network.shell import RemoteShellView
 from .network.view import NetworkView
 from .preferences.view import PreferencesView
 from .search.view import SearchView
+from .search.grepview import GrepView
 from .system.view import SystemView
 from .shell.quoting import quote_arg, unquote_body
 from .shell.runner import CommandRunner
@@ -224,6 +226,7 @@ class NshApp:
         self.preview = PreviewView(self)
         self.show_preview = True
         self.search = SearchView(self)
+        self.grepview = GrepView(self)
         # logview is per-tab (see the logview property); each tab is created with
         # its own in ShellTabs, so no app-wide instance is built here
         self.notesview = NotesView(self)
@@ -465,7 +468,7 @@ class NshApp:
         def _(event):
             pass
         tab_mode = Condition(
-            lambda: self.mode in (EXPLORER, SHELL, GIT, LOG, NETWORK, REMOTE_SHELL)
+            lambda: self.mode in (EXPLORER, SHELL, GIT, LOG, NETWORK, REMOTE_SHELL, "grep")
             and not self._overlay_active())
 
         def add(key, filt, handler, eager=False):
@@ -497,7 +500,7 @@ class NshApp:
         # screen — the explorer (single + two-pane), git and log views. Guarded
         # against firing while a menu/dialog is up.
         zoom_mode = Condition(
-            lambda: self.mode in (EXPLORER, GIT, LOG) and not self._overlay_active())
+            lambda: self.mode in (EXPLORER, GIT, LOG, "grep") and not self._overlay_active())
         add(self.keys.get("zoom"), zoom_mode, self.toggle_zoom)
         return kb
 
@@ -644,8 +647,9 @@ class NshApp:
         def _(event):
             self.open_nsh_menu()
 
-        # Ctrl+F: Find — pick text (grep) or file (fuzzy). Explorer/git only.
-        find_modes = Condition(lambda: self.mode in (EXPLORER, GIT))
+        # Ctrl+F opens the same Find menu as the nsh menu entry.  Network mode
+        # is included so the search can target either local or remote pane.
+        find_modes = Condition(lambda: self.mode in (EXPLORER, GIT, NETWORK))
 
         @kb.add("c-f", filter=~overlay_open & find_modes)
         def _(event):
@@ -771,11 +775,13 @@ class NshApp:
         network_mode = Condition(lambda: self.mode == NETWORK)
         remote_shell_mode = Condition(lambda: self.mode == REMOTE_SHELL)
 
-        @kb.add("escape", "left", filter=explorer_mode | git_mode | log_mode)
+        grep_mode = Condition(lambda: self.mode == "grep")
+
+        @kb.add("escape", "left", filter=explorer_mode | git_mode | log_mode | grep_mode)
         def _(event):
             self.shells.prev()
 
-        @kb.add("escape", "right", filter=explorer_mode | git_mode | log_mode)
+        @kb.add("escape", "right", filter=explorer_mode | git_mode | log_mode | grep_mode)
         def _(event):
             self.shells.next()
 
@@ -786,7 +792,7 @@ class NshApp:
 
         # Ctrl+T opens a new tab — a fresh explorer + shell — from the explorer,
         # the shell and git / log modes alike, staying in whichever mode you're in.
-        @kb.add("c-t", filter=~overlay_open & (shell_mode | explorer_mode | git_mode | log_mode | network_mode | remote_shell_mode))
+        @kb.add("c-t", filter=~overlay_open & (shell_mode | explorer_mode | git_mode | log_mode | network_mode | remote_shell_mode | grep_mode))
         def _(event):
             self.shells.new_session()
 
@@ -968,8 +974,15 @@ class NshApp:
             Window(height=1, char="─", style="class:preview.border"),
             self.shells.container,
         ])
+        self._shell_with_grep = HSplit([
+            self.grepview.container,
+            Window(height=1, char="─", style="class:preview.border"),
+            self.shells.container,
+        ])
 
         def _body():
+            if self.mode == "grep":
+                return self.grepview.container
             if self.mode == SEARCH:
                 return self.search.container
             if self.mode == NOTES:
@@ -995,6 +1008,8 @@ class NshApp:
                 return log_area
             if self.mode == SHELL:
                 # grow with output, then take the whole screen at the cap
+                if self._shell_return == "grep":
+                    return self._shell_with_grep
                 if self.shell_fullscreen():
                     return self.shells.container
                 return self._shell_with_network if connected else self._shell_split
@@ -1408,6 +1423,24 @@ class NshApp:
                 (zk, "zoom", self.toggle_zoom),
                 ("ESC/q", "back", self.close_log),
             ]
+        elif self.mode == "grep":
+            if self.grepview._preview_focused:
+                hints = [
+                    ("j/k", "scroll"),
+                    ("h/ESC", "list", self.grepview._focus_list),
+                    (zk, "zoom", self.toggle_zoom),
+                    (":", "cmd", lambda: self.switch_mode(SHELL)),
+                ]
+            else:
+                hints = [
+                    ("j/k", "next/prev"),
+                    ("g/G", "top/bottom"),
+                    ("l", "preview", self.grepview._focus_preview),
+                    ("Tab", "action", self.grepview._open_action_menu),
+                    ("^J", "cmd path", self.grepview._send_to_shell),
+                    (":", "cmd", lambda: self.switch_mode(SHELL)),
+                    ("ESC", "back", lambda: self.switch_mode(EXPLORER)),
+                ]
         elif self.mode == NOTES:
             hints = [
                 ("^S", "save", self.notesview.save_note),
@@ -1548,7 +1581,7 @@ class NshApp:
         if local_half:
             mode = NETWORK
         from_mode = self.mode
-        if mode == SHELL and self.mode in (EXPLORER, GIT, NETWORK):
+        if mode == SHELL and self.mode in (EXPLORER, GIT, NETWORK, "grep"):
             self._shell_return = self.mode
             if self.mode == NETWORK:
                 self._shell_return_pane = self._network_pane_direction()
@@ -1561,6 +1594,8 @@ class NshApp:
             self.search.start(self._pending_query)
             self._pending_query = ""
             self.application.layout.focus(self.search.query_buffer)
+        elif mode == "grep":
+            self.application.layout.focus(self.grepview.list_control)
         elif mode == GIT:
             self.gitview.load()
             self.application.layout.focus(self.gitview.control)
@@ -1643,17 +1678,39 @@ class NshApp:
         dialog's phrase and options, streaming results into the shell."""
         if not phrase.strip():
             return
-        # -r recurse, -n line numbers, -I skip binaries. The phrase is a grep
-        # pattern. (We deliberately avoid -F: GNU grep 3.0, shipped with Git
-        # Bash, crashes on `-F -r`.) --color=always so grep still emits ANSI
-        # colour through nsh's pipe — its stdout isn't a TTY, where it would
-        # otherwise turn colour off.
-        flags = "-rnI"
-        if not case_sensitive:
-            flags += "i"
-        if whole_word:
-            flags += "w"
-        cmd = f"grep --color=always {flags} -e {shlex.quote(phrase)} ."
+        self.grepview.start(phrase, case_sensitive, whole_word)
+        return
+        # Prefer ripgrep everywhere.  Unlike grep it is readily available on
+        # Windows, while retaining the same recursive/line-number semantics.
+        if shutil.which("rg"):
+            flags = "--line-number --no-heading --color=always"
+            if not case_sensitive:
+                flags += " --ignore-case"
+            if whole_word:
+                flags += " --word-regexp"
+            cmd = f"rg {flags} {shlex.quote(phrase)} ."
+        else:
+            # Keep the feature usable on a clean Windows install (and minimal
+            # Linux containers) without requiring grep.  The fallback skips
+            # binary files and emits the familiar path:line:text format.
+            import base64
+            encoded = base64.b64encode(phrase.encode()).decode()
+            flags = "re.I" if not case_sensitive else "0"
+            script = (
+                "import os,re,base64;needle=base64.b64decode('" + encoded +
+                "').decode();needle=(r'\\b(?:'+re.escape(needle)+r')\\b' if "
+                + repr(whole_word) + " else needle);pat=re.compile(needle," + flags + ");"
+                "[(print(os.path.join(root,n)+':'+str(i)+':'+line.rstrip())) "
+                "for root,_,fs in os.walk('.') for n in fs "
+                "for i,line in enumerate(open(os.path.join(root,n),encoding='utf-8',errors='ignore'),1) "
+                "if pat.search(line)]"
+            )
+            # Use the shell-visible Python command rather than sys.executable:
+            # Git Bash cannot execute a raw Windows ``C:\\...`` path.
+            native_shell = os.name != "nt"
+            python_cmd = "python"
+            cmd = (f"{python_cmd} -c "
+                   f"{quote_arg(script, native_shell)}")
         self.switch_mode(SHELL)
         self._shell_return = self._find_return
         self._shell_return_pane = self._find_return_pane
@@ -2209,6 +2266,8 @@ class NshApp:
             self.application.layout.focus(self.remote_shell.buffer)
         elif self.mode == SEARCH:
             self.application.layout.focus(self.search.query_buffer)
+        elif self.mode == "grep":
+            self.application.layout.focus(self.grepview.list_control)
         else:
             self.application.layout.focus(self.explorer.control)
 
@@ -2499,7 +2558,7 @@ class NshApp:
     def _zoom_active(self):
         """Zoom only reshapes a split that's actually on screen: the explorer,
         git and log views (not the shell's overlaid listing)."""
-        return self.zoom and self.mode in (EXPLORER, GIT, LOG)
+        return self.zoom and self.mode in (EXPLORER, GIT, LOG, "grep")
 
     def _pane_dim(self, focused):
         """The width Dimension for a split pane: the focused one wins the 9:1
