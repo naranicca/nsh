@@ -80,6 +80,7 @@ STYLE_DEFAULTS = {
         "search.count": "bg:#303030 #999999",
         "search.results": "#d0d0d0",
         "search.match": "#ffaf00 bold",
+        "search-match-current": "bg:#444444 #ffaf00 bold",
         # selected row: a background only (no fg) so the match/dir colours show.
         # Deliberately NOT under the "search." namespace: as a child of "search"
         # it would re-apply that class's noinherit and wipe the match colour when

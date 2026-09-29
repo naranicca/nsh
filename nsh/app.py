@@ -895,6 +895,20 @@ class NshApp:
         def _(event):
             self.close_shell_tab()
 
+        # Half-page scrolling for every file-like pane. Shell input keeps its
+        # existing Ctrl-D behavior above; these bindings only apply outside it.
+        pane_scroll_modes = Condition(
+            lambda: self.mode in (EXPLORER, GIT, LOG, NETWORK, "grep")
+            and not self._overlay_active())
+
+        @kb.add("c-d", filter=pane_scroll_modes)
+        def _(event):
+            self.scroll_active_pane(1)
+
+        @kb.add("c-u", filter=pane_scroll_modes)
+        def _(event):
+            self.scroll_active_pane(-1)
+
         # zoom: give every split pane a focus-aware width weight, read live each
         # frame (so toggling zoom or moving focus reshapes the split). Off, the
         # weights are all 1 -> an even split; on, the focused pane wins 9:1.
@@ -1378,6 +1392,7 @@ class NshApp:
             ]
             if self.preview.has_diff_hunks():
                 hints[0] = (hints[0][0], "change")
+                hints.insert(1, ("n/N", "next/prev hunk"))
                 if self.preview.has_conflict_hunk():
                     hints.insert(1, ("u", "undo resolve"))
                     hints.insert(1, ("↵", "resolve",
@@ -1427,6 +1442,8 @@ class NshApp:
             if self.grepview._preview_focused:
                 hints = [
                     ("j/k", "scroll"),
+                    ("n/F3", "next match"),
+                    ("S-N", "prev match"),
                     ("h/ESC", "list", self.grepview._focus_list),
                     (zk, "zoom", self.toggle_zoom),
                     (":", "cmd", lambda: self.switch_mode(SHELL)),
@@ -2271,6 +2288,28 @@ class NshApp:
         else:
             self.application.layout.focus(self.explorer.control)
 
+    def scroll_active_pane(self, direction):
+        """Scroll the focused file-like pane by half its visible height."""
+        try:
+            height = max(1, self.application.output.get_size().rows // 2)
+        except Exception:
+            height = 10
+        if self.mode == "grep":
+            if self.grepview._preview_focused:
+                self.grepview._scroll_preview(direction * height)
+            else:
+                self.grepview.move(direction * height)
+        elif self.mode == NETWORK and not self.network_local_focused():
+            self.networkview.move(direction * height)
+        elif self.preview_focused():
+            self.preview.scroll(direction * height)
+        elif self.mode == GIT:
+            self.gitview.move(direction * height)
+        elif self.mode == LOG:
+            self.logview.move(direction * height)
+        else:
+            self.explorer.move(direction * height)
+
     # -- confirmation dialog --------------------------------------------------
     def confirm(self, label, callback):
         """Show a centered yes/no dialog; ``callback(True|False)`` on resolve."""
@@ -2675,7 +2714,7 @@ class NshApp:
         self.open_menu("nsh", [item for item in [
             ("Bookmarks   b", self.open_bookmark_menu),
             ("Tab...", self.open_tab_menu),
-            ("Find...", self.open_find),
+            ("Find...     ^F", self.open_find),
             git_item,
             network_item,
             (SEPARATOR, None),

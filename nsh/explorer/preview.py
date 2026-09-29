@@ -501,14 +501,20 @@ class PreviewView:
         @kb.add("down")
         @kb.add("j")
         def _(event):
-            if not self.jump_hunk(1):
-                self.scroll(1)
+            self.scroll(1)
 
         @kb.add("up")
         @kb.add("k")
         def _(event):
-            if not self.jump_hunk(-1):
-                self.scroll(-1)
+            self.scroll(-1)
+
+        @kb.add("n")
+        def _(event):
+            self.jump_hunk(1)
+
+        @kb.add("N")
+        def _(event):
+            self.jump_hunk(-1)
 
         # Enter picks a side on the selected conflict block. Only a conflict
         # offers a choice, so it stays inert on an ordinary diff hunk - those
@@ -602,9 +608,16 @@ class PreviewView:
         if not hunks:
             return False
         current = self._hunk_selection.get(key, 0)
-        current = max(0, min(len(hunks) - 1, current + direction))
+        current = (current + direction) % len(hunks)
         self._hunk_selection[key] = current
-        self._scroll = hunks[current]["line"]
+        hunk = hunks[current]
+        start, end = hunk["line"], hunk.get("end", hunk["line"] + 1)
+        # Leave a little context above a hunk when it fits in the viewport;
+        # large hunks still start at the top so the whole block can be read.
+        if end - start < max(1, self._visible_height() - 2):
+            self._scroll = max(0, start - 2)
+        else:
+            self._scroll = start
         self.app.invalidate()
         return True
 
