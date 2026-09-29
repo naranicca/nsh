@@ -153,7 +153,10 @@ class Menu:
             # Action menus historically encoded shortcuts with a run of spaces
             # (``Copy                 c``). Render that suffix as a right column
             # so it remains aligned when the menu grows wider.
-            match = re.match(r"^(.*?)[ \t]{2,}(\S+)$", label)
+            # Require the label to start with a non-space character so
+            # indentation used by sort/status entries is not mistaken for a
+            # shortcut separator.
+            match = re.match(r"^(\S.*?)[ \t]{2,}(\S+)$", label)
             if match:
                 left, shortcut = match.groups()
                 # Keep the same content width as ordinary menu rows. The
