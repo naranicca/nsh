@@ -8,6 +8,7 @@ from prompt_toolkit.application.current import get_app
 from prompt_toolkit.filters import Condition
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout.containers import ConditionalContainer, Window
+import re
 
 from . import hangul
 from .widgets import WheelScrollControl
@@ -149,7 +150,21 @@ class Menu:
                 mark = "▼ "
             else:
                 mark = "  "
-            out.append((style, " " + _pad(mark + label, width) + " "))
+            # Action menus historically encoded shortcuts with a run of spaces
+            # (``Copy                 c``). Render that suffix as a right column
+            # so it remains aligned when the menu grows wider.
+            match = re.match(r"^(.*?)[ \t]{2,}(\S+)$", label)
+            if match:
+                left, shortcut = match.groups()
+                # Keep the same content width as ordinary menu rows. The
+                # surrounding cells are added below for both forms.
+                inner = width
+                gap = max(1, inner - text_width(mark + left) - text_width(shortcut))
+                rendered = mark + left + " " * gap + shortcut
+                rendered = _pad(rendered, inner)
+            else:
+                rendered = _pad(mark + label, width)
+            out.append((style, " " + rendered + " "))
             if j != len(shown) - 1:
                 out.append(("", "\n"))
         return out
