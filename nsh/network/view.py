@@ -10,7 +10,7 @@ from prompt_toolkit.data_structures import Point
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout.containers import Window
 from prompt_toolkit.layout.margins import Margin
-from prompt_toolkit.mouse_events import MouseModifier
+from prompt_toolkit.mouse_events import MouseButton, MouseModifier
 
 from .. import config
 from ..explorer.model import natural_key
@@ -19,7 +19,7 @@ from ..util import state
 from ..util.aio import run_in_thread
 from ..util.paths import human_size
 from ..util.widgets import WheelScrollControl, visible_slice
-from ..util.width import pad_to_width
+from ..util.width import pad_to_width, text_width
 from . import backend as remote
 
 
@@ -323,6 +323,13 @@ class NetworkView:
     def current(self):
         return self.entries[self.cursor] if 0 <= self.cursor < len(self.entries) else None
 
+    def cursor_name_end_col(self):
+        """Column after the current remote filename for action-menu placement."""
+        entry = self.current()
+        if entry is None:
+            return 0
+        return 6 + 2 * entry.depth + text_width(self._display_name(entry))
+
     def targets(self):
         if self.selected:
             return [e for e in self.entries
@@ -369,6 +376,9 @@ class NetworkView:
             return
         self.cursor = index
         entry = self.entries[index]
+        if getattr(mouse_event, "button", None) == MouseButton.RIGHT:
+            self.actions()
+            return
         if MouseModifier.CONTROL in getattr(
                 mouse_event, "modifiers", frozenset()):
             if entry.is_parent:
@@ -915,7 +925,7 @@ class NetworkView:
             ("Delete", self.delete),
             ("Refresh", self.refresh),
             ("Disconnect", self.disconnect),
-        ])
+        ], at_cursor=True)
 
     def _text(self):
         if self._preview_entry is not None:
@@ -931,7 +941,9 @@ class NetworkView:
                  if self.window.render_info else 80)
         name_w = max(4, width - 7 - SIZE_COL)
         try:
-            cursor_shown = self.app.application.layout.has_focus(self.control)
+            cursor_shown = (self.app.application.layout.has_focus(self.control)
+                            or (getattr(self.app.menu, "active", False)
+                                and self.app.mode == "network"))
         except (AttributeError, RuntimeError):
             cursor_shown = True
         out = []

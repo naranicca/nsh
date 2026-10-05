@@ -26,7 +26,7 @@ A cross-platform (Windows / Linux / macOS) interactive **file explorer + shell**
 rewritten in Python on top of [`prompt_toolkit`](https://python-prompt-toolkit.readthedocs.io/).
 It is CJK-aware throughout and includes FTP/SFTP remote browsing.
 
-Current version: **1.0.0**.
+Current version: **v1.1.0**.
 
 Its primary modes are:
 

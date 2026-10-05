@@ -2356,6 +2356,10 @@ class NshApp:
             return self.logview.window
         if self.mode == EXPLORER:
             return self.explorer.window
+        if self.mode == NETWORK:
+            return ((self.networkview.local_view or self.explorer).window
+                    if self.network_local_focused()
+                    else self.networkview.window)
         return None
 
     def _menu_name_end_col(self):
@@ -2368,6 +2372,10 @@ class NshApp:
             return self.logview.cursor_name_end_col()
         if self.mode == EXPLORER:
             return self.explorer.cursor_name_end_col()
+        if self.mode == NETWORK:
+            if self.network_local_focused():
+                return (self.networkview.local_view or self.explorer).cursor_name_end_col()
+            return self.networkview.cursor_name_end_col()
         return 0
 
     def _menu_width(self, title, items):
@@ -2397,7 +2405,19 @@ class NshApp:
                 # cursor_position is relative to the window; _y_offset / _x_offset
                 # are the window's absolute top / left, so adding them gives the
                 # absolute screen position.
-                cursor_row = info.cursor_position.y + info._y_offset
+                if self.mode == NETWORK:
+                    # The remote list intentionally hides prompt_toolkit's
+                    # cursor, so render_info reports row zero. Use the view's
+                    # windowed cursor position instead.
+                    if self.network_local_focused():
+                        local = self.networkview.local_view or self.explorer
+                        cursor_row = (info._y_offset +
+                                      local.cursor - getattr(local, "_top", 0))
+                    else:
+                        cursor_row = (info._y_offset +
+                                      self.networkview.cursor - self.networkview._top)
+                else:
+                    cursor_row = info.cursor_position.y + info._y_offset
                 height = min(len(items) + 1, max(1, rows - 2))  # title + items
                 top = max(1, min(cursor_row, rows - height - 1))
                 # shift right past the item's text (+1 gap). The offset is capped

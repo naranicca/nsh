@@ -9,7 +9,7 @@ from prompt_toolkit.layout.containers import HSplit, VSplit, Window
 from prompt_toolkit.layout.dimension import Dimension
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.application.current import get_app
-from prompt_toolkit.mouse_events import MouseEventType
+from prompt_toolkit.mouse_events import MouseButton, MouseEventType
 from prompt_toolkit.layout.margins import Margin
 from ..util.aio import run_in_thread
 from .. import config
@@ -289,6 +289,8 @@ class GrepView:
         if 0 <= index < len(self.items):
             self.cursor = index
             self._load_preview()
+            if getattr(event, "button", None) == MouseButton.RIGHT:
+                self._open_action_menu()
 
     def _focus_list(self):
         self._preview_focused = False

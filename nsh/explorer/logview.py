@@ -16,6 +16,7 @@ from prompt_toolkit.formatted_text import ANSI, to_formatted_text
 from prompt_toolkit.key_binding import DynamicKeyBindings, KeyBindings
 from prompt_toolkit.layout.containers import ScrollOffsets, Window
 from prompt_toolkit.layout.dimension import Dimension
+from prompt_toolkit.mouse_events import MouseButton
 
 from ..util import hangul
 from ..util.widgets import WheelScrollControl, visible_slice
@@ -166,6 +167,9 @@ class LogView:
             return
         self.app.application.layout.focus(self.control)
         self.cursor = idx
+        if getattr(mouse_event, "button", None) == MouseButton.RIGHT:
+            self.open_action_menu()
+            return
         if self.app.double_click(("gitlog",), idx):
             self.open_action_menu()
         self.app.invalidate()

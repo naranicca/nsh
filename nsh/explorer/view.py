@@ -19,7 +19,7 @@ from prompt_toolkit.key_binding import DynamicKeyBindings, KeyBindings
 from prompt_toolkit.keys import Keys
 from prompt_toolkit.layout.containers import ScrollOffsets, Window
 from prompt_toolkit.layout.dimension import Dimension
-from prompt_toolkit.mouse_events import MouseModifier
+from prompt_toolkit.mouse_events import MouseButton, MouseEventType, MouseModifier
 
 from .. import config
 from ..util import hangul
@@ -430,6 +430,16 @@ class ExplorerView:
         a directory's ▸/▾ caret expands or collapses it inline; a double-click
         anywhere else on the row opens it."""
         if self.app.consume_menu_click():
+            return
+        if (mouse_event.event_type == MouseEventType.MOUSE_DOWN
+                and getattr(mouse_event, "button", None) == MouseButton.RIGHT):
+            # Right-click is the mouse equivalent of Tab's action menu.
+            self.app.focus_pane(self)
+            idx = self._top + mouse_event.position.y
+            if 0 <= idx < len(self.entries):
+                self.cursor = idx
+                self.app.invalidate()
+                self.open_command_menu()
             return
         # any click in this pane activates it (and closes the shell if focused),
         # even on the empty area below the listing

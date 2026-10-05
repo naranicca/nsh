@@ -14,7 +14,7 @@ from prompt_toolkit.data_structures import Point
 from prompt_toolkit.key_binding import DynamicKeyBindings, KeyBindings
 from prompt_toolkit.layout.containers import ScrollOffsets, Window
 from prompt_toolkit.layout.dimension import Dimension
-from prompt_toolkit.mouse_events import MouseModifier
+from prompt_toolkit.mouse_events import MouseButton, MouseModifier
 
 from .. import config
 from ..util import hangul
@@ -182,6 +182,9 @@ class GitView:
             return
         self.app.application.layout.focus(self.control)
         self.cursor = idx
+        if getattr(mouse_event, "button", None) == MouseButton.RIGHT:
+            self.open_action_menu()
+            return
         # Ctrl+click toggles this row's multi-selection (like Space), staying put
         if MouseModifier.CONTROL in getattr(mouse_event, "modifiers", frozenset()):
             self._toggle_selection(self.entries[idx])
