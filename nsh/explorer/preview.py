@@ -553,13 +553,9 @@ class PreviewView:
             self._scroll = 10 ** 9  # clamped to the bottom on the next render
             self.app.invalidate()
 
-        # Esc backs a zoomed pane out to the even split first; otherwise (and
-        # F7/F8, handled globally) it returns focus to the list.
+        # Esc returns focus to the list; zoom is toggled only by its own key.
         @kb.add("escape")
         def _(event):
-            if self.app._zoom_active():
-                self.app.toggle_zoom()
-                return
             self.app.focus_active_list()
 
         # h/Shift+H step back to the list (the mirror of l/Shift+L stepping in).

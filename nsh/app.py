@@ -448,12 +448,16 @@ class NshApp:
 
         network_mode = Condition(lambda: self.mode == NETWORK)
         network_local = Condition(self.network_local_focused)
+        network_local_renaming = Condition(
+            lambda: bool(getattr(self.networkview.local_view or self.explorer,
+                                 "_renaming", False)))
 
         # In the mixed local/remote view, copy from the focused local pane to
         # the remote pane. This eager binding overrides the local explorer's
         # ordinary copy action only while Network mode is visible; ``p`` keeps
         # its normal local paste meaning.
-        @kb.add("c", filter=network_mode & network_local, eager=True)
+        @kb.add("c", filter=network_mode & network_local & ~network_local_renaming,
+                eager=True)
         def _(event):
             self.networkview.upload()
 
@@ -464,7 +468,8 @@ class NshApp:
         # The local explorer normally owns ``2`` (toggle explorer split).  The
         # network layout is already a fixed local/remote split, so swallowing it
         # avoids silently changing the hidden explorer layout underneath it.
-        @kb.add("2", filter=network_mode & network_local, eager=True)
+        @kb.add("2", filter=network_mode & network_local & ~network_local_renaming,
+                eager=True)
         def _(event):
             pass
         tab_mode = Condition(
@@ -666,12 +671,6 @@ class NshApp:
         @kb.add("escape", filter=~overlay_open)
         def _(event):
             self.message = ""  # ESC dismisses the status message
-            # a zoomed pane backs out to the even split first (before clearing a
-            # selection or leaving the mode); the preview pane handles its own
-            # Esc, so this covers the list-focused case.
-            if self._zoom_active():
-                self.toggle_zoom()
-                return
             if self.mode == SEARCH:
                 self.cancel_search()
             elif self.mode == SHELL:

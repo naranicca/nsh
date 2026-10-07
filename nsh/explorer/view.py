@@ -412,6 +412,19 @@ class ExplorerView:
         self.cursor = max(0, min(len(self.entries) - 1, self.cursor + delta))
         self.app.invalidate()
 
+    def move_selected(self, direction):
+        """Cycle the cursor through explicitly selected entries."""
+        indexes = [i for i, entry in enumerate(self.entries)
+                   if entry.path in self.selected]
+        if not indexes:
+            return
+        if direction > 0:
+            self.cursor = next((i for i in indexes if i > self.cursor), indexes[0])
+        else:
+            previous = [i for i in indexes if i < self.cursor]
+            self.cursor = previous[-1] if previous else indexes[-1]
+        self.app.invalidate()
+
     def open(self):
         entry = self.current()
         if entry is None:
@@ -1680,6 +1693,14 @@ class ExplorerView:
         @kb.add("pageup")
         def _(event):
             self.move(-10)
+
+        @kb.add("n")
+        def _(event):
+            self.move_selected(1)
+
+        @kb.add("N")
+        def _(event):
+            self.move_selected(-1)
 
         @kb.add("g")
         @kb.add("home")
