@@ -1770,7 +1770,6 @@ class ExplorerView:
             "delete": self.delete_entry,
             "rename": self.rename_entry,
             "new_dir": self.new_dir,
-            "new_file": self.new_file,
             "select": self.toggle_select,
             "select_pattern": self.select_pattern,
             "two_pane": lambda: self.app.toggle_two_pane(),

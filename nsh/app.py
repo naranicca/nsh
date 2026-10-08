@@ -1502,7 +1502,6 @@ class NshApp:
                     hints = [
                         ("Space", "select", nv.toggle),
                         ("c", "download", nv.download),
-                        ("n", "mkdir", nv.new_dir),
                         ("s", "sort", nv.open_sort_menu),
                         ("/", "find", nv.start_search),
                         ("Shift+H", "local", lambda: self.focus_network_pane(-1)),

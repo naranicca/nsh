@@ -217,7 +217,6 @@ DEFAULT_KEYS = {
     "delete": "D",
     "rename": "f2",
     "new_dir": "m",
-    "new_file": "N",
     "bookmark": "b",
     "home": "~",
     "visited": "-",

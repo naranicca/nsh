@@ -1,5 +1,6 @@
 """Interactive remote file browser shared by FTP and SFTP connections."""
 import asyncio
+import fnmatch
 import posixpath
 import threading
 from dataclasses import replace
@@ -346,6 +347,19 @@ class NetworkView:
             self.cursor = max(0, min(len(self.entries) - 1, self.cursor + delta))
             self.app.invalidate()
 
+    def move_selected(self, direction):
+        """Cycle the remote cursor through explicitly selected entries."""
+        indexes = [i for i, entry in enumerate(self.entries)
+                   if entry.path in self.selected]
+        if not indexes:
+            return
+        if direction > 0:
+            self.cursor = next((i for i in indexes if i > self.cursor), indexes[0])
+        else:
+            previous = [i for i in indexes if i < self.cursor]
+            self.cursor = previous[-1] if previous else indexes[-1]
+        self.app.invalidate()
+
     def _move_to(self, index):
         if self._preview_entry is not None:
             self._preview_scroll = 0 if index <= 0 else 10 ** 9
@@ -363,6 +377,46 @@ class NetworkView:
             else:
                 self.selected.add(cur.path)
             self.move(1)
+
+    # -- pattern select ('*') -----------------------------------------------
+    def select_pattern(self):
+        """Select remote entries by glob or case-insensitive substring."""
+        self._pattern_selection_base = set(self.selected)
+        self.app.open_input_dialog(
+            "Select pattern", "", 0, self._commit_pattern_selection,
+            on_change=self._preview_pattern_selection,
+            on_cancel=self._cancel_pattern_selection)
+
+    def _pattern_matches(self, pattern):
+        pattern = (pattern or "").strip().casefold()
+        if not pattern:
+            return set()
+        wildcard = any(char in pattern for char in "*?[")
+        return {
+            entry.path for entry in self.entries
+            if not entry.is_parent and (
+                fnmatch.fnmatchcase(entry.name.casefold(), pattern)
+                if wildcard else pattern in entry.name.casefold())
+        }
+
+    def _set_pattern_selection(self, pattern):
+        self.selected.clear()
+        self.selected.update(getattr(self, "_pattern_selection_base", set()))
+        self.selected.update(self._pattern_matches(pattern))
+        self.app.invalidate()
+
+    def _preview_pattern_selection(self, pattern):
+        self._set_pattern_selection(pattern)
+
+    def _commit_pattern_selection(self, pattern):
+        self._set_pattern_selection(pattern)
+        self._pattern_selection_base = set()
+
+    def _cancel_pattern_selection(self):
+        self.selected.clear()
+        self.selected.update(getattr(self, "_pattern_selection_base", set()))
+        self._pattern_selection_base = set()
+        self.app.invalidate()
 
     def _on_mouse(self, mouse_event):
         """Match the local pane's selection, caret, and double-click behavior."""
@@ -1059,9 +1113,11 @@ class NetworkView:
         kb.add("h")(lambda e: self.collapse_or_up())
         kb.add("backspace")(lambda e: self.collapse_or_up())
         kb.add(" ")(lambda e: self.toggle())
+        kb.add("*")(lambda e: self.select_pattern())
         kb.add("tab")(lambda e: self.actions())
         kb.add("c")(lambda e: self.download())
-        kb.add("n")(lambda e: self.new_dir())
+        kb.add("n")(lambda e: self.move_selected(1))
+        kb.add("N")(lambda e: self.move_selected(-1))
         kb.add("i")(lambda e: self.rename())
         kb.add("D")(lambda e: self.delete())
         kb.add("r")(lambda e: self.refresh())
