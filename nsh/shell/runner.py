@@ -320,6 +320,16 @@ class CommandRunner:
         self._tail = ""  # rolling buffer of recent output, for auth detection
         self._ps_fetch_task = None  # in-flight Get-Command query, if any
 
+    @property
+    def cwd(self) -> str:
+        session = self.session
+        if session is not None:
+            try:
+                return str(session.explorers[session.active_pane].cwd)
+            except (AttributeError, IndexError, TypeError):
+                pass  # session without explorers yet; use the active pane
+        return str(self.app.cwd)
+
     def ensure_powershell_commands(self):
         """Kick off (once per shell executable, in the background) a query for
         this PowerShell's functions/aliases/cmdlets, so Tab-completion can offer
@@ -494,7 +504,7 @@ class CommandRunner:
         try:
             proc = await asyncio.create_subprocess_exec(
                 self.shell, *self.shell_args, f"{line}; {dump}",
-                cwd=str(self.app.cwd), env=self._child_env(),
+                cwd=self.cwd, env=self._child_env(),
                 stdin=asyncio.subprocess.DEVNULL,  # don't share the terminal stdin
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
             )
@@ -633,7 +643,7 @@ class CommandRunner:
         # bring any `source`d scripts' functions/aliases/vars into scope first
         command = self.sourced_prefix() + self._prepare_command(command)
         kwargs = dict(
-            cwd=str(self.app.cwd),
+            cwd=self.cwd,
             env=self._child_env(allow_prompt=allow_prompt),
             # Detach the command's stdin from the terminal. Inheriting it lets the
             # child fiddle with the terminal (cursor-key mode, raw mode), which
@@ -699,7 +709,7 @@ class CommandRunner:
         Returns the command's exit code (``None`` if it could not be launched).
         """
         self._started_at = time.monotonic()
-        cwd = str(self.app.cwd)
+        cwd = self.cwd
         env = self._child_env()  # carry the user's shell variables in too
         # Invoke POSIX shells and PowerShell explicitly.  Going through
         # shell=True may route the command via cmd.exe instead of the detected
