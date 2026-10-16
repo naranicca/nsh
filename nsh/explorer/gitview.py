@@ -20,7 +20,7 @@ from .. import config
 from ..util import hangul
 from ..util.widgets import WheelScrollControl, visible_slice
 from ..util.width import text_width
-from . import git, model
+from . import fileops, git, model
 from .view import _git_action_label, _git_log_label
 
 
@@ -221,6 +221,9 @@ class GitView:
                 revert_item = (
                     _git_action_label("Git: Revert", revert_paths),
                     lambda paths=revert_paths: self.git_revert(paths))
+            # file ops on the whole selection (rename is single-file only)
+            items += [("Move to Trash        d", self.trash_entry),
+                      ("Delete permanently   D", self.delete_entry)]
         elif cur is not None:
             target = cur.rel
             if cur.code == "?":
@@ -231,6 +234,10 @@ class GitView:
                 if model.is_text_file(cur.path):
                     items.append(("Edit", self.edit))
                 items.append(("Git: Stage / Unstage", self.git_stage))
+            # the same file ops the explorer offers, with the same keys
+            items += [("Rename               F2", self.rename_entry),
+                      ("Move to Trash        d", self.trash_entry),
+                      ("Delete permanently   D", self.delete_entry)]
         else:
             target = "repo"  # no changed files: still offer the repo-wide actions
         # repo-level actions, available even when there are no changed files
@@ -329,6 +336,97 @@ class GitView:
         if entry is not None:
             self.app.edit_file(entry.path)
 
+    # -- file operations ------------------------------------------------------
+    # The same rename / trash / delete the explorer offers, so a changed file
+    # can be dealt with without leaving git mode. There is no inline editor in
+    # this flat list, so rename goes through the input dialog; everything ends
+    # in refresh_git(), which rebuilds this list from the new status.
+    def rename_entry(self):
+        entry = self.current()
+        if entry is None:
+            return
+        name = entry.path.name
+        self.app.open_input_dialog(
+            "Rename", name, len(Path(name).stem),  # cursor before the extension
+            lambda new: self._do_rename(entry, new))
+
+    def _do_rename(self, entry, name):
+        name = name.strip()
+        if not name or name == entry.path.name:
+            self.app.set_message("rename cancelled")
+            return
+        try:
+            target = fileops.rename(entry.path, name)
+        except Exception as exc:  # noqa: BLE001
+            self._show_operation_errors("Rename failed", [str(exc)])
+            return
+        self.app.set_message(f"renamed to: {target.name}")
+        self._after_file_op()
+
+    def trash_entry(self):
+        targets = self._targets()
+        if not targets:
+            return
+        if len(targets) == 1:
+            label = f"Move '{targets[0].name}' to the Trash?"
+        else:
+            label = f"Move {len(targets)} items to the Trash?"
+        self.app.confirm(label, lambda ok: self._do_trash(targets, ok))
+
+    def delete_entry(self):
+        targets = self._targets()
+        if not targets:
+            return
+        if len(targets) == 1:
+            label = f"Delete '{targets[0].name}'? This cannot be undone."
+        else:
+            label = f"Delete {len(targets)} items? This cannot be undone."
+        self.app.confirm(label, lambda ok: self._do_delete(targets, ok))
+
+    def _do_trash(self, targets, ok):
+        if not ok:
+            self.app.set_message("trash cancelled")
+            return
+        asyncio.ensure_future(self._remove_all(
+            targets, fileops.trash, "moved {n} item(s) to Trash",
+            "Move to Trash failed"))
+
+    def _do_delete(self, targets, ok):
+        if not ok:
+            self.app.set_message("delete cancelled")
+            return
+        asyncio.ensure_future(self._remove_all(
+            targets, fileops.delete, "deleted {n} item(s)", "Delete failed"))
+
+    async def _remove_all(self, targets, op, done_message, error_title):
+        done = 0
+        errors = []
+        for path in targets:
+            try:
+                await op(path)
+                done += 1
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"{path.name}: {exc}")
+        self.app.set_message(done_message.format(n=done))
+        self._show_operation_errors(error_title, errors)
+        self._after_file_op()
+
+    def _after_file_op(self):
+        """Drop the selection and rebuild the status list (this view reloads
+        from it); the explorer's listing follows on its next refresh."""
+        self.selected.clear()
+        asyncio.ensure_future(self.app.refresh_git())
+
+    def _show_operation_errors(self, title, errors):
+        if not errors:
+            return
+        lines = [str(error) for error in errors]
+        show_error = getattr(self.app, "show_error", None)
+        if show_error:
+            show_error(title, lines)
+        else:
+            self.app.set_message(lines[-1])
+
     # -- keys -----------------------------------------------------------------
     def rebuild_keys(self):
         """Rebuild the action-key bindings from the reloaded config (used live
@@ -402,7 +500,22 @@ class GitView:
         bind("bookmark", lambda: self.app.open_bookmark_menu())
         bind("preview", lambda: self.app.toggle_preview())
         bind("refresh", self.refresh)
+        bind("delete", self.delete_entry)
+        bind("rename", self.rename_entry)
         bind("quit", self.app.exit)
+
+        @kb.add("i")
+        @kb.add("f2")
+        def _(event):
+            self.rename_entry()
+
+        @kb.add("d")
+        def _(event):
+            self.trash_entry()
+
+        @kb.add("D")
+        def _(event):
+            self.delete_entry()
 
         hangul.add_hangul_aliases(kb)  # let the keys work with the Korean IME on
         return kb
