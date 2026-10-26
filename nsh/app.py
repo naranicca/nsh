@@ -529,6 +529,38 @@ class NshApp:
         else:
             self.leave_shell()
 
+    def save_shell_text(self):
+        """Save this tab's scrollback as plain UTF-8 text."""
+        self.open_input_dialog(
+            "Save shell text", "shell.txt", len("shell.txt"),
+            self._save_shell_text_to)
+
+    def _save_shell_text_to(self, filename):
+        filename = (filename or "").strip()
+        if not filename:
+            return
+        path = Path(filename).expanduser()
+        if not path.is_absolute():
+            path = self.cwd / path
+        if path.exists():
+            self.confirm(
+                f"{path.name} already exists. Overwrite it?",
+                lambda ok: self._write_shell_text(path) if ok else None)
+        else:
+            self._write_shell_text(path)
+
+    def _write_shell_text(self, path):
+        try:
+            self.shell.flush_output()
+            lines = ["".join(text for _, text in fragments)
+                     for fragments in self.shell.lines]
+            path.write_text("\n".join(lines) + ("\n" if lines else ""),
+                            encoding="utf-8")
+        except OSError as exc:
+            self.show_error("Save shell text", f"Could not save {path}: {exc}")
+            return
+        self.set_message(f"saved shell text: {path}")
+
     # -- live config reload ---------------------------------------------------
     def _read_config_mtime(self):
         try:
@@ -739,6 +771,10 @@ class NshApp:
         @kb.add("c-end", filter=shell_mode)
         def _(event):
             self.shell.scroll_to_bottom()
+
+        @kb.add("c-s", filter=shell_mode & ~overlay_open)
+        def _(event):
+            self.save_shell_text()
 
         # Alt+Up / Alt+Down scroll the output a line at a time. Both Win32 input
         # and VT100 terminals deliver Alt+<key> as an Escape prefix followed by
@@ -1520,6 +1556,7 @@ class NshApp:
                 ("F2", "rename tab", self.shells.rename),
                 (f"Alt+←→/{pk}·{nk}", "switch"),
                 ("PgUp/PgDn", "scroll"),
+                ("^S", "save", self.save_shell_text),
             ]
             if queue_key:
                 hints.append((queue_key, "unqueue", self.remove_last_queued))
