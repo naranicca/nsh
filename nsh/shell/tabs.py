@@ -208,6 +208,9 @@ class ShellTabs:
         self.sessions.append(session)
         self.active = len(self.sessions) - 1
         self.app._after_tab_switch()
+        # Persist structural tab changes immediately.  Waiting until q loses a
+        # newly opened tab when nsh is interrupted or the terminal is closed.
+        self.app._save_tab_state()
         return session
 
     def snapshot(self):
@@ -235,10 +238,15 @@ class ShellTabs:
 
     def select(self, idx):
         if 0 <= idx < len(self.sessions):
+            changed = idx != self.active
             self.app.remember_network_pane()
             self.active = idx
             self.ensure_loaded()
             self.app._after_tab_switch()
+            # ``active`` is part of the restored snapshot.  Store a tab switch
+            # now rather than relying on a later open/close or normal quit.
+            if changed:
+                self.app._save_tab_state()
 
     def next(self):
         self.select((self.active + 1) % len(self.sessions))
@@ -256,6 +264,7 @@ class ShellTabs:
             sessions[target], sessions[self.active])
         self.active = target  # the index moved; the current session did not
         self.app.invalidate()
+        self.app._save_tab_state()
         return True
 
     def rename(self, session=None):
@@ -294,11 +303,13 @@ class ShellTabs:
         if len(self.sessions) <= 1:
             session.clear()
             self.app.switch_mode(self.app._shell_return)
+            self.app._save_tab_state()
             return
         idx = self.sessions.index(session)
         self.sessions.pop(idx)
         self.active = min(self.active, len(self.sessions) - 1)
         self.app._after_tab_switch()  # the now-current tab's explorer takes over
+        self.app._save_tab_state()
 
     # -- rendering ------------------------------------------------------------
     def _on_mouse(self, mouse_event):

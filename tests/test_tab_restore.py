@@ -78,6 +78,7 @@ class TabRestoreTests(unittest.TestCase):
 
         snapshot = tabs.snapshot()
 
+        self.assertEqual(0, snapshot["active"])
         self.assertEqual(["left", "right"], snapshot["tabs"][0]["paths"])
         self.assertEqual(1, snapshot["tabs"][0]["active_pane"])
         self.assertTrue(snapshot["tabs"][0]["two_pane"])
@@ -85,6 +86,59 @@ class TabRestoreTests(unittest.TestCase):
         self.assertEqual(["old", "pwd", "git status"],
                          snapshot["tabs"][0]["history"])
         self.assertEqual("input", snapshot["tabs"][0])
+
+    def test_new_tab_saves_restore_state_immediately(self):
+        old = SimpleNamespace()
+        new = SimpleNamespace(
+            explorers=[SimpleNamespace(load=mock.Mock()),
+                       SimpleNamespace(load=mock.Mock())])
+        app = SimpleNamespace(
+            cwd=Path("work"), mode="explorer", _two_pane_default=False,
+            remember_network_pane=mock.Mock(), _after_tab_switch=mock.Mock(),
+            _save_tab_state=mock.Mock())
+        tabs = ShellTabs.__new__(ShellTabs)
+        tabs.app = app
+        tabs.sessions = [old]
+        tabs.active = 0
+        tabs._new_tab = mock.Mock(return_value=new)
+
+        tabs.new_session()
+
+        self.assertEqual([old, new], tabs.sessions)
+        self.assertEqual(1, tabs.active)
+        app._save_tab_state.assert_called_once_with()
+
+    def test_closing_tab_saves_restore_state_immediately(self):
+        closing = SimpleNamespace(runner=SimpleNamespace(interrupt=mock.Mock()))
+        remaining = SimpleNamespace()
+        app = SimpleNamespace(_after_tab_switch=mock.Mock(),
+                              _save_tab_state=mock.Mock())
+        tabs = ShellTabs.__new__(ShellTabs)
+        tabs.app = app
+        tabs.sessions = [closing, remaining]
+        tabs.active = 0
+
+        tabs.close(closing)
+
+        self.assertEqual([remaining], tabs.sessions)
+        self.assertEqual(0, tabs.active)
+        app._save_tab_state.assert_called_once_with()
+
+    def test_switching_tabs_saves_the_active_tab_immediately(self):
+        first = SimpleNamespace(_needs_initial_load=False)
+        second = SimpleNamespace(_needs_initial_load=False)
+        app = SimpleNamespace(remember_network_pane=mock.Mock(),
+                              _after_tab_switch=mock.Mock(),
+                              _save_tab_state=mock.Mock())
+        tabs = ShellTabs.__new__(ShellTabs)
+        tabs.app = app
+        tabs.sessions = [first, second]
+        tabs.active = 0
+
+        tabs.select(1)
+
+        self.assertEqual(1, tabs.active)
+        app._save_tab_state.assert_called_once_with()
 
     def test_constructor_restores_history_but_discards_legacy_input(self):
         with tempfile.TemporaryDirectory() as root:

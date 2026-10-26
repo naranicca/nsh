@@ -275,6 +275,7 @@ it in (a new tab opens in your current mode, so `Ctrl+T` keeps your workflow).
 | `↵` | run the command |
 | `PgUp`/`PgDn`, `Alt+↑`/`Alt+↓`, wheel, `Ctrl+End` | scroll the output (the prompt hides while scrolled up) |
 | `Ctrl+T` / `Ctrl+W` | open / close a tab |
+| `Ctrl+S` | save the current shell scrollback as UTF-8 text |
 | `F2` | rename the current tab; an empty name restores its directory-based name |
 | `Alt+←` / `Alt+→` (or `F7` / `F8`) | previous / next tab |
 | `ESC` | clear a non-empty command line; when already empty, switch back to Explorer |
@@ -565,6 +566,9 @@ pane paths and recent per-tab command history,
 the per-shell `scrollback_lines` limit (1–100000),
 `search_exclude` (the directories fuzzy search skips),
 and `external_commands` (commands that always receive a real terminal).
+Tab restoration state is updated immediately when a tab is opened or closed,
+so those structural changes survive an interrupted session as well as a normal
+quit.
 `[colors]` overrides any UI style class; `[keys]` remaps the explorer action
 keys. Invalid entries are ignored, never fatal.
 
