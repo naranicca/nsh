@@ -205,8 +205,9 @@ class ShellTabs:
         session = self._new_tab(self.app.cwd, mode)
         for ex in session.explorers:
             ex.load()
-        self.sessions.append(session)
-        self.active = len(self.sessions) - 1
+        insert_at = self.active + 1  # next to the tab it was opened from
+        self.sessions.insert(insert_at, session)
+        self.active = insert_at
         self.app._after_tab_switch()
         # Persist structural tab changes immediately.  Waiting until q loses a
         # newly opened tab when nsh is interrupted or the terminal is closed.
