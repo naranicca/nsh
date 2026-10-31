@@ -456,9 +456,8 @@ class PreviewView:
         while hdr < len(lines) and any(t.strip() for _, t in lines[hdr]):
             hdr += 1
         header, body = lines[:hdr], lines[hdr:]
-        body_h = max(1, height - hdr)
-        max_scroll = max(0, len(body) - body_h)
-        self._scroll = max(0, min(self._scroll, max_scroll))
+        if len(body) > 1 and not any(t for _, t in body[-1]):
+            body = body[:-1]
         # tint the pinned header only while focused so the focus state reads at a
         # glance; the first header line always carries the [-]/[+] zoom button.
         width = self._content_width()
@@ -487,13 +486,50 @@ class PreviewView:
                 header_lines.append(self._focus_header(ln, width))
             else:
                 header_lines.append(ln)
-        shown = header_lines + body[self._scroll:self._scroll + body_h]
+        body_h = max(1, height - len(header_lines))
+        row_counts = [self._row_count(ln, width) for ln in body]
+        self._scroll = max(0, min(self._scroll, self._max_scroll(row_counts, body_h)))
+        end = self._rows_end(row_counts, self._scroll, body_h)
+        tail = body[self._scroll:end]
+        if len(tail) == 1 and row_counts[self._scroll] > body_h:
+            tail = self._wrap_frags(body[self._scroll], width, width)[-body_h:]
+        shown = header_lines + tail
         return self._flatten_lines(shown)
+
+    @staticmethod
+    def _row_count(line, width):
+        if width <= 0:
+            return 1
+        used = sum(text_width(t) for _, t in line)
+        return max(1, -(-used//width))  # ceil division
 
     @staticmethod
     def _selected_hunk_style(hunk):
         return ("class:preview-hunk-staged-selected" if hunk["staged"]
                 else "class:preview-hunk-selected")
+
+    @staticmethod
+    def _rows_end(row_counts, start, budget):
+        if start >= len(row_counts):
+            return start
+        total = row_counts[start]
+        end = start + 1
+        while end < len(row_counts) and total + row_counts[end] <= budget:
+            total += row_counts[end]
+            end += 1
+        return end
+
+    @staticmethod
+    def _max_scroll(row_counts, budget):
+        total = 0
+        idx = len(row_counts)
+        for i in range(len(row_counts) - 1, -1, -1):
+            new_total = total + row_counts[i]
+            if new_total > budget and total > 0:
+                break
+            total = new_total
+            idx = i
+        return idx
 
     def _kb(self):
         kb = KeyBindings()
