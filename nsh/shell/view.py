@@ -108,24 +108,12 @@ class ShellView:
         # longer than the row wraps downward instead of scrolling sideways;
         # _input_height grows the window to fit however many rows that takes.
         self.command_window = Window(
-            BufferControl(buffer=self.command_buffer, lexer=ShellLexer(),
-            wrap_lines=True,)
+            BufferControl(buffer=self.command_buffer, lexer=ShellLexer()),
+            wrap_lines=True,
         )
         # Keep the prompt in its own column so the elapsed-time badge and `$ `
         # stay pinned to the first row while a wrapped command grows downward
         # in the column beside it.
-        self.command_window = Window(
-            BufferControl(
-                buffer=self.command_buffer, lexer=ShellLexer(),
-                # Keep the completion menu anchored sensibly on a single, non-
-                # wrapping input line (see _menu_position).
-                menu_position=self._menu_position),
-            left_margins=[_CommandScrollMargin(self, "left")],
-            right_margins=[_CommandScrollMargin(self, "right")],
-            height=1,
-        )
-        # Keep the prompt in a separate window: only the command buffer scrolls
-        # horizontally, so the elapsed-time badge and `$ ` remain visible.
         self.input_window = VSplit(
             [
                 Window(FormattedTextControl(self._prompt_text),
@@ -201,7 +189,7 @@ class ShellView:
 
     # -- auto-grow height -----------------------------------------------------
     def _command_rows(self):
-        """Rows the command bufffer's (single, possibly long) line wraps to at
+        """Rows the command buffer's (single, possibly long) line wraps to at
         the input row's current width — drives the input window's height so a
         long command grows the box downward instead of scrolling it sideways."""
         try:
@@ -210,14 +198,14 @@ class ShellView:
             columns = 80
         prompt_width = sum(text_width(t) for _, t in self._prompt_text())
         width = max(1, columns - prompt_width)
-        used = text_width(self.command_buffer.text) + 1  # cursor cell
+        used = text_width(self.command_buffer.text) + 1  # +1 for cursor cell
         return max(1, -(-used // width))  # ceil division
 
     def _input_height(self):
         # hidden while scrolled up, visible at the bottom (following)
         if self.scroll_top is not None:
             return Dimension.exact(0)
-        return Dimension.exact(0 if self.scroll_top is not None else 1)
+        return Dimension.exact(self._command_rows())
 
     def _output_height(self):
         # Full screen: fill all remaining space. Split: exactly as tall as the
