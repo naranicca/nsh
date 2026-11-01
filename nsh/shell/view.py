@@ -9,7 +9,6 @@ from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.layout.containers import HSplit, VSplit, Window
 from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
 from prompt_toolkit.layout.dimension import Dimension
-from prompt_toolkit.layout.margins import Margin
 
 from ..util.width import char_width, text_width
 from ..util.widgets import WheelScrollControl
@@ -33,28 +32,6 @@ _CSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 # A few extra lines are sliced below the estimated viewport so a one-frame-stale
 # height estimate (render_info lags a frame) never blanks the bottom edge.
 SCROLL_BUFFER = 5
-
-
-class _CommandScrollMargin(Margin):
-    """Fixed one-cell marker when command text is clipped on either side."""
-
-    def __init__(self, shell_view, side):
-        self.shell_view = shell_view
-        self.side = side
-
-    def get_width(self, get_ui_content):
-        return 1
-
-    def create_margin(self, window_render_info, width, height):
-        window = self.shell_view.command_window
-        scroll = getattr(window, "horizontal_scroll", 0)
-        if self.side == "left":
-            clipped = scroll > 0
-        else:
-            command_width = text_width(self.shell_view.command_buffer.text)
-            clipped = command_width > scroll + window_render_info.window_width
-        marker = "⋯" if clipped else " "
-        return [("class:shell.prompt.dim", marker)]
 
 
 def _fmt_elapsed(seconds):
@@ -106,7 +83,6 @@ class ShellView:
             # typing while scrolled up jumps the view back to the bottom, so the
             # (collapsed) input line reappears and you can see what you type
             on_text_changed=self._on_command_changed,
-            on_cursor_position_changed=self._on_command_cursor_changed,
         )
 
         # wrap_lines=True so long output stays readable. prompt_toolkit ignores
@@ -128,7 +104,16 @@ class ShellView:
 
         # The input line collapses to height 0 while the user is scrolled up
         # (kept in the layout — not removed — so focus and the scroll key
-        # bindings stay live to bring it back).
+        # bindings stay live to bring it back). wrap_lines=True so a command
+        # longer than the row wraps downward instead of scrolling sideways;
+        # _input_height grows the window to fit however many rows that takes.
+        self.command_window = Window(
+            BufferControl(buffer=self.command_buffer, lexer=ShellLexer(),
+            wrap_lines=True,)
+        )
+        # Keep the prompt in its own column so the elapsed-time badge and `$ `
+        # stay pinned to the first row while a wrapped command grows downward
+        # in the column beside it.
         self.command_window = Window(
             BufferControl(
                 buffer=self.command_buffer, lexer=ShellLexer(),
@@ -159,39 +144,8 @@ class ShellView:
         self.container = HSplit(
             [self.output_window, self.queue_window, self.input_window])
 
-    def _menu_position(self):
-        """Where the completion menu attaches on the single-line, non-wrapping
-        input.
-
-        prompt_toolkit's default anchors the menu at the start of the completion
-        (a fixed document index), which is stable while you cycle candidates — so
-        we keep it (return ``None``) whenever that point is still on screen.
-
-        But completing a long name scrolls that start off the left edge; the
-        renderer then can't map its (off-screen) column to a screen position,
-        falls back to (0, 0), and throws the menu to the top of the screen. Only
-        then do we re-anchor at the cursor, which the input always keeps visible.
-        """
-        buff = self.command_buffer
-        state = buff.complete_state
-        if not state:
-            return None
-        anchor = min(buff.cursor_position, state.original_document.cursor_position)
-        anchor_col = text_width(buff.text[:anchor])
-        # the Window tracks its own left scroll (display column of the first
-        # visible char); when the stable anchor falls left of it, it's off-screen
-        h_scroll = getattr(self.command_window, "horizontal_scroll", 0)
-        if anchor_col < h_scroll:
-            return buff.cursor_position  # the stable anchor scrolled off-screen
-        return None  # on screen: keep prompt_toolkit's stable default
-
     def _accept(self, buff):
         self.app.run_in_shell(self, buff.text)
-        # The accepted line may have scrolled far to the right. Its replacement
-        # is the much shorter dim queue prompt, but that prompt change does not
-        # itself fire a buffer/cursor event, so prompt_toolkit would retain the
-        # old offset and render the prompt off-screen until another keypress.
-        self.command_window.horizontal_scroll = 0
         return False  # clear the input line
 
     def _on_command_changed(self, _buff):
@@ -199,27 +153,6 @@ class ShellView:
         # following, so it doesn't fight a deliberate scroll-up that has no input)
         if self.scroll_top is not None:
             self.scroll_to_bottom()
-        self._reset_stale_input_scroll(_buff)
-
-    def _on_command_cursor_changed(self, buff):
-        self._reset_stale_input_scroll(buff)
-
-    def _reset_stale_input_scroll(self, buff):
-        """Discard horizontal scroll left behind by a longer history entry.
-
-        prompt_toolkit normally keeps this value in step with the cursor, but a
-        history replacement can shorten the document without reducing the old
-        scroll offset. The new command then sits to the left of the viewport and
-        appears blank until the user moves the cursor. Only reset that invalid
-        case; normal scrolling within a genuinely long command is untouched.
-        """
-        window = getattr(self, "command_window", None)
-        if window is None:
-            return
-        cursor_col = text_width(buff.text[:buff.cursor_position])
-        horizontal_scroll = getattr(window, "horizontal_scroll", 0)
-        if horizontal_scroll > cursor_col:
-            window.horizontal_scroll = 0
 
     def busy(self) -> bool:
         return self.runner.is_running()
@@ -267,8 +200,23 @@ class ShellView:
         return out
 
     # -- auto-grow height -----------------------------------------------------
+    def _command_rows(self):
+        """Rows the command bufffer's (single, possibly long) line wraps to at
+        the input row's current width — drives the input window's height so a
+        long command grows the box downward instead of scrolling it sideways."""
+        try:
+            columns = get_app().output.get_size().columns
+        except Exception:
+            columns = 80
+        prompt_width = sum(text_width(t) for _, t in self._prompt_text())
+        width = max(1, columns - prompt_width)
+        used = text_width(self.command_buffer.text) + 1  # cursor cell
+        return max(1, -(-used // width))  # ceil division
+
     def _input_height(self):
         # hidden while scrolled up, visible at the bottom (following)
+        if self.scroll_top is not None:
+            return Dimension.exact(0)
         return Dimension.exact(0 if self.scroll_top is not None else 1)
 
     def _output_height(self):
@@ -385,19 +333,19 @@ class ShellView:
         return [("class:shell.prompt.dim", "…"), *kept]
 
     def _prompt_width_cap(self, minimum=1):
-        """Prompt width left after giving the typed command all space it needs.
+        """Max width the prompt (cwd + branch) may use on its row.
 
-        A short command lets the prompt use up to half the terminal. As the
-        command grows, cwd / branch are progressively removed until only the
-        caller-supplied minimum (elapsed badge plus ``$ ``, when present) stays.
+        Capped at half the terminal so a long path can't crowd out the whole
+        row. The typed command no longer needs reactive room here: it wraps
+        onto extra rows (see ``_command_rows``) instead of scrolling
+        horizontally, so the prompt can keep its full cwd / branch regardless
+        of how long the command gets.
         """
         try:
             columns = get_app().output.get_size().columns
         except Exception:
             columns = 80
-        command_width = text_width(self.command_buffer.text) + 1  # cursor cell
-        available = columns - command_width
-        return max(minimum, min(columns // 2, available))
+        return max(minimum, columns // 2)
 
     def _prompt_text(self):
         prompt = self._prompt_fragments()
