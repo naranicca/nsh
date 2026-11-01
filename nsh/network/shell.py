@@ -13,7 +13,6 @@ from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.layout.containers import HSplit, VSplit, Window
 from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
 from prompt_toolkit.layout.dimension import Dimension
-from prompt_toolkit.layout.margins import Margin
 
 from ..util.aio import run_in_thread
 from ..util.width import char_width, text_width
@@ -49,25 +48,6 @@ def _fmt_bytes(value):
         value /= 1024
 
 
-class _CommandScrollMargin(Margin):
-    """Match the local shell's fixed left/right clipping indicators."""
-
-    def __init__(self, shell, side):
-        self.shell, self.side = shell, side
-
-    def get_width(self, get_ui_content):
-        return 1
-
-    def create_margin(self, window_render_info, width, height):
-        scroll = getattr(self.shell.command_window, "horizontal_scroll", 0)
-        if self.side == "left":
-            clipped = scroll > 0
-        else:
-            command_width = text_width(self.shell.command_buffer.text)
-            clipped = command_width > scroll + window_render_info.window_width
-        return [("class:shell.prompt.dim", "⋯" if clipped else " ")]
-
-
 class RemoteShellView:
     def __init__(self, app):
         self.app = app
@@ -82,9 +62,7 @@ class RemoteShellView:
         self._transfer_progress_started = None
         self.command_buffer = Buffer(
             name="remote-command", multiline=False,
-            history=InMemoryHistory(), accept_handler=self._accept,
-            on_text_changed=self._reset_stale_input_scroll,
-            on_cursor_position_changed=self._reset_stale_input_scroll)
+            history=InMemoryHistory(), accept_handler=self._accept)
         self.buffer = self.command_buffer  # app focus compatibility
         self.output = Window(
             FormattedTextControl(
@@ -97,10 +75,7 @@ class RemoteShellView:
             FormattedTextControl(self._prompt_text),
             dont_extend_width=True, height=1)
         self.command_window = Window(
-            BufferControl(self.command_buffer),
-            left_margins=[_CommandScrollMargin(self, "left")],
-            right_margins=[_CommandScrollMargin(self, "right")],
-            height=1)
+            BufferControl(self.command_buffer), wrap_lines=True)
         self.input = self.command_window
         self.queue_window = Window(
             FormattedTextControl(self._queue_text),
@@ -113,7 +88,7 @@ class RemoteShellView:
             Window(height=1, char="─", style="class:preview.border"),
             self.progress_window,
             self.queue_window,
-            VSplit([self.prompt, self.input], height=1),
+            VSplit([self.prompt, self.input], height=self._input_height),
         ])
 
     def _prompt_text(self):
@@ -172,8 +147,7 @@ class RemoteShellView:
             columns = get_app().output.get_size().columns
         except Exception:
             columns = 80
-        command_width = text_width(self.command_buffer.text) + 1
-        return max(minimum, min(columns // 2, columns - command_width))
+        return max(minimum, columns // 2)
 
     def _elapsed(self):
         if not self.busy or self._started_at is None:
@@ -182,6 +156,19 @@ class RemoteShellView:
 
     def _queue_height(self):
         return Dimension.exact(len(self.pending))
+
+    def _command_rows(self):
+        try:
+            columns = get_app().output.get_size().columns
+        except Exception:
+            columns = 80
+        prompt_width = sum(text_width(t) for _, t in self._prompt_text())
+        width = max(1, columns - prompt_width)
+        used = text_width(self.command_buffer.text) + 1  # +1 for the cursor cell
+        return max(1, -(-used // width))  # ceil division
+
+    def _input_height(self):
+        return Dimension.exact(self._command_rows())
 
     def _progress_height(self):
         return Dimension.exact(1 if self._transfer_progress is not None else 0)
@@ -226,14 +213,6 @@ class RemoteShellView:
                 out.append(("class:shell.queued", padding))
             out.append(("class:shell.queued", f"$ {command}"))
         return out
-
-    def _reset_stale_input_scroll(self, buffer):
-        window = getattr(self, "command_window", None)
-        if window is None:
-            return
-        cursor_col = text_width(buffer.text[:buffer.cursor_position])
-        if getattr(window, "horizontal_scroll", 0) > cursor_col:
-            window.horizontal_scroll = 0
 
     def _output_text(self):
         out = []
@@ -283,7 +262,6 @@ class RemoteShellView:
         command = buffer.text.strip()
         if command:
             self.run(command)
-        self.command_window.horizontal_scroll = 0
         return False
 
     def run(self, command):
