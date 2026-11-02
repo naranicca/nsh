@@ -85,32 +85,33 @@ class PreviewKeyTests(unittest.TestCase):
     def test_diff_arrows_jump_between_hunks(self):
         view = object.__new__(PreviewView)
         view._scroll = 0
+        view.window = SimpleNamespace(render_info=None)  # _visible_height fallback
         view._current_diff_key = mock.Mock(return_value=("git",))
         view._diff_hunks = {
             ("git",): [{"line": 4}, {"line": 12}, {"line": 25}]}
         view._hunk_selection = {}
         view.app = SimpleNamespace(invalidate=mock.Mock())
 
+        # each hunk here is a single line (no "end"), well under the viewport,
+        # so jump_hunk leaves 2 lines of context above it (line - 2).
         self.assertTrue(view.jump_hunk(1))
-        self.assertEqual(view._scroll, 12)
+        self.assertEqual(view._scroll, 10)
         view.jump_hunk(1)
-        self.assertEqual(view._scroll, 25)
+        self.assertEqual(view._scroll, 23)
         view.jump_hunk(-1)
-        self.assertEqual(view._scroll, 12)
+        self.assertEqual(view._scroll, 10)
 
-    def test_j_and_k_use_the_same_change_navigation_as_arrows(self):
+    def test_j_and_k_scroll_the_same_as_the_arrow_keys(self):
         view = object.__new__(PreviewView)
         view.app = SimpleNamespace(keys={})
-        view.jump_hunk = mock.Mock(return_value=True)
         view.scroll = mock.Mock()
         bindings = view._kb()
 
         bindings.get_bindings_for_keys(("j",))[0].handler(SimpleNamespace())
         bindings.get_bindings_for_keys(("k",))[0].handler(SimpleNamespace())
 
-        self.assertEqual(view.jump_hunk.call_args_list,
+        self.assertEqual(view.scroll.call_args_list,
                          [mock.call(1), mock.call(-1)])
-        view.scroll.assert_not_called()
 
     def test_lowercase_u_reverts_current_change(self):
         view = object.__new__(PreviewView)

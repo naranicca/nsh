@@ -247,7 +247,7 @@ class GrepView:
         kb.add("l")(lambda e: self._focus_preview())
         kb.add(":")(lambda e: self.app.switch_mode("shell"))
         kb.add("c-j")(lambda e: self._send_to_shell())
-        kb.add("escape")(lambda e: self.app.switch_mode("explorer"))
+        kb.add("escape")(lambda e: self.app.close_grep())
         return kb
 
     def _jump_result(self, index):

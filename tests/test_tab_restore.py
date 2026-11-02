@@ -44,7 +44,7 @@ class TabRestoreTests(unittest.TestCase):
         self.assertTrue(specs[1]["two_pane"])
         self.assertEqual("work", specs[1]["title"])
         self.assertEqual(["pwd", "git status"], specs[1]["history"])
-        self.assertEqual("input", specs[1])
+        self.assertNotIn("input", specs[1])
 
     def test_missing_tabs_are_skipped_and_active_index_is_remapped(self):
         with tempfile.TemporaryDirectory() as root:
@@ -73,8 +73,7 @@ class TabRestoreTests(unittest.TestCase):
             active_pane=1, two_pane=True, custom_title="pair",
             command_buffer=SimpleNamespace(
                 history=SimpleNamespace(
-                    get_strings=lambda: ["old", "pwd", "git status"]),
-                text="echo draft"))]
+                    get_strings=lambda: ["old", "pwd", "git status"])))]
 
         snapshot = tabs.snapshot()
 
@@ -85,7 +84,7 @@ class TabRestoreTests(unittest.TestCase):
         self.assertEqual("pair", snapshot["tabs"][0]["title"])
         self.assertEqual(["old", "pwd", "git status"],
                          snapshot["tabs"][0]["history"])
-        self.assertEqual("input", snapshot["tabs"][0])
+        self.assertNotIn("input", snapshot["tabs"][0])
 
     def test_new_tab_saves_restore_state_immediately(self):
         old = SimpleNamespace()

@@ -101,10 +101,10 @@ class RemoteShellView:
             if self.pending:
                 badge = f"[{_fmt_elapsed(elapsed)}] "
                 return [("class:shell.queued", " " * text_width(badge)),
-                        *dim_dollar]
+                        *dim_dollar, ("", " ")]
             return [
                 ("class:shell.elapsed", f"[{_fmt_elapsed(elapsed)}]"),
-                ("", " "), *dim_dollar,
+                ("", " "), *dim_dollar, ("", " "),
             ]
         if self._last_result is not None:
             duration, status = self._last_result
@@ -114,8 +114,8 @@ class RemoteShellView:
             prefix_width = sum(text_width(text) for _style, text in prefix)
             return prefix + self._right_fit_fragments(
                 prompt, max(1, self._prompt_width_cap(prefix_width + 1) -
-                            prefix_width))
-        return self._right_fit_fragments(prompt, self._prompt_width_cap())
+                            prefix_width)) + [("", " ")]
+        return self._right_fit_fragments(prompt, self._prompt_width_cap()) + [("", " ")]
 
     @staticmethod
     def _right_fit_fragments(fragments, width):

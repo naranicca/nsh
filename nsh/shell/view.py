@@ -337,9 +337,12 @@ class ShellView:
 
     def _prompt_text(self):
         prompt = self._prompt_fragments()
-        # The command window's fixed left marker margin supplies the single
-        # blank after `$` when nothing is clipped (and becomes `⋯` when the
-        # command's front is clipped). Do not leave a second blank here.
+        # Trim the trailing space baked into "$ " here, so _right_fit_fragments
+        # truncates/pads against a bare "$" as before; it's added back as its
+        # own fragment at the end of every return below, so the cursor always
+        # sits one cell after `$` instead of right against it (previously a
+        # fixed left margin on the command window supplied that single blank;
+        # wrap_lines=True replaced that margin, so the gap has to live here now).
         if prompt and prompt[-1][1].endswith("$ "):
             prompt[-1] = (prompt[-1][0], prompt[-1][1][:-1])
         el = self.runner.elapsed()
@@ -355,13 +358,13 @@ class ShellView:
                 badge = f"[{_fmt_elapsed(el)}] "
                 return [
                     ("class:shell.queued", " " * text_width(badge)),
-                    *dim_dollar,
+                    *dim_dollar, ("", " "),
                 ]
             # keep the trailing gap outside the badge so its background
             # (none here, but a tint when finished) doesn't bleed past the ]
             return [
                 ("class:shell.elapsed", f"[{_fmt_elapsed(el)}]"),
-                ("", " "), *dim_dollar,
+                ("", " "), *dim_dollar, ("", " "),
             ]
         # finished: keep the run time on the prompt until the next command, tinted
         # green on success / red on failure (shown even for sub-second commands).
@@ -373,8 +376,8 @@ class ShellView:
             prefix_width = sum(text_width(text) for _, text in prefix)
             cap = self._prompt_width_cap(prefix_width + 1)
             remaining = max(1, cap - prefix_width)
-            return prefix + self._right_fit_fragments(prompt, remaining)
-        return self._right_fit_fragments(prompt, self._prompt_width_cap())
+            return prefix + self._right_fit_fragments(prompt, remaining) + [("", " ")]
+        return self._right_fit_fragments(prompt, self._prompt_width_cap()) + [("", " ")]
 
     @staticmethod
     def _last_segment(text):

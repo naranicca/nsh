@@ -3,7 +3,6 @@ import asyncio
 import os
 import re
 import shlex
-import shutil
 import subprocess
 import sys
 import time
@@ -1726,47 +1725,18 @@ class NshApp:
         self.invalidate()
 
     def _run_grep(self, phrase, case_sensitive, whole_word):
-        """Build and run a grep over the current directory tree from the find
-        dialog's phrase and options, streaming results into the shell."""
+        """Run a grep over the current directory tree from the find dialog's
+        phrase and options, showing results in the dedicated grep mode."""
         if not phrase.strip():
             return
         self.grepview.start(phrase, case_sensitive, whole_word)
-        return
-        # Prefer ripgrep everywhere.  Unlike grep it is readily available on
-        # Windows, while retaining the same recursive/line-number semantics.
-        if shutil.which("rg"):
-            flags = "--line-number --no-heading --color=always"
-            if not case_sensitive:
-                flags += " --ignore-case"
-            if whole_word:
-                flags += " --word-regexp"
-            cmd = f"rg {flags} {shlex.quote(phrase)} ."
-        else:
-            # Keep the feature usable on a clean Windows install (and minimal
-            # Linux containers) without requiring grep.  The fallback skips
-            # binary files and emits the familiar path:line:text format.
-            import base64
-            encoded = base64.b64encode(phrase.encode()).decode()
-            flags = "re.I" if not case_sensitive else "0"
-            script = (
-                "import os,re,base64;needle=base64.b64decode('" + encoded +
-                "').decode();needle=(r'\\b(?:'+re.escape(needle)+r')\\b' if "
-                + repr(whole_word) + " else needle);pat=re.compile(needle," + flags + ");"
-                "[(print(os.path.join(root,n)+':'+str(i)+':'+line.rstrip())) "
-                "for root,_,fs in os.walk('.') for n in fs "
-                "for i,line in enumerate(open(os.path.join(root,n),encoding='utf-8',errors='ignore'),1) "
-                "if pat.search(line)]"
-            )
-            # Use the shell-visible Python command rather than sys.executable:
-            # Git Bash cannot execute a raw Windows ``C:\\...`` path.
-            native_shell = os.name != "nt"
-            python_cmd = "python"
-            cmd = (f"{python_cmd} -c "
-                   f"{quote_arg(script, native_shell)}")
-        self.switch_mode(SHELL)
-        self._shell_return = self._find_return
-        self._shell_return_pane = self._find_return_pane
-        self.run_in_shell(self.shell, cmd)
+
+    def close_grep(self):
+        """Leave grep mode for wherever :meth:`find_text` was opened from -
+        same convention as :meth:`close_git` / :meth:`close_log`."""
+        self.switch_mode(self._find_return)
+        if self._find_return == NETWORK:
+            self.focus_network_pane(self._find_return_pane)
 
     # -- notes ----------------------------------------------------------------
     def open_notes(self):

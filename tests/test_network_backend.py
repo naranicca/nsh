@@ -438,11 +438,13 @@ class NetworkBackendTests(unittest.TestCase):
 
         grep_app = SimpleNamespace(
             _find_return="network", _find_return_pane=-1,
-            switch_mode=mock.Mock(), run_in_shell=mock.Mock(), shell=object())
+            grepview=SimpleNamespace(start=mock.Mock()),
+            switch_mode=mock.Mock(), focus_network_pane=mock.Mock())
         NshApp._run_grep(grep_app, "needle", False, False)
-        self.assertEqual(grep_app._shell_return, "network")
-        self.assertEqual(grep_app._shell_return_pane, -1)
-        grep_app.run_in_shell.assert_called_once()
+        grep_app.grepview.start.assert_called_once_with("needle", False, False)
+        NshApp.close_grep(grep_app)
+        grep_app.switch_mode.assert_called_once_with("network")
+        grep_app.focus_network_pane.assert_called_once_with(-1)
 
     def test_git_and_log_restore_originating_network_pane(self):
         git_app = SimpleNamespace(
@@ -1217,18 +1219,18 @@ class NetworkBackendTests(unittest.TestCase):
         shell.command_buffer.text = "x" * 200
         prompt_fragments = shell._prompt_text()
         prompt = "".join(text for _style, text in prompt_fragments)
-        self.assertTrue(prompt.endswith("$"))
+        self.assertTrue(prompt.endswith("$ "))
         self.assertEqual(prompt_fragments[-1][0], "")
         self.assertEqual(
             ShellView._right_fit_fragments(
                 [("class:explorer.dir", "/very/long/path "), ("", "$")], 1),
             [("", "$")],
         )
-        shell.command_window.horizontal_scroll = 80
+        cap_with_long_command = shell._prompt_width_cap()
+        self.assertGreater(shell._command_rows(), 1)
         shell.command_buffer.text = "short"
-        shell.command_buffer.cursor_position = len("short")
-        shell._reset_stale_input_scroll(shell.command_buffer)
-        self.assertEqual(shell.command_window.horizontal_scroll, 0)
+        self.assertEqual(shell._prompt_width_cap(), cap_with_long_command)
+        self.assertEqual(shell._command_rows(), 1)
 
     def test_remote_shell_queues_commands_and_shows_elapsed_time(self):
         class Backend:
@@ -1852,6 +1854,7 @@ class NetworkBackendTests(unittest.TestCase):
         class App:
             application = Application()
             mode = "network"
+            menu = SimpleNamespace(active=False)
 
             def invalidate(self):
                 pass
