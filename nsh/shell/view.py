@@ -6,6 +6,7 @@ from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.data_structures import Point
 from prompt_toolkit.formatted_text import ANSI, to_formatted_text
 from prompt_toolkit.history import InMemoryHistory
+from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout.containers import HSplit, VSplit, Window
 from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
 from prompt_toolkit.layout.dimension import Dimension
@@ -108,7 +109,8 @@ class ShellView:
         # longer than the row wraps downward instead of scrolling sideways;
         # _input_height grows the window to fit however many rows that takes.
         self.command_window = Window(
-            BufferControl(buffer=self.command_buffer, lexer=ShellLexer()),
+            BufferControl(buffer=self.command_buffer, lexer=ShellLexer(),
+                          key_bindings=self._command_kb()),
             wrap_lines=True,
         )
         # Keep the prompt in its own column so the elapsed-time badge and `$ `
@@ -135,6 +137,32 @@ class ShellView:
     def _accept(self, buff):
         self.app.run_in_shell(self, buff.text)
         return False  # clear the input line
+
+    def _command_kb(self):
+        kb = KeyBindings()
+
+        @kb.add("enter", eager=True)
+        def _(event):
+            buff = self.command_buffer
+            if buff.document.text_before_cursor.endswith("\\"):
+                buff.insert_text("\n")
+            else:
+                buff.validate_and_handle()
+
+        @kb.add("c-j", eager=True)
+        def _(event):
+            self.run_in_new_tab()
+
+        return kb
+
+    def run_in_new_tab(self):
+        text = self.command_buffer.text
+        if not text.strip():
+            return
+        self.command_buffer.reset()  # clear here; don't add it to our history
+        new_session = self.app.shells.new_session()
+        new_session.command_buffer.text = text
+        new_session.command_buffer.validate_and_handle()
 
     def _on_command_changed(self, _buff):
         # follow the bottom as soon as the user starts typing (no-op when already
@@ -189,17 +217,23 @@ class ShellView:
 
     # -- auto-grow height -----------------------------------------------------
     def _command_rows(self):
-        """Rows the command buffer's (single, possibly long) line wraps to at
-        the input row's current width — drives the input window's height so a
-        long command grows the box downward instead of scrolling it sideways."""
+        """Rows the command buffer's text wraps to at the input row's current
+        width - drives the input window's height so a long (or, via a
+        trailing-backslash continuation, hard-wrapped multi-line) command
+        grows the box downward instead of scrolling it sideways."""
         try:
             columns = get_app().output.get_size().columns
         except Exception:
             columns = 80
         prompt_width = sum(text_width(t) for _, t in self._prompt_text())
         width = max(1, columns - prompt_width)
-        used = text_width(self.command_buffer.text) + 1  # +1 for cursor cell
-        return max(1, -(-used // width))  # ceil division
+        document = self.command_buffer.document
+        cursor_row = document.cursor_position_row
+        total = 0
+        for i, line in enumerate(document.lines):
+            used = text_width(line) + (1 if i == cursor_row else 0)  # cursor cell
+            total += max(1, -(-used // width))  # ceil division
+        return max(1, total)
 
     def _input_height(self):
         # hidden while scrolled up, visible at the bottom (following)

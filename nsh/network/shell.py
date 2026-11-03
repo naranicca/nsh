@@ -10,6 +10,7 @@ from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.data_structures import Point
 from prompt_toolkit.formatted_text import ANSI, to_formatted_text
 from prompt_toolkit.history import InMemoryHistory
+from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout.containers import HSplit, VSplit, Window
 from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
 from prompt_toolkit.layout.dimension import Dimension
@@ -75,7 +76,8 @@ class RemoteShellView:
             FormattedTextControl(self._prompt_text),
             dont_extend_width=True, height=1)
         self.command_window = Window(
-            BufferControl(self.command_buffer), wrap_lines=True)
+            BufferControl(self.command_buffer, key_bindings=self._command_kb()),
+            wrap_lines=True)
         self.input = self.command_window
         self.queue_window = Window(
             FormattedTextControl(self._queue_text),
@@ -164,8 +166,26 @@ class RemoteShellView:
             columns = 80
         prompt_width = sum(text_width(t) for _, t in self._prompt_text())
         width = max(1, columns - prompt_width)
-        used = text_width(self.command_buffer.text) + 1  # +1 for the cursor cell
-        return max(1, -(-used // width))  # ceil division
+        document = self.command_buffer.document
+        cursor_row = document.cursor_position_row
+        total = 0
+        for i, line in enumerate(document.lines):
+            used = text_width(line) + (1 if i == cursor_row else 0)  # cursor cell
+            total += max(1, -(-used // width))  # ceil division
+        return max(1, total)
+
+    def _command_kb(self):
+        kb = KeyBindings()
+
+        @kb.add("enter", eager=True)
+        def _(event):
+            buff = self.command_buffer
+            if buff.document.text_before_cursor.endswith("\\"):
+                buff.insert_text("\n")
+            else:
+                buff.validate_and_handle()
+
+        return kb
 
     def _input_height(self):
         return Dimension.exact(self._command_rows())

@@ -1552,6 +1552,7 @@ class NshApp:
         else:
             hints = [
                 ("^T", "new tab", self.shells.new_session),
+                ("^J", "run in new tab", self.shell.run_in_new_tab),
                 ("F2", "rename tab", self.shells.rename),
                 (f"Alt+←→/{pk}·{nk}", "switch"),
                 ("PgUp/PgDn", "scroll"),
