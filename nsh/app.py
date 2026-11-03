@@ -30,6 +30,7 @@ from prompt_toolkit.layout.containers import (
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.layout.dimension import Dimension
 from prompt_toolkit.layout.layout import Layout
+from prompt_toolkit.formatted_text import ANSI, to_formatted_text
 from prompt_toolkit.layout.menus import CompletionsMenu
 from prompt_toolkit.mouse_events import MouseEventType
 
@@ -72,6 +73,11 @@ PREFERENCES = "preferences"
 # Once the shell output would shrink the explorer below this many rows, the
 # shell takes over the whole screen.
 SHELL_MIN_EXPLORER = 5
+
+# While a command is running, explorer mode keeps this many rows of that
+# shell's output visible under the listing, so progress can be watched without
+# switching into the shell.
+SHELL_PEEK_ROWS = 4
 
 # In EXPLORER-family modes, _watch_cwd()'s ls poll only catches a directory
 # listening change or a git-internal bookkeeping change (see check_external_change);
@@ -1028,6 +1034,24 @@ class NshApp:
             self.shells.container,
         ])
 
+        # explorer mode while a command runs: the listing stays on top with a
+        # few rows of the running shell's output tail peeking out underneath
+        # (click it to jump into that shell). No wrapping - each row is one
+        # output line, so the tail is exact and never pushed off the bottom.
+        self._shell_peek = Window(
+            WheelScrollControl(
+                lambda d: None, on_click=self._peek_click, text=self._peek_text),
+            height=self._peek_height, wrap_lines=False, style="class:shell.output")
+        self._explorer_with_peek = HSplit([
+            explorer_area,
+            Window(height=1, char="─", style="class:preview.border"),
+            self._shell_peek,
+        ])
+        self._network_with_peek = HSplit([
+            self._network_split,
+            Window(height=1, char="─", style="class:preview.border"),
+            self._shell_peek,
+        ])
         def _body():
             if self.mode == "grep":
                 return self.grepview.container
@@ -1062,8 +1086,14 @@ class NshApp:
                     return self.shells.container
                 return self._shell_with_network if connected else self._shell_split
             # explorer: while connected the remote pane owns the right half, so
-            # tha tab shows the same local|remote split as network mode
-            return self._network_split if connected else explorer_area
+            # the tab shows the same local|remote split as network mode. While a
+            # command is running, the shell's output tail peeks out below -
+            # unless the terminal is too short to fit it and the explorer both.
+            peeking = (self._peek_session() is not None
+                       and self._peek_rows() > 0)
+            if connected:
+                return self._network_with_peek if peeking else self._network_split
+            return self._explorer_with_peek if peeking else explorer_area
 
         body = DynamicContainer(_body)
 
@@ -1888,6 +1918,59 @@ class NshApp:
             return max(1, get_app().output.get_size().columns)
         except Exception:
             return 80
+
+    # -- shell peek (explorer mode, while a command runs) ---------------------
+    def _peek_rows(self):
+        """Peek height for this terminal: SHELL_PEEK_ROWS, shrunk so the
+        explorer keeps at least SHELL_MIN_EXPLORER rows (like _shell_cap does
+        for the shell split); 0 - no peek at all - when there's no room."""
+        try:
+            rows = get_app().output.get_size().rows
+        except Exception:
+            rows = 24
+        # title + status bars, the shell tab bar (shown while a shell is busy)
+        # and the separator above the peek all come off the top first
+        spare = rows - 4 - SHELL_MIN_EXPLORER
+        return max(0, min(SHELL_PEEK_ROWS, spare))
+
+    def _peek_height(self):
+        return Dimension.exact(self._peek_rows())
+
+    def _peek_session(self):
+        """The shell whose output tail explorer mode shows while a command runs:
+        the current tab if it's busy, else the first busy tab; None when idle."""
+        sessions = self.shells.sessions
+        current = self.shells.current()
+        if current.busy():
+            return current
+        return next((s for s in sessions if s.busy()), None)
+
+    def _peek_text(self):
+        """The last SHELL_PEEK_ROWS rows of the peeked shell's output - the
+        committed lines plus the live (unterminated) one, newest at the bottom -
+        formatted like the shell's own output pane."""
+        session = self._peek_session()
+        if session is None:
+            return []
+        live = session._live_open()
+        rows = self._peek_rows() - (1 if live else 0)
+        out = []
+        for line in session.lines[-rows:] if rows > 0 else []:
+            out.extend(line)
+            out.append(("", "\n"))
+        return out
+
+    def _peek_click(self, mouse_event):
+        """Clicking the peek jumps into that shell (like clicking its tab)."""
+        if mouse_event.event_type != MouseEventType.MOUSE_DOWN:
+            return
+        if self.consume_menu_click():
+            return
+        session = self._peek_session()
+        if session is None:
+            return
+        self.shells.select(self.shells.sessions.index(session))
+        self.switch_mode(SHELL)
 
     def shell_fullscreen(self):
         """True once the output no longer fits the shared (split) layout."""
