@@ -1938,12 +1938,12 @@ class NshApp:
 
     def _peek_session(self):
         """The shell whose output tail explorer mode shows while a command runs:
-        the current tab if it's busy, else the first busy tab; None when idle."""
-        sessions = self.shells.sessions
+        the current tab's own shell, and only while it's busy. Each tab peeks at
+        its own shell - switching to another tab hides a running command's
+        output rather than following it around (its tab stays tinted in the tab
+        bar, which is the cue to go back)."""
         current = self.shells.current()
-        if current.busy():
-            return current
-        return next((s for s in sessions if s.busy()), None)
+        return current if current.busy() else None
 
     def _peek_text(self):
         """The last SHELL_PEEK_ROWS rows of the peeked shell's output - the
@@ -1958,18 +1958,19 @@ class NshApp:
         for line in session.lines[-rows:] if rows > 0 else []:
             out.extend(line)
             out.append(("", "\n"))
+        if live:
+            out.extend(to_formatted_text(ANSI(live.expandtabs(4))))
+            out.append(("", "\n"))
         return out
 
     def _peek_click(self, mouse_event):
-        """Clicking the peek jumps into that shell (like clicking its tab)."""
+        """Clicking the peek drops into the shell it's showing - this tab's."""
         if mouse_event.event_type != MouseEventType.MOUSE_DOWN:
             return
         if self.consume_menu_click():
             return
-        session = self._peek_session()
-        if session is None:
+        if self._peek_session() is None:
             return
-        self.shells.select(self.shells.sessions.index(session))
         self.switch_mode(SHELL)
 
     def shell_fullscreen(self):

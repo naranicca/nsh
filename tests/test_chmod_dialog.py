@@ -93,8 +93,8 @@ class ChmodDialogTests(unittest.TestCase):
             view.open_command_menu()
 
         labels = [label for label, _callback in view.app.opened[1]]
-        self.assertIn("Chmod…"", labels)
-        chmod = labels.index("Chmod…"")
+        self.assertIn("Chmod…", labels)
+        chmod = labels.index("Chmod…")
         self.assertEqual(
             labels[chmod + 1:chmod + 6],
             ["Open in Explorer", SEPARATOR, "New folder", "New file", SEPARATOR])
