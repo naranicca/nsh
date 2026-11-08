@@ -5,8 +5,9 @@ thread via :func:`run_in_thread` so the UI event loop stays responsive; callers
 ``await`` them and refresh the listing afterwards. The cheap metadata operations
 (rename, mkdir, touch) run inline.
 
-Nothing here ever clobbers an existing path: paste targets are de-duplicated by
-:func:`unique_target`, and rename/mkdir/touch refuse to overwrite.
+Paste normally de-duplicates targets via :func:`unique_target`.  The explorer
+can explicitly request an overwrite after the user confirms a collision;
+rename/mkdir/touch still refuse to overwrite.
 """
 import ctypes
 import os
@@ -39,17 +40,35 @@ def unique_target(dst_dir, name: str) -> Path:
 
 
 def _ensure_not_into_self(src: Path, target: Path) -> None:
-    if src.is_dir() and (target == src or src in target.parents):
+    if target == src or (src.is_dir() and src in target.parents):
         raise ValueError("cannot copy a directory into itself")
 
 
-async def copy(src, dst_dir) -> Path:
+def _target(dst_dir, source_name, name, overwrite):
+    target = (Path(dst_dir) / name if name is not None
+              else unique_target(dst_dir, source_name))
+    if target.exists() and not overwrite:
+        raise FileExistsError(target.name)
+    return target
+
+
+def _remove_existing(path):
+    """Remove a confirmed overwrite target without following a symlink."""
+    if path.is_dir() and not path.is_symlink():
+        shutil.rmtree(path)
+    else:
+        path.unlink()
+
+
+async def copy(src, dst_dir, name=None, overwrite=False) -> Path:
     """Copy ``src`` into ``dst_dir``; return the created path."""
     src = Path(src)
-    target = unique_target(dst_dir, src.name)
+    target = _target(dst_dir, src.name, name, overwrite)
     _ensure_not_into_self(src, target)
 
     def _do():
+        if overwrite and target.exists():
+            _remove_existing(target)
         if src.is_dir() and not src.is_symlink():
             shutil.copytree(src, target, symlinks=True)
         else:
@@ -59,12 +78,16 @@ async def copy(src, dst_dir) -> Path:
     return target
 
 
-async def move(src, dst_dir) -> Path:
+async def move(src, dst_dir, name=None, overwrite=False) -> Path:
     """Move ``src`` into ``dst_dir``; return the new path."""
     src = Path(src)
-    target = unique_target(dst_dir, src.name)
+    target = _target(dst_dir, src.name, name, overwrite)
     _ensure_not_into_self(src, target)
-    await run_in_thread(shutil.move, str(src), str(target))
+    def _do():
+        if overwrite and target.exists():
+            _remove_existing(target)
+        shutil.move(str(src), str(target))
+    await run_in_thread(_do)
     return target
 
 

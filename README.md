@@ -146,7 +146,7 @@ The action keys (everything below the navigation block) are remappable in
 | `Space` | select / deselect the entry (multi-select) |
 | `*` | select entries by substring or glob pattern |
 | `Tab` | open the **action menu** (copy, rename, delete, git…) — drops from the cursor row, beside the filename |
-| `y` / `x` / `p` | copy / cut / paste — the picked rows briefly flash; **paste lands in the directory at the cursor**. The clipboard is shared across tabs, so you can copy in one tab and paste in another |
+| `y` / `x` / `p` | copy / cut / paste — the picked rows briefly flash; **paste lands in the directory at the cursor**. If a name already exists, choose overwrite, skip, or a new name. The clipboard is shared across tabs, so you can copy in one tab and paste in another |
 | `F2` / `i` | rename (inline) |
 | `m` / `N` | new folder / new file — **created in the directory at the cursor** |
 | `d` | move to the platform Trash / Recycle Bin (asks to confirm) |

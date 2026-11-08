@@ -2,6 +2,7 @@
 
 ``InputDialog`` — a text field with OK / Cancel buttons.
 ``ConfirmDialog`` — a message with Yes / No buttons.
+``ChoiceDialog`` — a message with several explicit actions.
 ``InfoDialog`` — read-only text with an OK button.
 ``FindTextDialog`` — a phrase plus case-sensitive / whole-word toggles.
 ``ChmodDialog`` — a 3×3 rwx grid (owner/group/other) with a live octal readout.
@@ -262,6 +263,95 @@ class ConfirmDialog:
         @kb.add("c-c")
         def _(event):
             self._resolve(False)
+
+        return kb
+
+
+class ChoiceDialog:
+    """A compact modal for choosing one of several named actions.
+
+    Escape always resolves to ``"cancel"``.  It intentionally has no visible
+    Cancel button: three long action labels already use the dialog's available
+    width, while Escape remains the conventional safe dismissal.
+    """
+
+    def __init__(self, on_close):
+        self._on_close = on_close
+        self.active = False
+        self.title = ""
+        self.message = ""
+        self.choices = []  # [(label, value)]
+        self.cursor = 0
+        self._on_result = None
+        self.control = FormattedTextControl(
+            self._text, focusable=True, show_cursor=False, key_bindings=self._kb())
+        body = HSplit([
+            Window(self.control, wrap_lines=True, width=Dimension.exact(WIDTH)),
+            Window(height=1),
+            Window(FormattedTextControl(self._buttons), height=1,
+                   align=WindowAlign.CENTER),
+        ], style="class:dialog", padding=0)
+        self.container = ConditionalContainer(
+            Frame(body, title=lambda: self.title),
+            filter=Condition(lambda: self.active))
+
+    def open(self, title, message, choices, on_result, default=None):
+        self.title = title
+        self.message = message
+        self.choices = list(choices)
+        self.cursor = next((i for i, (_label, value) in enumerate(self.choices)
+                            if value == default), 0)
+        self._on_result = on_result
+        self.active = True
+
+    def _resolve(self, value):
+        callback = self._on_result
+        self.active = False
+        self._on_result = None
+        self._on_close()
+        if callback:
+            callback(value)
+
+    def _move(self, delta):
+        if self.choices:
+            self.cursor = (self.cursor + delta) % len(self.choices)
+
+    def _text(self):
+        return [("class:dialog", " " + self.message)]
+
+    def _buttons(self):
+        out = []
+        for i, (label, value) in enumerate(self.choices):
+            if i:
+                out.append(("", "  "))
+            out.append(_button(label, i == self.cursor,
+                               lambda value=value: self._resolve(value)))
+        return out
+
+    def _kb(self):
+        kb = KeyBindings()
+
+        @kb.add("tab")
+        @kb.add("right")
+        @kb.add("l")
+        def _(event):
+            self._move(1)
+
+        @kb.add("s-tab")
+        @kb.add("left")
+        @kb.add("h")
+        def _(event):
+            self._move(-1)
+
+        @kb.add("enter")
+        def _(event):
+            if self.choices:
+                self._resolve(self.choices[self.cursor][1])
+
+        @kb.add("escape")
+        @kb.add("c-c")
+        def _(event):
+            self._resolve("cancel")
 
         return kb
 

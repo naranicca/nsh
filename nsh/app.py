@@ -52,7 +52,7 @@ from .shell.tabs import ShellTabs
 from .util import state
 from .util.bookmarks import Bookmarks
 from .util.dialog import (
-    ChmodDialog, ConfirmDialog, FindTextDialog, InfoDialog, InputDialog,
+    ChoiceDialog, ChmodDialog, ConfirmDialog, FindTextDialog, InfoDialog, InputDialog,
     ProgressDialog)
 from .util.menu import SEPARATOR, Menu
 from .util.paths import shorten_home
@@ -268,6 +268,7 @@ class NshApp:
         # the read-only About box
         self.dialog = InputDialog(self._dialog_closed)
         self.confirm_dialog = ConfirmDialog(self._dialog_closed)
+        self.choice_dialog = ChoiceDialog(self._dialog_closed)
         self.about_dialog = InfoDialog(self._dialog_closed)
         self.find_dialog = FindTextDialog(self._dialog_closed)
         self.chmod_dialog = ChmodDialog(self._dialog_closed)
@@ -673,13 +674,14 @@ class NshApp:
 
     def _build_application(self):
         confirm_open = Condition(lambda: self.confirm_dialog.active)
+        choice_open = Condition(lambda: self.choice_dialog.active)
         menu_open = Condition(lambda: self.menu.active)
         dialog_open = Condition(lambda: self.dialog.active)
         about_open = Condition(lambda: self.about_dialog.active)
         find_open = Condition(lambda: self.find_dialog.active)
         chmod_open = Condition(lambda: self.chmod_dialog.active)
         progress_open = Condition(lambda: self.progress_dialog.active)
-        overlay_open = (confirm_open | menu_open | dialog_open | about_open
+        overlay_open = (confirm_open | choice_open | menu_open | dialog_open | about_open
                         | find_open | chmod_open | progress_open)
 
         kb = KeyBindings()
@@ -1135,6 +1137,7 @@ class NshApp:
                 # unpositioned Floats are centered on screen
                 Float(content=self.dialog.container),
                 Float(content=self.confirm_dialog.container),
+                Float(content=self.choice_dialog.container),
                 Float(content=self.about_dialog.container),
                 Float(content=self.find_dialog.container),
                 Float(content=self.chmod_dialog.container),
@@ -2408,6 +2411,17 @@ class NshApp:
         self.application.layout.focus(self.confirm_dialog.control)
         self.invalidate()
 
+    def choose_file_conflict(self, name, callback):
+        """Ask how a same-named paste target should be handled."""
+        self._capture_dialog_focus()
+        self.choice_dialog.open(
+            "File already exists", f"'{name}' already exists.",
+            [("Overwrite", "overwrite"), ("Skip", "skip"),
+             ("Rename", "rename")],
+            callback, default="skip")
+        self.application.layout.focus(self.choice_dialog.control)
+        self.invalidate()
+
     def open_progress_dialog(self, title, label, on_cancel):
         self._capture_dialog_focus()
         self.progress_dialog.open(title, label, on_cancel)
@@ -2701,6 +2715,7 @@ class NshApp:
         """True while any popup (menu / dialog) is up — keys shouldn't fall
         through to the panes then."""
         return (self.menu.active or self.dialog.active or self.confirm_dialog.active
+                or self.choice_dialog.active
                 or self.about_dialog.active or self.find_dialog.active
                 or self.chmod_dialog.active or self.progress_dialog.active)
 

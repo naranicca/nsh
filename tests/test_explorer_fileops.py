@@ -44,6 +44,37 @@ class ExplorerFileOperationTests(unittest.TestCase):
 
         self.assertEqual([("Delete failed", ["locked: denied"])], errors)
 
+    def test_copy_can_overwrite_a_confirmed_existing_target(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source_dir = root / "source"
+            target_dir = root / "target"
+            source_dir.mkdir()
+            target_dir.mkdir()
+            source = source_dir / "report.txt"
+            source.write_text("new", encoding="utf-8")
+            (target_dir / "report.txt").write_text("old", encoding="utf-8")
+
+            copied = asyncio.run(fileops.copy(
+                source, target_dir, name="report.txt", overwrite=True))
+
+            self.assertEqual(target_dir / "report.txt", copied)
+            self.assertEqual("new", copied.read_text(encoding="utf-8"))
+
+    def test_explicit_existing_target_requires_overwrite(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source_dir = root / "source"
+            target_dir = root / "target"
+            source_dir.mkdir()
+            target_dir.mkdir()
+            source = source_dir / "report.txt"
+            source.write_text("new", encoding="utf-8")
+            (target_dir / "report.txt").write_text("old", encoding="utf-8")
+
+            with self.assertRaises(FileExistsError):
+                asyncio.run(fileops.copy(source, target_dir, name="report.txt"))
+
 
 if __name__ == "__main__":
     unittest.main()

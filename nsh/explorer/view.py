@@ -760,12 +760,18 @@ class ExplorerView:
                 if not src.exists():
                     continue
                 try:
+                    resolved = await self._resolve_paste_target(src, dest)
+                    if resolved is None:
+                        continue
+                    name, overwrite = resolved
                     if op == "copy":
                         self.app.set_message(f"copying {i}/{len(paths)}: {src.name}…")
-                        last = await fileops.copy(src, dest)
+                        last = await fileops.copy(
+                            src, dest, name=name, overwrite=overwrite)
                     else:
                         self.app.set_message(f"moving {i}/{len(paths)}: {src.name}…")
-                        last = await fileops.move(src, dest)
+                        last = await fileops.move(
+                            src, dest, name=name, overwrite=overwrite)
                     done += 1
                 except Exception as exc:  # noqa: BLE001 - surfaced to the user
                     errors.append(f"{src.name}: {exc}")
@@ -778,6 +784,60 @@ class ExplorerView:
             self._show_operation_errors(f"{verb.title()} failed", errors)
             await self.app.refresh_git()
         asyncio.ensure_future(do())
+
+    @staticmethod
+    def _valid_paste_name(name):
+        """Whether ``name`` is one safe filename, on every supported OS."""
+        return bool(name and name not in (".", "..")
+                    and "/" not in name and "\\" not in name)
+
+    async def _resolve_paste_target(self, src, dest):
+        """Return ``(name, overwrite)`` after resolving a paste collision.
+
+        Each item in a multi-file paste is handled before the next starts, so
+        the user can make a different choice for every existing destination.
+        """
+        name = src.name
+        while True:
+            target = Path(dest) / name
+            if not target.exists():
+                return name, False
+            action = await self._choose_paste_conflict(target.name)
+            if action in ("skip", "cancel", None):
+                return None
+            if action == "overwrite":
+                return name, True
+            name = await self._rename_paste_target(name)
+            if name is None:
+                return None
+            name = name.strip()
+            if not self._valid_paste_name(name):
+                self.app.set_message("enter a file name, not a path")
+                name = src.name
+
+    async def _choose_paste_conflict(self, name):
+        loop = asyncio.get_running_loop()
+        answer = loop.create_future()
+
+        def resolve(value):
+            if not answer.done():
+                answer.set_result(value)
+
+        self.app.choose_file_conflict(name, resolve)
+        return await answer
+
+    async def _rename_paste_target(self, name):
+        loop = asyncio.get_running_loop()
+        answer = loop.create_future()
+
+        def resolve(value):
+            if not answer.done():
+                answer.set_result(value)
+
+        self.app.open_input_dialog(
+            "Rename pasted item", name, len(name), resolve,
+            on_cancel=lambda: resolve(None))
+        return await answer
 
     # -- two-pane copy / move to the other pane -------------------------------
     # In two-pane view the copy (y) / cut (x) keys act straight across to the
