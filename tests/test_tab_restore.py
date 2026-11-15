@@ -139,6 +139,32 @@ class TabRestoreTests(unittest.TestCase):
         self.assertEqual(1, tabs.active)
         app._save_tab_state.assert_called_once_with()
 
+    def test_directory_change_saves_the_tab_snapshot_immediately(self):
+        with tempfile.TemporaryDirectory() as root:
+            root = Path(root)
+            target = root / "target"
+            target.mkdir()
+            pane = SimpleNamespace(
+                cwd=root, selected=set(), expanded=set(), entries=[], cursor=0,
+                load=mock.Mock(), first_index=lambda: 0)
+            session = SimpleNamespace(explorers=[pane], active_pane=0,
+                                      mode="explorer")
+            app = NshApp.__new__(NshApp)
+            app.shells = SimpleNamespace(current=lambda: session)
+            app.visited = []
+            app.preview = SimpleNamespace(clear=mock.Mock())
+            app._remember_drive = mock.Mock()
+            app.schedule_git = mock.Mock()
+            app.switch_mode = mock.Mock()
+            app.invalidate = mock.Mock()
+            app._save_tab_state = mock.Mock()
+
+            with mock.patch("nsh.app.os.chdir"):
+                app.set_cwd(target)
+
+        self.assertEqual(target, pane.cwd)
+        app._save_tab_state.assert_called_once_with()
+
     def test_constructor_restores_history_but_discards_legacy_input(self):
         with tempfile.TemporaryDirectory() as root:
             root = Path(root)

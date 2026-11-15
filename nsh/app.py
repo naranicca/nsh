@@ -2272,7 +2272,8 @@ class NshApp:
             self.set_message(f"cannot enter: {exc}")
             return
         old, new = str(self.cwd), str(target)
-        if old != new:
+        changed = old != new
+        if changed:
             # keep a most-recent-first history of the directories we leave (for
             # the "recent directories" menu); drop the one we're entering, cap it
             self.visited = [d for d in self.visited if d not in (old, new)]
@@ -2300,6 +2301,10 @@ class NshApp:
         # changing directory is meaningless in git mode (it's repo-wide); leave it
         if self.mode == GIT:
             self.switch_mode(EXPLORER)
+        # The tab snapshot owns each pane's cwd.  Persist immediately rather
+        # than relying on a later tab operation or normal q exit.
+        if changed:
+            self._save_tab_state()
         self.invalidate()
 
     def _visible_panes(self):
@@ -2791,6 +2796,7 @@ class NshApp:
         self.schedule_git()  # query git for both now-visible panes
         self.preview.clear()
         self.application.layout.focus(self.explorer.control)
+        self._save_tab_state()
         self.invalidate()
 
     def toggle_two_pane(self):
@@ -2821,6 +2827,7 @@ class NshApp:
         self.schedule_git()
         self.preview.clear()
         self.application.layout.focus(self.explorer.control)
+        self._save_tab_state()
         self.invalidate()
 
     # -- nsh menu (F10) -------------------------------------------------------
