@@ -1,6 +1,8 @@
 """Small reusable UI widgets."""
-from prompt_toolkit.layout.controls import FormattedTextControl
+from prompt_toolkit.layout.controls import FormattedTextControl, UIContent
 from prompt_toolkit.mouse_events import MouseEventType
+
+_BLANK_ROW = [("", " ")]
 
 
 def visible_slice(window, total, cursor, top, margin=1, fallback=40):
@@ -51,7 +53,20 @@ class WheelScrollControl(FormattedTextControl):
 
     def create_content(self, width, height):
         self.last_width = width
-        return super().create_content(width, height)
+        content = super().create_content(width, height)
+        if self._on_click is None or height is None or content.line_count >= height:
+            return content
+        real_count = content.line_count
+        get_line = content.get_line
+
+        def padded_line(i):
+            return get_line(i) if i < real_count else _BLANK_ROW
+
+        return UIContent(
+            get_line=padded_line, line_count=height,
+            cursor_position=content.cursor_position,
+            menu_position=content.menu_position,
+            show_cursor=content.show_cursor)
 
     def mouse_handler(self, mouse_event):
         et = mouse_event.event_type
