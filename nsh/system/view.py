@@ -25,12 +25,13 @@ from ..util import hangul, state
 from ..util.aio import run_in_thread
 from ..util.paths import human_size
 from ..util.widgets import WheelScrollControl
-from ..util.width import cut_to_width, pad_to_width, text_width
+from ..util.width import char_width, cut_to_width, pad_to_width, text_width
 from . import sysinfo
 
 REFRESH = 2.0          # seconds between samples
 HEADER_HEIGHT = 4      # cpu + mem + disk + column header
 W_PID, W_CPU, W_MEM, W_RSS = 7, 6, 6, 10
+HSCROLL_STEP = 8       # cells the PROC column shifts per h/l press
 
 
 class _ListScrollbar(Margin):
@@ -69,6 +70,7 @@ class SystemView:
         self.procs = []          # sorted process list (sysinfo.Proc)
         self.cursor = 0
         self._top = 0            # first rendered row (windowing)
+        self._hscroll = 0        # cells scrolled off the left of the PROC column
         # "cpu" | "mem" | "name"; persisted across runs
         self.sort = state.get("system_sort", "cpu")
         if self.sort not in ("cpu", "mem", "name"):
@@ -152,6 +154,7 @@ class SystemView:
         """Switch the process column between the full command line and the short
         process name, remembering the choice for next time."""
         self.detail = not self.detail
+        self._hscroll = 0  # the column's content changed; start from the left
         state.set("system_detail", self.detail)
         self.app.set_message("showing full command" if self.detail
                              else "showing process name")
@@ -220,6 +223,30 @@ class SystemView:
         self.cursor = max(0, min(n - 1, self.cursor + delta))
         self.app.invalidate()
 
+    def _proc_text(self, p):
+        return (p.cmd or p.name) if self.detail else p.name
+
+    def _name_width(self, procs):
+        """Cells available to the PROC column at the current terminal width."""
+        sb = 1 if len(procs) > self._visible_height() else 0
+        return max(4, self._term_cols() - (W_PID + W_CPU + W_MEM + W_RSS + 5) - sb)
+
+    def _max_hscroll(self):
+        """How far the PROC column can scroll: the widest visible name minus the
+        column width, so the longest entry's tail can just be brought on screen."""
+        procs = self._visible()
+        if not procs:
+            return 0
+        widest = max(text_width(self._proc_text(p)) for p in procs)
+        return max(0, widest - self._name_width(procs))
+
+    def scroll_horizontal(self, delta):
+        """Shift the PROC column left/right by ``delta`` cells (clamped)."""
+        new = max(0, min(self._max_hscroll(), self._hscroll + delta))
+        if new != self._hscroll:
+            self._hscroll = new
+            self.app.invalidate()
+
     def _on_mouse(self, mouse_event):
         """Click selects the process row under the pointer."""
         if self.app.consume_menu_click():
@@ -256,6 +283,19 @@ class SystemView:
         asyncio.ensure_future(self.refresh())
 
     # -- rendering ------------------------------------------------------------
+    @staticmethod
+    def _skip_width(text, cells):
+        """Drop the leading ``cells`` columns of ``text`` (wide-char aware). A
+        wide character straddling the cut is dropped, not split."""
+        if cells <= 0:
+            return text
+        used = 0
+        for i, ch in enumerate(text):
+            if used >= cells:
+                return text[i:]
+            used += char_width(ch)
+        return ""
+
     @staticmethod
     def _bar(pct, width=14):
         if pct is None:
@@ -360,7 +400,9 @@ class SystemView:
         cols = self._term_cols()
         height = self._visible_height()
         sb = 1 if len(procs) > height else 0
-        name_w = max(4, cols - (W_PID + W_CPU + W_MEM + W_RSS + 5) - sb)
+        name_w = self._name_width(procs)
+        # keep the horizontal offset valid after a resize / refresh shrank the list
+        self._hscroll = max(0, min(self._hscroll, self._max_hscroll()))
 
         # window the visible slice around the cursor
         if self.cursor < self._top:
@@ -376,8 +418,8 @@ class SystemView:
             on = i == self.cursor
             row = (f" {p.pid:>{W_PID}} {p.cpu:>{W_CPU}.1f} {p.mem:>{W_MEM}.1f} "
                    f"{human_size(p.rss):>{W_RSS}} ")
-            text = (p.cmd or p.name) if self.detail else p.name
-            name = cut_to_width(text, name_w)
+            name = cut_to_width(self._skip_width(self._proc_text(p), self._hscroll),
+                                name_w)
             cell = row + name
             base = "class:system.row.sel" if on else "class:system.row"
             frags.append((base, pad_to_width(cell, cols - sb)))
@@ -402,6 +444,16 @@ class SystemView:
                 self.app.invalidate()
             else:
                 self.move(-1)
+
+        @kb.add("right")
+        @kb.add("l")
+        def _(event):
+            self.scroll_horizontal(HSCROLL_STEP)
+
+        @kb.add("left")
+        @kb.add("h")
+        def _(event):
+            self.scroll_horizontal(-HSCROLL_STEP)
 
         @kb.add("pagedown")
         def _(event):

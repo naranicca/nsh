@@ -1538,6 +1538,7 @@ class NshApp:
             hints = [
                 ("c/m/n", "sort cpu/mem/name"),
                 ("v", "cmd/name", self.systemview.toggle_detail),
+                ("↔", "scroll"),
                 ("/", "search", self.systemview.start_search),
                 ("x", "kill", lambda: self.systemview.kill_selected()),
                 ("r", "refresh", lambda: asyncio.ensure_future(self.systemview.refresh())),
