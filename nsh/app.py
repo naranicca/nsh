@@ -1935,7 +1935,15 @@ class NshApp:
         # title + status bars, the shell tab bar (shown while a shell is busy)
         # and the separator above the peek all come off the top first
         spare = rows - 4 - SHELL_MIN_EXPLORER
-        return max(0, min(SHELL_PEEK_ROWS, spare))
+        cap = max(0, min(SHELL_PEEK_ROWS, spare))
+        # A shell with fewer output lines than the cap gets a peek just that
+        # tall, so a one-line shell doesn't turn into a mostly blank 4-row peek.
+        session = self._peek_session()
+        if session is not None and cap > 0:
+            count = getattr(session, "line_count", None)
+            if callable(count):
+                cap = min(cap, max(1, count()))
+        return cap
 
     def _peek_height(self):
         return Dimension.exact(self._peek_rows())
@@ -2064,7 +2072,8 @@ class NshApp:
         if explicit_bang:
             cmd = cmd.lstrip()[1:].strip()
             if not cmd:
-                self._drain_pending(session)
+                # a bare `!`: step out to the real terminal and come back on a key
+                asyncio.ensure_future(self._show_terminal(session))
                 return
         # a `source FILE` line: each command runs in its own subprocess, so note
         # the file and re-source it ahead of every later command (CommandRunner)
@@ -2081,6 +2090,12 @@ class NshApp:
             asyncio.ensure_future(self._exec(session, cmd))
         else:
             self._drain_pending(session)  # builtin done; run the next queued one
+
+    async def _show_terminal(self, session):
+        try:
+            await session.runner.show_terminal()
+        finally:
+            self._drain_pending(session)
 
     def _external_command(self, command):
         """Whether ``command`` is configured to run on the real terminal.

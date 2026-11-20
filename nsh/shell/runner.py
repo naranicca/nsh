@@ -703,6 +703,14 @@ class CommandRunner:
             self._proc = None
             self._started_at = None
 
+    async def show_terminal(self):
+        """Suspend the full-screen app to reveal the real terminal (whatever
+        earlier `!` commands left there) until the user presses a key."""
+        try:
+            await run_in_terminal(_wait_for_key, in_executor=True)
+        finally:
+            self.app.invalidate()
+
     async def run_in_term(self, command: str):
         """Run an interactive command with the full-screen app suspended.
 

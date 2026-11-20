@@ -307,7 +307,9 @@ git (`push`/`pull`/`fetch`/`clone`) and `sudo` that may prompt for credentials
 output and, when they finish, waits for a keypress (`press any key to
 continue …`) so it stays visible. Prefix any command with **`!`** to force it
 onto the real terminal this way — an escape hatch for a TUI nsh doesn't
-recognise on its own (e.g. `!htop`).
+recognise on its own (e.g. `!htop`). A bare **`!`** on its own runs nothing:
+it just steps out to the real terminal (to re-read what earlier `!` commands
+printed) and returns on any keypress.
 
 Commands listed in the Preferences variable `external_commands` take the same
 real-terminal path without requiring `!`. Separate names with spaces or commas,
