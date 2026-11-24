@@ -15,6 +15,7 @@ from prompt_toolkit.layout.containers import (
     Window,
 )
 
+from ..explorer import archive
 from ..explorer.gitview import GitView
 from ..explorer.logview import LogView
 from ..explorer.view import ExplorerView
@@ -220,7 +221,10 @@ class ShellTabs:
             "version": 1,
             "active": self.active,
             "tabs": [{
-                "paths": [str(ex.cwd) for ex in session.explorers],
+                # a pane inside an archive is saved as the real directory
+                # holding it, so the tab still restores instead of being dropped
+                "paths": [str(archive.real_ancestor(ex.cwd))
+                          for ex in session.explorers],
                 "active_pane": session.active_pane,
                 "two_pane": session.two_pane,
                 "title": session.custom_title,

@@ -40,6 +40,7 @@ STYLE_DEFAULTS = {
         "explorer.exec": "#5fff5f bold",
         "explorer.link": "#5fffff",
         "explorer.image": "#ff5fff",
+        "explorer.archive": "#ffaf5f bold",
         "explorer.selected": "#ffff5f bold",
         "explorer.size": "#808080",
         # brief blink on a copy / cut, so the action is visible
@@ -240,6 +241,7 @@ ICONS = {
     "exec": "*",
     "link": "↪",
     "image": "▦",
+    "archive": "▸",
 }
 
 # git porcelain code -> (symbol, style)
@@ -260,6 +262,8 @@ def entry_style(entry) -> str:
         return "class:explorer.link"
     if entry.is_dir:
         return "class:explorer.dir"
+    if getattr(entry, "is_archive", False):
+        return "class:explorer.archive"
     if entry.is_image:
         return "class:explorer.image"
     if entry.is_exec:
@@ -272,6 +276,8 @@ def entry_icon(entry) -> str:
         return ICONS["dir"]
     if entry.is_link:
         return ICONS["link"]
+    if getattr(entry, "is_archive", False):
+        return ICONS["archive"]
     if entry.is_image:
         return ICONS["image"]
     if entry.is_exec:

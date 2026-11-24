@@ -18,6 +18,7 @@ import time
 
 from prompt_toolkit.application import run_in_terminal
 
+from ..explorer import archive
 from .prompt import prompt_fragments
 
 # Commands that always own the terminal and cannot be driven through a pipe.
@@ -322,13 +323,19 @@ class CommandRunner:
 
     @property
     def cwd(self) -> str:
+        """The directory commands run in: this tab's active pane.
+
+        A pane browsing inside an archive has no real directory, so commands run
+        in the directory that holds the archive instead.
+        """
         session = self.session
         if session is not None:
             try:
-                return str(session.explorers[session.active_pane].cwd)
+                return str(archive.real_ancestor(
+                    session.explorers[session.active_pane].cwd))
             except (AttributeError, IndexError, TypeError):
                 pass  # session without explorers yet; use the active pane
-        return str(self.app.cwd)
+        return str(archive.real_ancestor(self.app.cwd))
 
     def ensure_powershell_commands(self):
         """Kick off (once per shell executable, in the background) a query for

@@ -28,7 +28,7 @@ from ..util.menu import SEPARATOR
 from ..util.paths import human_size, shorten_home
 from ..util.widgets import WheelScrollControl, visible_slice
 from ..util.width import char_width, cut_to_width, pad_to_width, text_width
-from . import fileops, git, model
+from . import archive, fileops, git, model
 
 SIZE_COL = 8
 
@@ -167,8 +167,9 @@ class ExplorerView:
                 entry.depth = depth
                 out.append(entry)
                 # Recurse only through directories expanded in this immutable
-                # snapshot, including directory symlinks as before.
-                if entry.is_dir and entry.path in expanded:
+                # snapshot, including directory symlinks as before. An expanded
+                # archive file lists its contents the same way.
+                if (entry.is_dir or entry.is_archive) and entry.path in expanded:
                     out.extend(flatten(entry.path, depth + 1))
             return out
 
@@ -368,7 +369,8 @@ class ExplorerView:
             if e.is_parent:
                 icon = " "
             else:
-                icon = "▾" if (e.is_dir and e.path in self.expanded) else config.entry_icon(e)
+                icon = ("▾" if (self._expandable(e) and e.path in self.expanded)
+                    else config.entry_icon(e))
             # the row being renamed shows an editable name cell instead of the name
             if self._renaming and on:
                 name_frags = self._rename_name_fragments(nw)
@@ -432,7 +434,8 @@ class ExplorerView:
         if entry.is_parent:
             # step up, landing the cursor on the directory we're leaving
             self.app.set_cwd(self.cwd.parent, select_name=self.cwd.name)
-        elif entry.is_dir:
+        elif entry.is_dir or entry.is_archive:
+            # an archive opens like a directory: its contents replace the listing
             self.app.set_cwd(entry.path)
         else:
             self.app.open_file(entry.path)
@@ -472,20 +475,24 @@ class ExplorerView:
         # the caret sits at: sel marker (2) + git marker (1) + leading space (1)
         # + indent (2 per depth) — see _formatted_text's row layout
         caret_col = 4 + 2 * entry.depth
-        if entry.is_dir and not entry.is_parent and mouse_event.position.x == caret_col:
+        if self._expandable(entry) and mouse_event.position.x == caret_col:
             self.toggle_expand()
         elif self.app.double_click(("explorer", id(self)), idx):
             self.open()
         self.app.invalidate()
 
-    def toggle_expand(self):
-        """Expand/collapse the directory under the cursor inline (tree view).
+    @staticmethod
+    def _expandable(entry):
+        """Whether a row can be opened inline as a tree: a directory, or an
+        archive file, which browses like one. Symlinks to directories count
+        (is_dir=True); symlinks to files do not."""
+        return (entry is not None and not entry.is_parent
+                and (entry.is_dir or entry.is_archive))
 
-        Symlinks to directories (is_dir=True, is_link=True) are expandable too;
-        symlinks to files (is_dir=False) are not.
-        """
+    def toggle_expand(self):
+        """Expand/collapse the directory or archive under the cursor inline."""
         entry = self.current()
-        if entry is None or not entry.is_dir or entry.is_parent:
+        if not self._expandable(entry):
             return
         if entry.path in self.expanded:
             self.expanded.discard(entry.path)
@@ -506,7 +513,7 @@ class ExplorerView:
         - otherwise (top level)       -> change to the parent directory
         """
         entry = self.current()
-        if entry is not None and entry.is_dir and entry.path in self.expanded:
+        if self._expandable(entry) and entry.path in self.expanded:
             self.expanded.discard(entry.path)
             self._apply_listing(self._list())  # cursor stays on this directory
             self.app.preview.clear()
@@ -658,6 +665,29 @@ class ExplorerView:
         entry = self.current()
         return [entry.path] if entry and not entry.is_parent else []
 
+    def _blocked_in_archive(self, paths, action):
+        """Refuse ``action`` when any of ``paths`` lives inside an archive.
+
+        An archive is browsable but not writable in place: only rename is
+        rewritten back into the file, and reading members out happens through
+        extraction. Everything else is refused up front, with a message, rather
+        than failing halfway through."""
+        if any(archive.is_member(path) for path in paths):
+            self.app.set_message(f"cannot {action} inside an archive")
+            return True
+        return False
+
+    def _blocked_dest_in_archive(self, dest, action):
+        """Refuse ``action`` when ``dest`` is a directory inside an archive.
+
+        Unlike :meth:`_blocked_in_archive` the archive file itself counts: as a
+        *destination* it is a virtual directory, and nothing can be written
+        into it."""
+        if archive.inside_archive(dest):
+            self.app.set_message(f"cannot {action} inside an archive")
+            return True
+        return False
+
     # -- file operations ------------------------------------------------------
     def _show_operation_errors(self, title, errors):
         if not errors:
@@ -705,6 +735,8 @@ class ExplorerView:
         targets = self._targets()
         if not targets:
             return
+        if self._blocked_in_archive(targets, "cut"):
+            return
         self.clipboard = (targets, "cut")
         self.selected.clear()
         self._flash_paths(targets)
@@ -751,12 +783,23 @@ class ExplorerView:
             return
         paths, op = self.clipboard
         dest = self._target_dir(require_expanded=True)
+        if self._blocked_dest_in_archive(dest, "paste"):
+            return
 
         async def do():
             done = 0
             last = None
             errors = []
             for i, src in enumerate(paths, 1):
+                if archive.is_member(src):
+                    try:
+                        self.app.set_message(
+                            f"extracting {i}/{len(paths)}: {src.name}…")
+                        last = await self._extract_member(src, dest) or last
+                        done += 1
+                    except Exception as exc:  # noqa: BLE001
+                        errors.append(f"{src.name}: {exc}")
+                    continue
                 if not src.exists():
                     continue
                 try:
@@ -784,6 +827,21 @@ class ExplorerView:
             self._show_operation_errors(f"{verb.title()} failed", errors)
             await self.app.refresh_git()
         asyncio.ensure_future(do())
+
+    async def _extract_member(self, src, dest):
+        """Copy one archive member (and anything below it) out into ``dest``.
+
+        Returns the path created at the top of ``dest``, so the caller can put
+        the cursor on it."""
+        split = archive.split_path(src)
+        if split is None:
+            raise archive.ArchiveError(f"not inside an archive: {src}")
+        container, inner = split
+        written, errors = await run_in_thread(
+            archive.extract, container, dest, inner)
+        if not written:
+            raise archive.ArchiveError(errors[0] if errors else "nothing to extract")
+        return written[0]
 
     @staticmethod
     def _valid_paste_name(name):
@@ -862,7 +920,11 @@ class ExplorerView:
         targets = self._targets()
         if not targets:
             return
+        if op == "move" and self._blocked_in_archive(targets, "cut"):
+            return
         dest = self._other_pane().cwd
+        if self._blocked_dest_in_archive(dest, "paste"):
+            return
         # moving onto the same directory is a no-op (it would just rename in
         # place), so block it; copying there is fine — it makes a "… copy"
         # duplicate via fileops.unique_target.
@@ -884,6 +946,15 @@ class ExplorerView:
             last = None
             errors = []
             for i, src in enumerate(targets, 1):
+                if archive.is_member(src):
+                    try:  # copying out of an archive is an extraction
+                        self.app.set_message(
+                            f"extracting {i}/{len(targets)}: {src.name}…")
+                        last = await self._extract_member(src, dest) or last
+                        done += 1
+                    except Exception as exc:  # noqa: BLE001
+                        errors.append(f"{src.name}: {exc}")
+                    continue
                 if not src.exists():
                     continue
                 try:
@@ -911,6 +982,8 @@ class ExplorerView:
         targets = self._targets()
         if not targets:
             return
+        if self._blocked_in_archive(targets, "delete"):
+            return
         if len(targets) == 1:
             label = f"Delete '{targets[0].name}'? This cannot be undone."
         else:
@@ -920,6 +993,8 @@ class ExplorerView:
     def trash_entry(self):
         targets = self._targets()
         if not targets:
+            return
+        if self._blocked_in_archive(targets, "delete"):
             return
         if len(targets) == 1:
             label = f"Move '{targets[0].name}' to the Trash?"
@@ -979,6 +1054,8 @@ class ExplorerView:
         one's current mode, and apply the chosen mode to all of them."""
         targets = self._targets()
         if not targets:
+            return
+        if self._blocked_in_archive(targets, "change permissions"):
             return
         try:
             mode = stat.S_IMODE(os.stat(targets[0]).st_mode)
@@ -1061,7 +1138,10 @@ class ExplorerView:
             self.app.invalidate()
             return
         try:
-            target = fileops.rename(entry.path, name)
+            if archive.is_member(entry.path):
+                target = archive.rename_member(entry.path, name)
+            else:
+                target = fileops.rename(entry.path, name)
             self.refresh_listing(select_name=target.name)
             self.app.set_message(f"renamed to: {target.name}")
             asyncio.ensure_future(self.app.refresh_git())
@@ -1094,6 +1174,9 @@ class ExplorerView:
         ]
 
     def new_dir(self):
+        if self._blocked_dest_in_archive(self._target_dir(require_expanded=True),
+                                         "create a folder"):
+            return
         self.app.open_input_dialog("New folder", "", 0, self._do_new_dir)
 
     def _do_new_dir(self, name):
@@ -1112,6 +1195,9 @@ class ExplorerView:
             self._show_operation_errors("Create folder failed", [str(exc)])
 
     def new_file(self):
+        if self._blocked_dest_in_archive(self._target_dir(require_expanded=True),
+                                         "create a file"):
+            return
         self.app.open_input_dialog("New file", "", 0, self._do_new_file)
 
     def _do_new_file(self, name):
@@ -1134,7 +1220,117 @@ class ExplorerView:
         entry = self.current()
         if entry is None or entry.is_dir:
             return
+        if self._blocked_in_archive([entry.path], "edit"):
+            return
         self.app.edit_file(entry.path)
+
+    # -- archives -------------------------------------------------------------
+    def compress_entry(self):
+        """Ask for an archive name, then compress the target(s) into it.
+
+        The extension chosen in the dialog decides the format; the archive is
+        written beside the items it holds, with names relative to their
+        directory so unpacking it recreates them."""
+        targets = self._targets()
+        if not targets:
+            return
+        if self._blocked_in_archive(targets, "compress from"):
+            return
+        base = Path(targets[0]).parent
+        if len(targets) == 1:
+            stem = (targets[0].name if targets[0].is_dir()
+                    else Path(targets[0].name).stem)
+        else:
+            stem = base.name
+        default = f"{stem or 'archive'}.zip"
+        self.app.open_input_dialog(
+            "Compress to  (" + " ".join(archive.SUGGESTED_SUFFIXES[:5]) + ")",
+            default, len(default) - len(".zip"),
+            lambda name: self._do_compress(targets, base, name))
+
+    def _do_compress(self, targets, base, name):
+        name = name.strip()
+        if not name:
+            self.app.set_message("cancelled")
+            return
+        if not self._valid_paste_name(name):
+            self.app.set_message("enter a file name, not a path")
+            return
+        target = Path(base) / name
+
+        async def do():
+            loop = asyncio.get_running_loop()
+
+            def progress(done, total, member):
+                if done == 1 or done == total or done % 25 == 0:
+                    loop.call_soon_threadsafe(
+                        self.app.set_message,
+                        f"compressing {done}/{total}: {member}")
+
+            try:
+                written = await run_in_thread(
+                    archive.create, target, targets, base, progress)
+            except Exception as exc:  # noqa: BLE001
+                self._show_operation_errors("Compress failed", [str(exc)])
+                return
+            self.selected.clear()
+            self.refresh_listing(select_name=written.name)
+            self.app.set_message(
+                f"compressed {len(targets)} item(s) → {written.name}")
+            await self.app.refresh_git()
+        asyncio.ensure_future(do())
+
+    def extract_here(self, path=None):
+        """Unpack the cursor archive into the directory that holds it."""
+        path = Path(path) if path is not None else self._archive_under_cursor()
+        if path is None:
+            return
+        self._do_extract(path, path.parent)
+
+    def extract_to(self, path=None):
+        """Ask for a destination directory, then unpack the archive there."""
+        path = Path(path) if path is not None else self._archive_under_cursor()
+        if path is None:
+            return
+        default = str(path.parent / archive.archive_stem(path.name))
+        self.app.open_input_dialog(
+            "Extract to", default, len(default),
+            lambda text: self._do_extract(path, text))
+
+    def _archive_under_cursor(self):
+        entry = self.current()
+        if entry is None or entry.is_parent or not getattr(entry, "is_archive", False):
+            self.app.set_message("not an archive")
+            return None
+        return entry.path
+
+    def _do_extract(self, path, dest):
+        dest = str(dest).strip()
+        if not dest:
+            self.app.set_message("cancelled")
+            return
+        dest = Path(dest).expanduser()
+        if not dest.is_absolute():
+            dest = Path(self.cwd) / dest
+        if self._blocked_dest_in_archive(dest, "extract"):
+            return
+
+        async def do():
+            try:
+                written, errors = await run_in_thread(archive.extract, path, dest)
+            except Exception as exc:  # noqa: BLE001
+                self._show_operation_errors("Extract failed", [str(exc)])
+                return
+            self.selected.clear()
+            select = None
+            if written and dest == Path(self.cwd):
+                select = written[0].relative_to(dest).parts[0]
+            self.refresh_listing(select_name=select)
+            self.app.set_message(
+                f"extracted {len(written)} item(s) → {shorten_home(dest)}")
+            self._show_operation_errors("Extract", errors)
+            await self.app.refresh_git()
+        asyncio.ensure_future(do())
 
     # -- action menu (Tab) ----------------------------------------------------
     def open_command_menu(self, target_path=None):
@@ -1150,6 +1346,7 @@ class ExplorerView:
                     path=path, name=path.name, is_dir=path.is_dir(),
                     is_image=path.suffix.lower() in model.IMAGE_EXTS,
                     is_link=path.is_symlink(), is_parent=False,
+                    is_archive=path.is_file() and archive.is_archive_name(path.name),
                 )
         directory = Path(self.cwd)
         # With nothing selected yet, force-select the cursor entry so the menu's
@@ -1201,6 +1398,23 @@ class ExplorerView:
                 lambda directory=directory:
                     self.app.open_in_file_manager(directory),
             ))
+        # Archive actions. "Compress" is offered for any real target, including
+        # a single file; the two extract actions only for an archive under the
+        # cursor.
+        archive_items = []
+        compress_paths = (list(self.selected) if self.selected
+                          else ([cur.path] if cur is not None else []))
+        if has_target and not any(archive.is_member(p) for p in compress_paths):
+            archive_items.append(("Compress…", self.compress_entry))
+        if (cur is not None and getattr(cur, "is_archive", False)
+                and not archive.is_member(cur.path)):
+            archive_items += [
+                ("Extract here", lambda p=cur.path: self.extract_here(p)),
+                ("Extract to…", lambda p=cur.path: self.extract_to(p)),
+            ]
+        if archive_items:
+            items.append((SEPARATOR, None))
+            items += archive_items
         # Creation belongs to the contextual file menu. Keep it as a distinct
         # group between ordinary file actions and Git.
         items += [
@@ -1285,8 +1499,8 @@ class ExplorerView:
     # -- help (?) -------------------------------------------------------------
     _NAV_HELP = [
         ("↑ ↓  k j", "move cursor"),
-        ("↵", "open file / enter directory"),
-        ("l  →", "expand / collapse directory"),
+        ("↵", "open file / enter directory or archive"),
+        ("l  →", "expand / collapse directory or archive"),
         ("⌫  h  ←", "parent directory"),
         ("g  G", "top / bottom"),
         ("PgUp PgDn", "page up / down"),
@@ -1786,7 +2000,7 @@ class ExplorerView:
         @kb.add("right")
         def _(event):
             entry = self.current()
-            if entry is not None and not entry.is_dir:
+            if entry is not None and not entry.is_dir and not entry.is_archive:
                 self.app.focus_preview()
             else:
                 self.toggle_expand()

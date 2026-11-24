@@ -1,8 +1,16 @@
-"""Directory listing model."""
+"""Directory listing model.
+
+Listings come from :func:`os.scandir`, except below an archive file: there the
+same :class:`Entry` rows are built from the archive's table of contents, so the
+explorer walks a zip or tar with the code it already uses for directories. See
+:mod:`nsh.explorer.archive` for how those virtual paths work.
+"""
 import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
+
+from . import archive
 
 _DIGITS_RE = re.compile(r"(\d+)")
 
@@ -38,6 +46,7 @@ class Entry:
     depth: int = 0  # indentation level when the listing is shown as a tree
     is_parent: bool = False  # the synthetic ".." row (go to the parent dir)
     link_target: str = ""  # raw target recorded by a symbolic link
+    is_archive: bool = False
 
 
 def _is_exec(dir_entry, name: str) -> bool:
@@ -91,8 +100,38 @@ def sort_entries(entries, sort="name", reverse=False):
     return entries
 
 
+def _archive_entries(path, members, show_hidden, sort, reverse):
+    """Build listing rows for the members of a virtual directory."""
+    base = Path(path)
+    entries = []
+    for member in members:
+        if not show_hidden and member.name.startswith("."):
+            continue
+        ext = os.path.splitext(member.name)[1].lower()
+        entries.append(
+            Entry(
+                path=base / member.name,
+                name=member.name,
+                is_dir=member.is_dir,
+                is_link=False,
+                is_exec=False,
+                is_image=(not member.is_dir) and ext in IMAGE_EXTS,
+                size=member.size,
+                mtime=member.mtime * 1_000_000_000,  # Entry.mtime is in ns
+            )
+        )
+    return sort_entries(entries, sort, reverse)
+
+
 def list_dir(path, show_hidden: bool = False, sort: str = "name", reverse: bool = False):
-    """Return a sorted list of :class:`Entry` for ``path`` (dirs first)."""
+    """Return a sorted list of :class:`Entry` for ``path`` (dirs first).
+
+    ``path`` may be an archive or a directory inside one, in which case the rows
+    come from the archive's table of contents instead of the filesystem.
+    """
+    members = archive.list_children(path)
+    if members is not None:
+        return _archive_entries(path, members, show_hidden, sort, reverse)
     entries = []
     try:
         scan = os.scandir(path)
@@ -134,6 +173,7 @@ def list_dir(path, show_hidden: bool = False, sort: str = "name", reverse: bool 
                     size=size,
                     mtime=mtime,
                     link_target=link_target,
+                    is_archive=(not is_dir) and archive.is_archive_name(name),
                 )
             )
     return sort_entries(entries, sort, reverse)

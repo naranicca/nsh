@@ -8,6 +8,7 @@
   - [Tabs](#tabs)
   - [Global shortcuts](#global-shortcuts)
   - [Explorer mode](#explorer-mode)
+    - [Archives](#archives)
   - [Git mode](#git-mode)
   - [Command-line mode](#command-line-mode)
   - [Fuzzy search mode](#fuzzy-search-mode)
@@ -139,8 +140,8 @@ The action keys (everything below the navigation block) are remappable in
 | --- | --- |
 | `g` / `Home`, `G` / `End` | first / last row |
 | `↑`/`↓`, `k`/`j` | move cursor |
-| `↵` | open the file / enter the directory |
-| `l`, `→` | expand/collapse a directory inline; **on a file, focus the preview** |
+| `↵` | open the file / enter the directory / **browse the archive** |
+| `l`, `→` | expand/collapse a directory — or an **archive** — inline; **on a file, focus the preview** |
 | `⌫`, `h`, `←` | collapse the directory, else go to the parent |
 | `Shift+H` / `Shift+L` | move focus left / right; only Explorer single-pane may open the cursor directory as a new right pane, while existing two-pane and SSH/Network views only move focus |
 | `Space` | select / deselect the entry (multi-select) |
@@ -152,6 +153,7 @@ The action keys (everything below the navigation block) are remappable in
 | `d` | move to the platform Trash / Recycle Bin (asks to confirm) |
 | `D` | permanently delete (asks to confirm) |
 | `Tab` → `chmod…` | change permissions using `755`, `rwxr-xr-x`, `u+x`, or interactive read/write/execute checks |
+| `Tab` → `Compress…` / `Extract here` / `Extract to…` | pack the selection into a new archive, or unpack the one at the cursor (see [Archives](#archives)) |
 | `b` | bookmarks — add/remove this directory, or jump to a saved one |
 | `~` | jump to the home directory |
 | `-` | open the recently visited directories menu |
@@ -182,6 +184,46 @@ while a file targets its containing directory — so in the tree view you act
 exactly where you're pointing. Paste is stricter: it only drops *inside* a
 directory you've already **expanded**; on a collapsed one it pastes into the
 container beside it, not into a folder you can't see into.
+
+#### Archives
+
+An archive behaves like a directory. `l` / `→` expands it inline in the tree,
+`↵` steps into it, and `⌫` / `h` / `←` comes back out — the rows inside are
+read from the archive's table of contents, nothing is unpacked to disk. The
+cursor, multi-select (`Space`), the preview pane and fuzzy name matching all
+work on members exactly as they do on real files. A text member previews
+straight from the archive; `↵` on a member opens a **temporary copy**, which is
+deleted when nsh exits.
+
+Reading is free, writing is not: an archive is not a writable directory. Copy
+(`y`) a member and paste (`p`) it into a real directory to unpack just that file
+or folder — existing names are never overwritten, so a second copy lands as
+`name (2)`. `F2` renames a member, which rewrites the archive beside itself and
+swaps it in only once complete, so an interrupted rename leaves the original
+untouched. Cut, delete, chmod, edit, and creating files or folders inside an
+archive are refused with a message rather than failing halfway.
+
+The `Tab` action menu adds:
+
+| Action | What it does |
+| --- | --- |
+| `Compress…` | pack the selection — or just the file at the cursor — into a new archive beside it. The **extension you type picks the format** |
+| `Extract here` | unpack the archive at the cursor into the directory that holds it |
+| `Extract to…` | unpack it into a directory you name (proposed: the archive's own name without its suffix); the directory is created if it does not exist |
+
+Formats come from the standard library, so nothing extra has to be installed:
+`.zip` (plus `.jar`, `.war`, `.whl`, `.egg`, `.apk`, `.xpi`), `.tar` and its
+compressed forms `.tar.gz` / `.tgz`, `.tar.bz2` / `.tbz`, `.tar.xz` / `.txz`,
+and the single-file `.gz`, `.bz2`, `.xz`. **`.7z` and `.rar` are not
+supported** — they would need an external dependency. Legacy zips whose names
+were not stored as UTF-8 are re-decoded (cp437 → UTF-8, then cp949), so archives
+made by older Windows tools show their Korean names correctly.
+
+Extraction never overwrites: a top-level name that already exists becomes
+`name (2)`. Members whose stored path would escape the destination (`..`,
+absolute or drive-relative names) are skipped and reported. The shell and Git
+stay in the real directory holding the archive, so a command run while browsing
+inside one does not land somewhere that doesn't exist.
 
 Git actions (stage / unstage, commit, diff, and a **Branches** submenu that
 lists branches to check out plus a `+ New Branch` entry) live in the `Tab`
@@ -599,7 +641,8 @@ nsh/
     widgets.py        mouse-wheel-aware control
     menu.py           reusable popup action menu
   explorer/
-    model.py          os.scandir directory listing
+    model.py          os.scandir directory listing (archive members too)
+    archive.py        zip/tar/gz read, create, extract and in-place rename
     git.py            async git status / branch / stage / commit / diff
     gitview.py        git mode: flat changed-file list (Ctrl+G)
     logview.py        scoped directory/file history and commit actions
@@ -640,3 +683,12 @@ nsh/
   real terminal.
 - **Cross-platform paths.** All path handling uses `pathlib`, so Windows `\` and
   POSIX `/` are handled uniformly.
+- **Archives as virtual paths.** A member is addressed as
+  `…/pack.zip/src/main.py` — an ordinary `Path` whose first archive-named
+  component is a real file. `explorer/archive.py` splits such a path back into
+  `(archive, inner)`, so the listing, cursor, selection, tree expansion and
+  preview reuse the directory code unchanged. Tables of contents are cached
+  (bounded, invalidated on write) and every reader runs in a worker thread.
+  Anything that needs a real directory — the shell's cwd, Git, tab restore —
+  maps through `real_ancestor()` to the directory holding the archive.
+

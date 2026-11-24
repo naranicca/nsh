@@ -8,6 +8,7 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from prompt_toolkit.application import Application
 from prompt_toolkit.application.current import get_app
@@ -35,7 +36,7 @@ from prompt_toolkit.layout.menus import CompletionsMenu
 from prompt_toolkit.mouse_events import MouseEventType
 
 from . import __version__, config
-from .explorer import git
+from .explorer import archive, git
 from .explorer.browse import BranchBrowser
 from .explorer.preview import PreviewView
 from .notes.view import NotesView
@@ -191,6 +192,9 @@ class NshApp:
         # shell variables set with a bare `a=10` line; shared by every tab and
         # passed to each child command's environment (see CommandRunner).
         self.shell_vars = {}
+        # created on demand to hold copies of archive members opened with Enter,
+        # and removed when nsh exits (see _cleanup_archive_temp)
+        self._archive_temp = None
         # copy / cut buffer for the explorer, ([Path, ...], "copy" | "cut").
         # Shared by every tab so you can copy in one tab and paste in another.
         self.clipboard = None
@@ -2243,12 +2247,50 @@ class NshApp:
         Precedence: the nshrc ``[general] editor`` setting, then $EDITOR /
         $VISUAL, then a platform default (notepad on Windows, vi elsewhere).
         """
+        if archive.is_member(path):
+            # an editor would write to a path that does not exist on disk, and
+            # the archive has no way to take the result back
+            self.set_message("cannot edit inside an archive — extract it first")
+            return
         editor = (self.settings.get("editor") or os.environ.get("EDITOR")
                   or os.environ.get("VISUAL")
                   or ("notepad" if os.name == "nt" else "vi"))
         asyncio.ensure_future(self.runner.run_in_term(f'{editor} "{path}"'))
 
+    def _cleanup_archive_temp(self):
+        """Delete the copies made to open files out of archives."""
+        temp, self._archive_temp = self._archive_temp, None
+        if temp is not None:
+            try:
+                temp.cleanup()
+            except OSError:
+                pass
+
+    def _extract_for_opening(self, path):
+        """A real copy of an archive member, in this run's private temp dir.
+
+        Opening a file inside an archive means handing a real path to an editor
+        or the platform's launcher, so the member is extracted first. The copy
+        is temporary: edits to it do not go back into the archive.
+        """
+        if self._archive_temp is None:
+            self._archive_temp = TemporaryDirectory(prefix="nsh-archive-")
+        split = archive.split_path(path)
+        inner = split[1] if split else ""
+        destination = Path(self._archive_temp.name) / (inner.rpartition("/")[0] or ".")
+        written, errors = archive.extract(split[0], destination, inner=inner)
+        if errors and not written:
+            raise archive.ArchiveError(errors[0])
+        return written[0]
+
     def open_file(self, path):
+        if archive.is_member(path):
+            try:
+                path = self._extract_for_opening(path)
+            except (archive.ArchiveError, OSError, IndexError) as exc:
+                self.set_message(f"cannot open from archive: {exc}")
+                return
+            self.set_message(f"opened a temporary copy of {Path(path).name}")
         editor = os.environ.get("EDITOR") or os.environ.get("VISUAL")
         if editor:
             asyncio.ensure_future(self.runner.run_in_term(f'{editor} "{path}"'))
@@ -2282,11 +2324,20 @@ class NshApp:
         # through "<symlink>/.." would let the kernel walk into the link target
         # and land us in the wrong directory.
         target = _logical_path(path, self.cwd)
-        try:
-            os.chdir(target)
-        except OSError as exc:
-            self.set_message(f"cannot enter: {exc}")
-            return
+        # An archive, or a directory inside one, is browsed as a virtual path:
+        # there is nothing to chdir into, so the process (and every shell) stays
+        # in the real directory that holds the archive.
+        virtual = archive.inside_archive(target)
+        if virtual:
+            if archive.list_children(target) is None:
+                self.set_message("cannot enter: not an archive")
+                return
+        else:
+            try:
+                os.chdir(target)
+            except OSError as exc:
+                self.set_message(f"cannot enter: {exc}")
+                return
         old, new = str(self.cwd), str(target)
         changed = old != new
         if changed:
@@ -2296,7 +2347,8 @@ class NshApp:
             self.visited.insert(0, old)
             del self.visited[50:]
         self.explorer.cwd = target  # the active pane owns the directory
-        self._remember_drive(target)  # so a later "X:" returns to here
+        if not virtual:
+            self._remember_drive(target)  # so a later "X:" returns to here
         self.explorer.selected.clear()
         self.explorer.expanded.clear()  # the tree is relative to the old cwd
         self.explorer.load()
@@ -2355,9 +2407,13 @@ class NshApp:
 
     @staticmethod
     def _child_directories(explorer):
-        """Real directories currently visible, including expanded descendants."""
+        """Real directories currently visible, including expanded descendants.
+
+        Rows inside an expanded archive are not real directories, so they are
+        left out rather than sent to git as repository candidates."""
         return tuple(entry.path for entry in explorer.entries
-                     if entry.is_dir and not entry.is_parent)
+                     if entry.is_dir and not entry.is_parent
+                     and not archive.inside_archive(entry.path))
 
     async def _git_worker(self, targets):
         for ex, path, children in targets:
@@ -3206,4 +3262,5 @@ class NshApp:
         finally:
             watcher.cancel()
             self._save_tab_state()
+            self._cleanup_archive_temp()
         return self.search_result

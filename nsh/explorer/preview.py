@@ -27,7 +27,7 @@ from ..util.aio import run_in_thread
 from ..util.paths import human_size, norm
 from ..util.widgets import WheelScrollControl
 from ..util.width import cut_to_width, text_width
-from . import git, model
+from . import archive, git, model
 
 READ_BYTES = 64 * 1024   # cap how much of a file we pull in for preview
 MAX_LINES = 400
@@ -899,6 +899,10 @@ class PreviewView:
         Reads the entire file and renders all content, regardless of size."""
         if entry.is_dir:
             return self._build_dir(entry)
+        if getattr(entry, "is_archive", False):
+            return self._build_archive(entry)
+        if archive.is_member(entry.path):
+            return self._build_member(entry, None)
         try:
             with open(entry.path, "rb") as f:
                 chunk = f.read()  # whole file
@@ -1250,6 +1254,10 @@ class PreviewView:
     def _build(self, entry):
         if entry.is_dir:
             return self._build_dir(entry)
+        if getattr(entry, "is_archive", False):
+            return self._build_archive(entry)
+        if archive.is_member(entry.path):
+            return self._build_member(entry, READ_BYTES)
         try:
             with open(entry.path, "rb") as f:
                 chunk = f.read(READ_BYTES)
@@ -1307,6 +1315,68 @@ class PreviewView:
             except UnicodeDecodeError:
                 continue
         return None
+
+    def _archive_meta(self, entry, parts):
+        """Header meta for something with no file on disk behind it.
+
+        :meth:`_meta_line` stats the path, which an archive member has no way to
+        satisfy, so the permissions, size and date come from the table of
+        contents instead."""
+        out = [("class:preview.meta", f" {parts[0]}")]
+        extras = list(parts[1:])
+        if extras:
+            out.append(("class:preview.dim", "  ·  " + "  ·  ".join(extras)))
+        out.append(("class:preview", "\n"))
+        return out
+
+    def _member_meta(self, entry):
+        member = archive.member_of(entry.path)
+        parts = [archive.member_mode(member) if member else "----------"]
+        if member is not None and not member.is_dir:
+            parts.append(human_size(member.size))
+        if member is not None and member.mtime:
+            parts.append(
+                datetime.fromtimestamp(member.mtime).strftime("%Y-%m-%d %H:%M"))
+        return self._archive_meta(entry, parts)
+
+    def _build_archive(self, entry):
+        """Preview an archive file: what it is, then its top-level contents."""
+        frags = self._header(entry)
+        frags += self._meta_line(entry, [archive.describe(entry.path),
+                                         human_size(entry.size)])
+        frags.append(("class:preview", "\n"))
+        items = model.list_dir(entry.path, self.app.explorer.show_hidden)
+        for e in items[:MAX_DIR_ITEMS]:
+            name = e.name + ("/" if e.is_dir else "")
+            frags.append((config.entry_style(e), f" {config.entry_icon(e)} {name}\n"))
+        if len(items) > MAX_DIR_ITEMS:
+            frags.append(("class:preview.dim",
+                          f" … and {len(items) - MAX_DIR_ITEMS} more\n"))
+        return frags
+
+    def _build_member(self, entry, limit):
+        """Preview a file inside an archive, read straight from the archive."""
+        try:
+            chunk = archive.read_member(entry.path, limit)
+        except archive.ArchiveError as exc:
+            return [("class:preview.dim", f" cannot read: {exc}")]
+        frags = self._header(entry)
+        if not chunk:
+            return frags + self._member_meta(entry)
+        text = None if (entry.is_image or b"\x00" in chunk) else self._decode(chunk)
+        if text is None:
+            return frags + self._member_meta(entry) + [
+                ("class:preview", "\n"),
+                ("class:preview.dim",
+                 " binary — press Enter to open a temporary copy\n"),
+            ]
+        frags += self._member_meta(entry)
+        frags.append(("class:preview", "\n"))
+        for line in text.splitlines():
+            frags.append(("class:preview", _sanitize(line) + "\n"))
+        if limit is not None and len(chunk) >= limit:
+            frags.append(("class:preview.dim", " … truncated\n"))
+        return frags
 
     def _build_dir(self, entry):
         items = model.list_dir(entry.path, self.app.explorer.show_hidden)

@@ -478,6 +478,9 @@ async def query(directory, child_directories=()) -> GitStatus:
 async def _query_uncached(directory, child_directories=()) -> GitStatus:
     """Detect the repo, current branch and per-file status for ``directory``."""
     st = GitStatus()
+    if not os.path.isdir(directory):
+        # a pane browsing inside an archive has no real directory to run git in
+        return st
     layout = _repository_layout(directory)
     if layout is None:
         st.child_statuses = await child_repositories(child_directories)
