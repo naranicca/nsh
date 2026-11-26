@@ -1233,7 +1233,10 @@ class NshApp:
         if not (gs and gs.is_repo and gs.branch):
             return None
         if gs.behind > 0:
-            return "class:titlebar.branch.behind", f"⎇ {gs.branch} -{gs.behind}"
+            # a diverged branch shows both counts: reported as a bare -N it
+            # reads as "just pull", which would undo the local commits
+            return ("class:titlebar.branch.behind",
+                    f"⎇ {gs.branch} {gs.sync_label}")
         if gs.dirty:
             return "class:titlebar.branch.dirty", f"⎇ {gs.branch}"
         if gs.ahead > 0:

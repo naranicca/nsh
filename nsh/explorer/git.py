@@ -62,6 +62,25 @@ class GitStatus:
                 and self.branch not in (None, "(detached)"))
 
     @property
+    def diverged(self) -> bool:
+        """True when the branch and its upstream have each moved on: pushing is
+        rejected and pulling merges or rebases. Usually the aftermath of a local
+        squash/amend/rebase of commits that were already pushed."""
+        return self.ahead > 0 and self.behind > 0
+
+    @property
+    def sync_label(self) -> str:
+        """How the branch sits against its upstream: ``+1 -2``, ``-2``, ``+1``
+        or ``""``. Both counts show when diverged — reporting only the behind
+        count there reads as a plain "out of date", which it is not."""
+        parts = []
+        if self.ahead > 0:
+            parts.append(f"+{self.ahead}")
+        if self.behind > 0:
+            parts.append(f"-{self.behind}")
+        return " ".join(parts)
+
+    @property
     def can_pull(self) -> bool:
         """True when there is an upstream branch to pull from. (Not gated on the
         behind count, which is stale until a fetch — pulling is how you find out
@@ -863,6 +882,69 @@ async def commit_subject(commit, cwd):
     """The one-line subject of ``commit`` (to prefill the reword dialog)."""
     out = await _out(["log", "-1", "--format=%s", commit], cwd)
     return out.strip() if out else ""
+
+
+# -- push / pull --------------------------------------------------------------
+async def rev_of(ref, cwd):
+    """The commit ``ref`` resolves to, or ``None`` when it names nothing."""
+    out = await _out(["rev-parse", "--verify", "--quiet", ref + "^{commit}"], cwd)
+    return out.strip() if out and out.strip() else None
+
+
+async def upstream_parts(cwd, branch):
+    """``(remote, branch-name-on-the-remote)`` for ``branch``'s upstream.
+
+    Read from the config rather than split out of ``origin/main``: the local and
+    the remote name need not match (``main`` may track ``origin/trunk``), and a
+    remote name may itself contain a slash.
+    """
+    if not branch or branch == "(detached)":
+        return None
+    remote = await _out(["config", "--get", f"branch.{branch}.remote"], cwd)
+    merge = await _out(["config", "--get", f"branch.{branch}.merge"], cwd)
+    if not (remote and merge):
+        return None
+    remote, ref = remote.strip(), merge.strip()
+    name = ref[len("refs/heads/"):] if ref.startswith("refs/heads/") else ref
+    if not (remote and name):
+        return None
+    return remote, name
+
+
+async def push_lease(cwd, branch):
+    """``(remote, remote_branch, sha)`` describing a ``--force-with-lease`` push
+    of ``branch``: where it goes and the commit we last saw there.
+
+    The sha is pinned from the remote-tracking ref *now*, before any fetch: git
+    refuses the push when the remote has moved past it, so an overwrite can only
+    discard commits that were already accounted for. ``None`` when the branch
+    has no upstream to overwrite.
+    """
+    parts = await upstream_parts(cwd, branch)
+    sha = await rev_of("@{upstream}", cwd)
+    if parts is None or sha is None:
+        return None
+    return parts[0], parts[1], sha
+
+
+async def is_local_rewrite(cwd, branch=None):
+    """Whether a diverged branch diverged because *we* rewrote its history.
+
+    Squashing, amending or rebasing commits that were already pushed leaves the
+    branch both ahead and behind its upstream — yet the upstream still points
+    exactly where this branch stood before the rewrite, and that commit is in
+    our own reflog. When it isn't, the upstream moved for some other reason
+    (someone else pushed) and overwriting it would discard their work.
+    """
+    sha = await rev_of("@{upstream}", cwd)
+    if sha is None:
+        return False
+    # the branch's own reflog, not HEAD's: HEAD records checkouts of other
+    # branches too, whose commits say nothing about this branch's history.
+    # Spelled in full so a file of the same name cannot make it ambiguous.
+    ref_name = f"refs/heads/{branch}" if branch else "HEAD"
+    out = await _out(["reflog", "show", "--format=%H", "-50", ref_name], cwd)
+    return bool(out) and sha in out.split()
 
 
 # -- stash --------------------------------------------------------------------

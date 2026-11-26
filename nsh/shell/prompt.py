@@ -20,7 +20,9 @@ def prompt_fragments(app):
         # same precedence as the title bar: behind shows -count, uncommitted
         # changes show red (no count), ahead shows +count, else green
         if gs.behind > 0:
-            style, suffix = "class:shell.branch.behind", f" -{gs.behind}"
+            # diverged shows "+1 -2": a bare -2 reads as "just pull", and
+            # pulling would undo the local commits
+            style, suffix = "class:shell.branch.behind", f" {gs.sync_label}"
         elif gs.dirty:
             style, suffix = "class:shell.branch.dirty", ""
         elif gs.ahead > 0:

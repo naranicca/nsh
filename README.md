@@ -308,6 +308,23 @@ metadata without starting additional Git processes. The background watcher also
 tracks lightweight Git metadata, so commits, staging, branch movement, and
 similar state-only changes refresh even when no worktree file changes.
 
+The branch indicator (title bar and shell prompt) names both directions when
+they disagree: `main +1 -2` is one commit here that the upstream lacks and two
+there that this branch lacks. This is the normal aftermath of squashing,
+amending, or rebasing commits that were already pushed — a *diverged* branch,
+not a branch that is merely out of date.
+
+**Git: Push** and **Git: Pull** on a diverged branch open a menu instead of
+running, because both ways out lose something: a force push drops the upstream's
+commits, a pull drops or re-merges the local ones. Which one is listed first
+depends on why the branch diverged, worked out from the branch's own reflog. If
+the upstream still points where this branch stood before the rewrite, the
+divergence is a local history rewrite and **Force push** leads; if the upstream
+has moved somewhere this branch has never been, someone else pushed and
+**Pull (rebase)** leads. The force push is a `--force-with-lease` pinned to the
+commit nsh last saw on the remote, so it is refused outright if the remote moved
+in the meantime — and nothing is fetched behind your back to weaken that check.
+
 Commit, Revert, and Log make their scope explicit in the action menu. The `.`
 entry targets the current directory, while a second entry targets the selected
 file or files (for example, `Git: Commit .`, `Git: Commit README.md`, or

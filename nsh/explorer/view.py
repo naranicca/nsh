@@ -33,6 +33,12 @@ from . import archive, fileops, git, model
 SIZE_COL = 8
 
 
+def _git_count(n, noun):
+    """``2 remote commits`` / ``1 remote commit`` — for the divergence menu,
+    where the two numbers are the whole point of the choice."""
+    return f"{n} {noun}" if n == 1 else f"{n} {noun}s"
+
+
 def _git_error_summary(output):
     """A concise one-line reason from a failed git command's output, for the
     status bar (the full text still goes to the shell scrollback). Prefers a
@@ -1624,11 +1630,20 @@ class ExplorerView:
     def git_pull(self):
         if not self._require_repo():
             return
+        gs = self.app.git_status
+        if gs and gs.diverged:
+            # pulling a diverged branch rewinds or re-merges the local commits:
+            # ask before doing it rather than after
+            self._git_diverged_menu(gs, "pull")
+            return
+        self._git_do_pull()
 
+    def _git_do_pull(self, rebase=False):
         async def do():
             # pull may need credentials and can open a merge editor / hit
             # conflicts, so run it on a real terminal
-            rc = await self.app.runner.run_in_term("git pull")
+            cmd = "git pull --rebase" if rebase else "git pull"
+            rc = await self.app.runner.run_in_term(cmd)
             self.app.set_message("pulled" if rc == 0 else "pull failed")
             await self.app.refresh_git()
         asyncio.ensure_future(do())
@@ -1637,19 +1652,79 @@ class ExplorerView:
         if not self._require_repo():
             return
         gs = self.app.git_status
+        if gs and gs.diverged:
+            # a plain push would just be rejected; offer the two real ways out
+            self._git_diverged_menu(gs, "push")
+            return
+        self._git_do_push()
+
+    def _git_do_push(self, lease=None):
+        """Push. ``lease`` is ``(remote, remote_branch, sha)`` for an overwrite
+        that is refused unless the remote still points at ``sha``."""
+        gs = self.app.git_status
 
         async def do():
-            # no upstream yet -> set it on this first push; otherwise plain push.
-            if gs and not gs.has_upstream and gs.branch and gs.branch != "(detached)":
+            if lease is not None:
+                remote, name, sha = lease
+                # --force-with-lease pinned to the sha we saw before pushing:
+                # a bare --force-with-lease trusts the remote-tracking ref,
+                # which a background fetch may silently have advanced
+                cmd = (f'git push --force-with-lease="{name}:{sha}" '
+                       f'{remote} "{gs.branch}:{name}"')
+            elif gs and not gs.has_upstream and gs.branch and gs.branch != "(detached)":
+                # no upstream yet -> set it on this first push
                 cmd = f'git push -u origin "{gs.branch}"'
             else:
                 cmd = "git push"
             # push can need credentials, so run it on a real terminal (like the
             # remote-branch delete) instead of through the piped runner
             rc = await self.app.runner.run_in_term(cmd)
-            self.app.set_message("pushed" if rc == 0 else "push failed")
+            if rc == 0:
+                self.app.set_message("force-pushed" if lease else "pushed")
+            else:
+                self.app.set_message(
+                    "force push failed — the remote may have moved; fetch first"
+                    if lease else "push failed")
             await self.app.refresh_git()  # ahead count -> 0 after a clean push
         asyncio.ensure_future(do())
+
+    def _git_diverged_menu(self, gs, action):
+        """Ask how to resolve a diverged branch, before pushing or pulling.
+
+        Both ways out lose something, so neither is taken silently: a force push
+        drops the upstream's commits, a pull drops (or re-merges) the local
+        ones. The recommended one is listed first, and which that is depends on
+        *why* the branch diverged — our own history rewrite, or someone else's
+        push.
+        """
+        async def build():
+            rewrote = await git.is_local_rewrite(self.app.cwd, gs.branch)
+            lease = await git.push_lease(self.app.cwd, gs.branch)
+            mine = _git_count(gs.ahead, "local commit")
+            theirs = _git_count(gs.behind, "remote commit")
+            if rewrote:
+                # the upstream tip is where this branch stood before the
+                # rewrite, so overwriting it publishes the rewrite and loses
+                # nothing that is not already here in another shape
+                why = "history rewritten here"
+                force_label = f"Force push — publish the rewrite over {theirs}"
+                pull_label = f"Pull (rebase) — undo it, back to {theirs}"
+            else:
+                # someone else pushed: their commits are not ours to drop
+                why = "the upstream moved"
+                force_label = f"Force push — drop {theirs}, keep {mine}"
+                pull_label = f"Pull (rebase) — keep {theirs}, replay {mine}"
+            force_item = (force_label, lambda: self._git_do_push(lease))
+            pull_item = (pull_label, lambda: self._git_do_pull(rebase=True))
+            if lease is None:  # nothing resolvable to overwrite
+                items = [pull_item]
+            else:
+                items = ([force_item, pull_item] if rewrote
+                         else [pull_item, force_item])
+            self.app.open_menu(
+                f"{action.capitalize()} · diverged {gs.sync_label} — {why}",
+                items, at_cursor=True)
+        asyncio.ensure_future(build())
 
     # -- stash ----------------------------------------------------------------
     def _git_run(self, coro, ok_msg, fail_label):
