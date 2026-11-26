@@ -218,6 +218,24 @@ class SearchView:
         path = (self.app.cwd / rel).resolve()
         self.app.search_select(path)
 
+    def open_action_menu(self):
+        """Open the local file actions for the currently highlighted result."""
+        if not self.results:
+            return
+        if self.remote_view is not None:
+            self.app.set_message("remote search actions are not available here")
+            return
+        rel = self.results[self.cursor][0]
+        root = self._search_root or self.app.cwd
+        self.app.explorer.open_search_action_menu((root / rel).resolve())
+
+    def cursor_name_end_col(self):
+        """Column just after the highlighted result's displayed path."""
+        if not (0 <= self.cursor < len(self.results)):
+            return 0
+        # Every result starts with the two-cell cursor/indent marker ("▸ ").
+        return 2 + text_width(self.results[self.cursor][0])
+
     # -- rendering ------------------------------------------------------------
     def _counter_text(self):
         tag = " · indexing…" if self.loading else ""
@@ -293,5 +311,9 @@ class SearchView:
         @kb.add("enter")
         def _(event):
             self.accept()
+
+        @kb.add("tab")
+        def _(event):
+            self.open_action_menu()
 
         return kb

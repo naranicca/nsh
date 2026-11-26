@@ -795,12 +795,14 @@ class ExplorerView:
                 return
             self.expanded.add(entry.path)
 
-    def paste(self):
+    def paste(self, destination=None):
         if not self.clipboard:
             self.app.set_message("clipboard empty")
             return
         paths, op = self.clipboard
-        dest = self._target_dir(require_expanded=True)
+        reveal_target = destination is None
+        dest = (self._target_dir(require_expanded=True) if destination is None
+                else Path(destination))
         if self._blocked_dest_in_archive(dest, "paste"):
             return
 
@@ -838,7 +840,11 @@ class ExplorerView:
                     errors.append(f"{src.name}: {exc}")
             if op == "cut":
                 self.clipboard = None
-            self._reveal_target(require_expanded=True)  # expand only if pasted inside
+            if reveal_target:
+                # Expand only when the ordinary explorer cursor targeted an
+                # already-expanded directory. Search-result pastes have no
+                # visible tree row to reveal.
+                self._reveal_target(require_expanded=True)
             self.refresh_listing(select_name=last.name if last else None)
             verb = "copied" if op == "copy" else "moved"
             self.app.set_message(f"{verb} {done}/{len(paths)} item(s)")
@@ -1000,27 +1006,15 @@ class ExplorerView:
         targets = self._targets()
         if not targets:
             return
-        if self._blocked_in_archive(targets, "delete"):
-            return
-        if len(targets) == 1:
-            label = f"Delete '{targets[0].name}'? This cannot be undone."
-        else:
-            label = f"Delete {len(targets)} items? This cannot be undone."
-        self.app.confirm(label, lambda ok: self._do_delete(targets, ok))
+        self.delete_paths(targets)
 
     def trash_entry(self):
         targets = self._targets()
         if not targets:
             return
-        if self._blocked_in_archive(targets, "delete"):
-            return
-        if len(targets) == 1:
-            label = f"Move '{targets[0].name}' to the Trash?"
-        else:
-            label = f"Move {len(targets)} items to the Trash?"
-        self.app.confirm(label, lambda ok: self._do_trash(targets, ok))
+        self.trash_paths(targets)
 
-    def _do_trash(self, targets, ok):
+    def _do_trash(self, targets, ok, clear_selection=True):
         if not ok:
             self.app.set_message("trash cancelled")
             return
@@ -1034,14 +1028,15 @@ class ExplorerView:
                     done += 1
                 except Exception as exc:  # noqa: BLE001
                     errors.append(f"{path.name}: {exc}")
-            self.selected.clear()
+            if clear_selection:
+                self.selected.clear()
             self.refresh_listing()
             self.app.set_message(f"moved {done} item(s) to Trash")
             self._show_operation_errors("Move to Trash failed", errors)
             await self.app.refresh_git()
         asyncio.ensure_future(do())
 
-    def _do_delete(self, targets, ok):
+    def _do_delete(self, targets, ok, clear_selection=True):
         if not ok:
             self.app.set_message("delete cancelled")
             return
@@ -1055,7 +1050,8 @@ class ExplorerView:
                     done += 1
                 except Exception as exc:  # noqa: BLE001
                     errors.append(f"{path.name}: {exc}")
-            self.selected.clear()
+            if clear_selection:
+                self.selected.clear()
             self.refresh_listing()
             self.app.set_message(f"deleted {done} item(s)")
             self._show_operation_errors("Delete failed", errors)
@@ -1073,6 +1069,10 @@ class ExplorerView:
         targets = self._targets()
         if not targets:
             return
+        self.chmod_paths(targets)
+
+    def chmod_paths(self, targets, clear_selection=True):
+        targets = [Path(path) for path in targets]
         if self._blocked_in_archive(targets, "change permissions"):
             return
         try:
@@ -1083,9 +1083,9 @@ class ExplorerView:
                 else f"{len(targets)} items")
         self.app.open_chmod_dialog(
             f"Permissions · {name}", mode,
-            lambda m: self._do_chmod(targets, m))
+            lambda m: self._do_chmod(targets, m, clear_selection))
 
-    def _do_chmod(self, targets, mode):
+    def _do_chmod(self, targets, mode, clear_selection=True):
         done, err = 0, None
         for path in targets:
             try:
@@ -1093,7 +1093,8 @@ class ExplorerView:
                 done += 1
             except OSError as exc:
                 err = f"{path.name}: {exc}"
-        self.selected.clear()
+        if clear_selection:
+            self.selected.clear()
         self.refresh_listing()
         if err:
             self._show_operation_errors("Chmod failed", [err])
@@ -1252,6 +1253,10 @@ class ExplorerView:
         targets = self._targets()
         if not targets:
             return
+        self.compress_paths(targets)
+
+    def compress_paths(self, targets, clear_selection=True):
+        targets = [Path(path) for path in targets]
         if self._blocked_in_archive(targets, "compress from"):
             return
         base = Path(targets[0]).parent
@@ -1264,9 +1269,9 @@ class ExplorerView:
         self.app.open_input_dialog(
             "Compress to  (" + " ".join(archive.SUGGESTED_SUFFIXES[:5]) + ")",
             default, len(default) - len(".zip"),
-            lambda name: self._do_compress(targets, base, name))
+            lambda name: self._do_compress(targets, base, name, clear_selection))
 
-    def _do_compress(self, targets, base, name):
+    def _do_compress(self, targets, base, name, clear_selection=True):
         name = name.strip()
         if not name:
             self.app.set_message("cancelled")
@@ -1291,7 +1296,8 @@ class ExplorerView:
             except Exception as exc:  # noqa: BLE001
                 self._show_operation_errors("Compress failed", [str(exc)])
                 return
-            self.selected.clear()
+            if clear_selection:
+                self.selected.clear()
             self.refresh_listing(select_name=written.name)
             self.app.set_message(
                 f"compressed {len(targets)} item(s) → {written.name}")
@@ -1502,6 +1508,104 @@ class ExplorerView:
         on_close = (lambda: self._deselect_forced(forced)) if forced else None
         self.app.open_menu(f"Actions · {target}", items, on_close=on_close,
                            at_cursor=True)
+
+    def open_search_action_menu(self, path):
+        """Open file actions for a fuzzy-search result without changing cwd.
+
+        Search results can be descendants that are not present in the current
+        explorer listing, so these callbacks capture ``path`` instead of using
+        the explorer cursor or its selection.  Creation, Git, and platform
+        file-manager actions deliberately belong to the directory view only.
+        """
+        path = Path(path)
+        if not path.exists():
+            self.app.set_message(f"file no longer exists: {path.name}")
+            return
+        is_dir = path.is_dir()
+        is_image = path.suffix.lower() in model.IMAGE_EXTS
+        items = [("Open with…           O",
+                  lambda path=path: self.app.open_with_menu([path]))]
+        if not is_dir and not is_image and model.is_text_file(path):
+            items.append(("Edit", lambda path=path: self.app.edit_file(path)))
+        items += [
+            ("Copy                 c", lambda path=path: self._copy_paths([path], "copy")),
+            ("Cut                  x", lambda path=path: self._copy_paths([path], "cut")),
+        ]
+        if self.clipboard:
+            destination = path if is_dir else path.parent
+            items.append(("Paste", lambda destination=destination: self.paste(destination)))
+        items += [
+            ("Rename               F2", lambda path=path: self.rename_path(path)),
+            ("Move to Trash        d", lambda path=path: self.trash_paths(
+                [path], clear_selection=False)),
+            ("Delete permanently   D", lambda path=path: self.delete_paths(
+                [path], clear_selection=False)),
+            ("Chmod…", lambda path=path: self.chmod_paths(
+                [path], clear_selection=False)),
+        ]
+        archive_items = [("Compress…", lambda path=path: self.compress_paths(
+            [path], clear_selection=False))]
+        if archive.is_archive_name(path.name):
+            archive_items += [
+                ("Extract here", lambda path=path: self.extract_here(path)),
+                ("Extract to…", lambda path=path: self.extract_to(path)),
+            ]
+        items.append((SEPARATOR, None))
+        items += archive_items
+        self.app.open_menu(f"Actions · {path.name}", items, at_cursor=True)
+
+    def _copy_paths(self, paths, operation):
+        paths = [Path(path) for path in paths]
+        if operation == "cut" and self._blocked_in_archive(paths, "cut"):
+            return
+        self.clipboard = (paths, operation)
+        self._flash_paths(paths)
+        verb = "copied" if operation == "copy" else "cut"
+        self.app.set_message(f"{verb} {len(paths)} item(s)  (p to paste)")
+        self.app.invalidate()
+
+    def rename_path(self, path):
+        path = Path(path)
+        name = path.name
+        self.app.open_input_dialog(
+            "Rename", name, len(Path(name).stem),
+            lambda new_name, path=path: self._rename_path(path, new_name))
+
+    def _rename_path(self, path, name):
+        name = name.strip()
+        if not name or name == path.name:
+            self.app.set_message("rename cancelled")
+            return
+        if not self._valid_paste_name(name):
+            self.app.set_message("enter a file name, not a path")
+            return
+        try:
+            target = fileops.rename(path, name)
+        except Exception as exc:  # noqa: BLE001
+            self._show_operation_errors("Rename failed", [str(exc)])
+            return
+        self.refresh_listing(select_name=target.name)
+        self.app.set_message(f"renamed to: {target.name}")
+        asyncio.ensure_future(self.app.refresh_git())
+
+    def trash_paths(self, paths, clear_selection=True):
+        paths = [Path(path) for path in paths]
+        if self._blocked_in_archive(paths, "delete"):
+            return
+        label = (f"Move '{paths[0].name}' to the Trash?" if len(paths) == 1
+                 else f"Move {len(paths)} items to the Trash?")
+        self.app.confirm(
+            label, lambda ok: self._do_trash(paths, ok, clear_selection))
+
+    def delete_paths(self, paths, clear_selection=True):
+        paths = [Path(path) for path in paths]
+        if self._blocked_in_archive(paths, "delete"):
+            return
+        label = (f"Delete '{paths[0].name}'? This cannot be undone."
+                 if len(paths) == 1 else
+                 f"Delete {len(paths)} items? This cannot be undone.")
+        self.app.confirm(
+            label, lambda ok: self._do_delete(paths, ok, clear_selection))
 
     def _deselect_forced(self, path):
         """Drop a cursor file the menu force-selected. Deferred a tick so the

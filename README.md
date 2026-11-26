@@ -447,7 +447,10 @@ their elapsed time and exit status just like commands captured in nsh's
 scrollback.
 
 ### Fuzzy search mode
-Type to filter, `↑`/`↓` to move, `↵` to select, `ESC` to cancel. Launched with
+Type to filter, `↑`/`↓` to move, `↵` to select, `Tab` for file actions, and
+`ESC` to cancel. The search action menu operates on the highlighted result and
+includes file actions such as copy, rename, delete, archive, and permissions;
+it omits creation, Git, and platform file-manager actions. Launched with
 `nsh search [WORD]` (prints the selection to stdout, e.g. `cd "$(nsh search)"`)
 or with `/` from the explorer. Build outputs (`build/`, `dist/`) are indexed too,
 so a built executable is findable; the skipped directories are configurable via

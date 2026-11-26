@@ -1496,6 +1496,7 @@ class NshApp:
         elif self.mode == SEARCH:
             hints = [
                 ("type", "filter"),
+                ("Tab", "action", self.search.open_action_menu),
                 ("ESC", "cancel", self.cancel_search),
             ]
         elif self.mode == GIT:
@@ -2618,14 +2619,16 @@ class NshApp:
     # -- action menu ----------------------------------------------------------
     def _active_list_window(self):
         """The list Window whose cursor row the menu should drop from, or None
-        in modes without one (shell, search, …) — there the menu uses its
-        default top-of-screen position."""
+        in modes without one (shell, …) — there the menu uses its default
+        top-of-screen position."""
         if self.mode == GIT:
             return self.gitview.window
         if self.mode == LOG:
             return self.logview.window
         if self.mode == EXPLORER:
             return self.explorer.window
+        if self.mode == SEARCH:
+            return self.search.results_window
         if self.mode == NETWORK:
             return ((self.networkview.local_view or self.explorer).window
                     if self.network_local_focused()
@@ -2642,6 +2645,8 @@ class NshApp:
             return self.logview.cursor_name_end_col()
         if self.mode == EXPLORER:
             return self.explorer.cursor_name_end_col()
+        if self.mode == SEARCH:
+            return self.search.cursor_name_end_col()
         if self.mode == NETWORK:
             if self.network_local_focused():
                 return (self.networkview.local_view or self.explorer).cursor_name_end_col()
@@ -2686,6 +2691,12 @@ class NshApp:
                     else:
                         cursor_row = (info._y_offset +
                                       self.networkview.cursor - self.networkview._top)
+                elif self.mode == SEARCH:
+                    # Search keeps focus in its query BufferControl, so the
+                    # results window has no prompt_toolkit cursor. Its own
+                    # windowed list state gives the row precisely.
+                    cursor_row = (info._y_offset + self.search.cursor
+                                  - self.search.scroll)
                 else:
                     cursor_row = info.cursor_position.y + info._y_offset
                 height = min(len(items) + 1, max(1, rows - 2))  # title + items

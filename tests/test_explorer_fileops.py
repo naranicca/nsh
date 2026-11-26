@@ -75,6 +75,29 @@ class ExplorerFileOperationTests(unittest.TestCase):
             with self.assertRaises(FileExistsError):
                 asyncio.run(fileops.copy(source, target_dir, name="report.txt"))
 
+    def test_search_action_menu_has_only_file_actions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "result.txt"
+            path.write_text("text", encoding="utf-8")
+            app = SimpleNamespace(
+                clipboard=None, open_menu=mock.Mock(), set_message=mock.Mock())
+            view = ExplorerView.__new__(ExplorerView)
+            view.app = app
+
+            view.open_search_action_menu(path)
+
+        labels = [label for label, _callback in app.open_menu.call_args.args[1]
+                  if isinstance(label, str)]
+        self.assertIn("Open with…           O", labels)
+        self.assertIn("Edit", labels)
+        self.assertIn("Copy                 c", labels)
+        self.assertIn("Rename               F2", labels)
+        self.assertIn("Compress…", labels)
+        self.assertNotIn("New folder", labels)
+        self.assertNotIn("New file", labels)
+        self.assertFalse(any(label.startswith("Git:") for label in labels))
+        self.assertFalse(any(label.startswith("Open in ") for label in labels))
+
 
 if __name__ == "__main__":
     unittest.main()
