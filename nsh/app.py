@@ -35,7 +35,7 @@ from prompt_toolkit.formatted_text import ANSI, to_formatted_text
 from prompt_toolkit.layout.menus import CompletionsMenu
 from prompt_toolkit.mouse_events import MouseEventType
 
-from . import __version__, config
+from . import __version__, config, opener
 from .explorer import archive, git
 from .explorer.browse import BranchBrowser
 from .explorer.preview import PreviewView
@@ -173,7 +173,9 @@ class NshApp:
         self.keys = {**config.DEFAULT_KEYS, **key_overrides}
         self.style = config.build_style(color_overrides)
         self.settings = settings
-        self.message = cfg_warning or ""
+        # which program opens which file ([openers] / [open] in nshrc)
+        self.open_rules, rules_warning = config.load_open_rules()
+        self.message = cfg_warning or rules_warning or ""
         # watch nshrc so edits (e.g. remapped keys) apply without a restart
         self._config_mtime = self._read_config_mtime()
         self._config_check_at = 0.0  # throttle the stat to ~once a second
@@ -600,6 +602,8 @@ class NshApp:
         color_overrides, key_overrides, settings, warning = config.load_user_config()
         self.keys = {**config.DEFAULT_KEYS, **key_overrides}
         self.settings = settings
+        self.open_rules, rules_warning = config.load_open_rules()
+        warning = warning or rules_warning
         self._two_pane_default = (
             settings.get("two_pane", "false").strip().lower()
             in ("true", "1", "yes", "on"))
@@ -2284,17 +2288,31 @@ class NshApp:
         return written[0]
 
     def open_file(self, path):
+        """Open ``path`` the way the ``[open]`` rules say, else the old way.
+
+        With no rules configured this is exactly what nsh has always done:
+        ``$EDITOR`` if it is set, otherwise the platform's handler.
+        """
+        path = Path(path)
         if archive.is_member(path):
             try:
                 path = self._extract_for_opening(path)
             except (archive.ArchiveError, OSError, IndexError) as exc:
                 self.set_message(f"cannot open from archive: {exc}")
                 return
-            self.set_message(f"opened a temporary copy of {Path(path).name}")
+            self.set_message(f"opened a temporary copy of {path.name}")
+        chosen = self.open_rules.candidates(path)
+        if chosen:
+            self.run_opener(chosen[0], [path])
+            return
         editor = os.environ.get("EDITOR") or os.environ.get("VISUAL")
         if editor:
             asyncio.ensure_future(self.runner.run_in_term(f'{editor} "{path}"'))
             return
+        self.open_with_system(path)
+
+    def open_with_system(self, path):
+        """Hand ``path`` to the platform's default application."""
         try:
             if os.name == "nt":
                 os.startfile(str(path))  # type: ignore[attr-defined]
@@ -2304,6 +2322,74 @@ class NshApp:
                 subprocess.Popen(["xdg-open", str(path)])
         except Exception as exc:  # noqa: BLE001
             self.set_message(f"cannot open: {exc}")
+
+    # -- open rules -----------------------------------------------------------
+    def run_opener(self, chosen, paths):
+        """Open ``paths`` with one opener (built-in, or a shell command).
+
+        A command runs in the shell tab like one the user typed, so its output
+        lands in the scrollback and an interactive program (vi, less, …) takes
+        over the terminal through the existing detection — no per-opener flag.
+        """
+        paths = [Path(p) for p in paths]
+        if not paths:
+            return
+        if chosen.is_builtin:
+            self._run_builtin_opener(chosen.name, paths)
+            return
+        for command in opener.commands_for(chosen.command, paths):
+            self.run_in_shell(self.shell, command)
+
+    def _run_builtin_opener(self, name, paths):
+        if name == "browse":
+            self.set_cwd(paths[0])
+        elif name == "preview":
+            self.focus_preview()
+        elif name == "shell":
+            self.shell_insert_paths(paths)
+        elif name == "edit":
+            for path in paths:
+                self.edit_file(path)
+        else:  # "default"
+            for path in paths:
+                self.open_with_system(path)
+
+    def open_with_menu(self, paths):
+        """The "Open with…" chooser: the matching rule's alternatives first,
+        then every named opener, then a command typed by hand — so any program
+        is reachable even with no rules configured."""
+        paths = [Path(p) for p in paths]
+        if not paths:
+            return
+        label = paths[0].name if len(paths) == 1 else f"{len(paths)} files"
+        items, seen = [], set()
+
+        def add(chosen, note=""):
+            if chosen in seen:
+                return
+            seen.add(chosen)
+            text = f"{chosen.label}   {note}" if note else chosen.label
+            items.append((text, lambda chosen=chosen: self.run_opener(chosen, paths)))
+
+        for chosen in self.open_rules.candidates(paths[0]):
+            add(chosen)
+        if items:
+            items.append((SEPARATOR, None))
+        for chosen in self.open_rules.named():
+            add(chosen, opener.BUILTIN_HELP.get(chosen.name, ""))
+        items += [(SEPARATOR, None),
+                  ("Command…", lambda: self._open_with_command(paths))]
+        self.open_menu(f"Open with · {label}", items, at_cursor=True)
+
+    def _open_with_command(self, paths):
+        def run(text):
+            text = text.strip()
+            if not text:
+                self.set_message("cancelled")
+                return
+            self.run_opener(
+                opener.Opener("", opener.with_default_macro(text)), paths)
+        self.open_input_dialog("Open with  (%f %F %d %n)", "", 0, run)
 
     def open_in_file_manager(self, path):
         """Opens a directory in the platform's graphical file manager."""

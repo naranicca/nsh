@@ -9,6 +9,7 @@
   - [Global shortcuts](#global-shortcuts)
   - [Explorer mode](#explorer-mode)
     - [Archives](#archives)
+    - [Open rules](#open-rules)
   - [Git mode](#git-mode)
   - [Command-line mode](#command-line-mode)
   - [Fuzzy search mode](#fuzzy-search-mode)
@@ -147,6 +148,7 @@ The action keys (everything below the navigation block) are remappable in
 | `Space` | select / deselect the entry (multi-select) |
 | `*` | select entries by substring or glob pattern |
 | `Tab` | open the **action menu** (copy, rename, delete, git…) — drops from the cursor row, beside the filename |
+| `O` | **Open with…** — choose the program for the file(s) under the cursor (see [Open rules](#open-rules)) |
 | `y` / `x` / `p` | copy / cut / paste — the picked rows briefly flash; **paste lands in the directory at the cursor**. If a name already exists, choose overwrite, skip, or a new name. The clipboard is shared across tabs, so you can copy in one tab and paste in another |
 | `F2` / `i` | rename (inline) |
 | `m` / `N` | new folder / new file — **created in the directory at the cursor** |
@@ -224,6 +226,74 @@ Extraction never overwrites: a top-level name that already exists becomes
 absolute or drive-relative names) are skipped and reported. The shell and Git
 stay in the real directory holding the archive, so a command run while browsing
 inside one does not land somewhere that doesn't exist.
+
+#### Open rules
+
+Out of the box `↵` opens a file with `$EDITOR` if it is set, otherwise with the
+platform's handler. To decide per file type, add two sections to `nshrc`:
+
+```ini
+[openers]
+# named, reusable ways to open something
+play   = mpv %f
+images = feh %f
+view   = glow %f | less
+
+[open]
+# which files use them — the first matching line wins
+*.{png,jpg,gif} = images, default
+*.{mp4,mkv}     = play
+*.md            = view, edit
+*.csv           = libreoffice --calc %f, edit
+Makefile        = edit
+*               = default
+```
+
+`[openers]` says **how** to open something and gives it a name; `[open]` says
+**which files** use that name. The split means a program is written once and
+reused by many patterns, and the list on the right-hand side doubles as the
+alternatives offered by **`O`**. A token that is not an opener name is taken as
+a command written inline, so a one-off needs no name — and a bare word that
+names neither an opener nor a program on `PATH` is reported as the typo it
+almost certainly is, instead of silently never matching.
+
+These opener names always exist:
+
+| Name | Opens it with |
+| --- | --- |
+| `default` | the system's default application |
+| `edit` | the editor from `[general] editor` |
+| `browse` | stepping into it (directory or archive) |
+| `preview` | the preview pane |
+| `shell` | the command line, path inserted |
+
+**Patterns** are globs on the file *name*, matched case-insensitively on every
+platform, with `{a,b}` brace expansion — so `*.tar.gz`, `Makefile` and
+`*.{png,jpg}` all work. There is intentionally **no MIME matching**: it would
+mean `file`/libmagic, which does not exist on Windows.
+
+**Macros** — `%f` the file, `%F` every selected file, `%d` its directory, `%n`
+its name without the suffix, `%%` a literal percent. Everything is quoted for
+the host shell, so never write `"%f"`; a command with no macro gets `%f`
+appended. `%F` hands the whole selection to one run, while `%f` runs the
+command once per selected file.
+
+Commands run in the shell tab exactly as if you had typed them, so their output
+lands in the scrollback and interactive programs (`vi`, `less`, …) take over the
+terminal through the existing detection — there is no per-opener flag to set.
+
+**If a program is missing from `PATH`, its line is skipped** and matching
+continues on the next one, so a single `nshrc` can serve machines with different
+software installed.
+
+**Directories and archives are stepped into** unless a pattern specific enough
+to name them claims them: `*.zip = unzip -l %f` wins, a catch-all `*` never
+does.
+
+**`O` (Open with…)** lists the matching rule's alternatives first, then every
+named opener and every built-in, then `Command…` for something typed by hand.
+It acts on the selection when there is one, so `%F` reaches all of it. The same
+entry is at the top of the `Tab` action menu.
 
 Git actions (stage / unstage, commit, diff, and a **Branches** submenu that
 lists branches to check out plus a `+ New Branch` entry) live in the `Tab`
@@ -614,7 +684,10 @@ Tab restoration state is updated immediately when a tab is opened or closed,
 so those structural changes survive an interrupted session as well as a normal
 quit.
 `[colors]` overrides any UI style class; `[keys]` remaps the explorer action
-keys. Invalid entries are ignored, never fatal.
+keys. `[openers]` and `[open]` decide which program opens which file — see
+[Open rules](#open-rules); the Preferences editor does not cover those two
+sections yet, so edit `nshrc` directly for them. Invalid entries are ignored,
+never fatal: a bad rule is reported once in the status bar and skipped.
 
 Bookmarks (the `b` key) are saved one path per line in `~/.config/nsh/bookmarks`.
 
@@ -634,6 +707,7 @@ nsh/
   system/
     view.py            sortable, searchable process viewer and terminate action
   config.py           styles, icons, key map, nshrc loading
+  opener.py           [openers]/[open] rules: glob match, %f macros, PATH check
   util/
     width.py          wcwidth-based truncate/pad (CJK-correct columns)
     paths.py          pathlib helpers, normalised compare keys

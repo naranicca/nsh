@@ -11,6 +11,7 @@ from pathlib import Path
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.styles import Style
 
+from . import opener
 from .search.fuzzy import SKIP_DIRS as _SEARCH_SKIP_DIRS
 
 # the default value for the `search_exclude` setting, single-sourced from the
@@ -211,6 +212,9 @@ DEFAULT_KEYS = {
     # enlarge the focused pane to a 9:1 split (the big pane follows the focus)
     "zoom": "z",
     "menu": "tab",
+    # choose how to open the cursor file (the [open] alternatives, every named
+    # opener, or a command you type)
+    "open_with": "O",
     "copy": "y",
     "cut": "x",
     "paste": "p",
@@ -313,6 +317,8 @@ DEFAULT_NSHRC = """\
 # [general] sets miscellaneous options (see below).
 # [colors] overrides any UI style; values use prompt_toolkit syntax, e.g.
 #   "#ff8700 bold", "bg:#1c1c1c #ffffff", "italic underline".
+# [openers] names reusable ways to open a file, and [open] says which files use
+#   them (see below).
 # [keys] remaps an explorer action to a key. A key is a single character, or a
 #   name: space, tab, escape, enter, f1..f12, or a modifier form like c-r
 #   (Ctrl-R) or s-tab (Shift-Tab). A few ctrl combos can't be remapped because
@@ -350,6 +356,40 @@ DEFAULT_NSHRC = """\
 # Separate command names with spaces or commas (for example: mc ranger lazygit).
 # external_commands =
 
+[openers]
+# Named ways to open a file, reusable from [open] below. Macros: %f the file,
+# %F every selected file, %d its directory, %n its name without the suffix.
+# Everything is quoted for you, so never write "%f". A command with no macro
+# gets %f appended. Commands run in the shell tab; interactive ones (vi, less,
+# …) take over the terminal automatically, as they do when you type them.
+# play   = mpv %f
+# images = feh %f
+# view   = glow %f | less
+#
+# These names always exist and need no entry here:
+#   default   the system's default application (what Enter does today)
+#   edit      the editor from [general] editor
+#   browse    step into it (directory or archive)
+#   preview   focus the preview pane
+#   shell     put the path on the command line
+
+[open]
+# pattern = opener[, opener…] — the first matching line wins, and its first
+# opener is what Enter runs; the rest are the alternatives Shift+O offers.
+# Patterns are globs on the file name, case-insensitive, with {{a,b}} expansion.
+# A token that is not an opener name is taken as a command written inline.
+# If every program on a line is missing from PATH, the line is skipped and
+# matching continues — so one nshrc can serve several machines.
+# *.{{png,jpg,gif}} = images, default
+# *.{{mp4,mkv}}     = play
+# *.md            = view, edit
+# Makefile        = edit
+# *.csv           = libreoffice --calc %f, edit
+# *               = default
+#
+# Directories and archives are stepped into unless a *specific* pattern claims
+# them: "*.zip = unzip -l %f" wins, a catch-all "*" never does.
+
 [colors]
 # explorer.dir = #5fafff bold
 # explorer.selected = #ffff5f bold
@@ -373,6 +413,7 @@ DEFAULT_NSHRC = """\
 # tab_move_next = c-f8 (move this tab right in the tab bar)
 # zoom = z             (enlarge the focused pane to a 9:1 split)
 # menu = tab
+# open_with = O        (choose how to open the file under the cursor)
 # copy = y
 # cut = x
 # paste = p
@@ -464,6 +505,32 @@ def load_user_config():
             if k.strip() in settings:
                 settings[k.strip()] = v.strip()
     return colors, keys, settings, None
+
+
+def load_open_rules():
+    """Return ``(OpenRules, warning)`` from nshrc's ``[openers]`` / ``[open]``.
+
+    Read separately from :func:`load_user_config` so the rule table can grow its
+    own validation without changing that function's signature. The file is tiny
+    and both are read once per launch (and once per nshrc edit).
+    """
+    empty = opener.OpenRules()
+    try:
+        path = config_path()
+    except RuntimeError:  # no home directory
+        return empty, None
+    if not path.exists():
+        return empty, None
+    parser = configparser.ConfigParser(interpolation=None)
+    parser.optionxform = str  # patterns and opener names are case-sensitive
+    try:
+        parser.read(path, encoding="utf-8")
+    except (configparser.Error, OSError):
+        return empty, None  # load_user_config already warns about a broken file
+    rules, warnings = opener.parse(
+        parser.items("openers") if parser.has_section("openers") else (),
+        parser.items("open") if parser.has_section("open") else ())
+    return rules, "  ·  ".join(warnings) if warnings else None
 
 
 def validate_preference(section, name, value):

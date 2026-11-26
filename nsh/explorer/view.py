@@ -435,10 +435,22 @@ class ExplorerView:
             # step up, landing the cursor on the directory we're leaving
             self.app.set_cwd(self.cwd.parent, select_name=self.cwd.name)
         elif entry.is_dir or entry.is_archive:
-            # an archive opens like a directory: its contents replace the listing
-            self.app.set_cwd(entry.path)
+            # an archive opens like a directory: its contents replace the listing.
+            # A [open] rule naming this kind of file (*.zip) takes over; a
+            # catch-all rule, which exists for ordinary files, never does.
+            if self.app.open_rules.claims_container(entry.path):
+                self.app.open_file(entry.path)
+            else:
+                self.app.set_cwd(entry.path)
         else:
             self.app.open_file(entry.path)
+
+    def open_with(self):
+        """Choose how to open the target(s) — the selection, else the cursor."""
+        targets = self._targets()
+        if not targets:
+            return
+        self.app.open_with_menu(targets)
 
     def _on_mouse(self, mouse_event):
         """Left-click moves the cursor to the clicked row (and activates this
@@ -1370,6 +1382,7 @@ class ExplorerView:
         items = []
         # entry actions need something under the cursor / a selection
         if has_target:
+            items.append(("Open with…           O", self.open_with))
             # "Edit" only for a single text file under the cursor (not a
             # directory, image, or binary), and not while multi-selecting.
             if (len(self.selected) == 1 and cur is not None and cur.path in self.selected
@@ -1515,6 +1528,7 @@ class ExplorerView:
         ("tab_move_next", "move this tab right"),
         ("zoom", "enlarge the focused pane (9:1)"),
         ("menu", "action menu (copy, rename, git…)"),
+        ("open_with", "open with… (choose the program)"),
         ("copy", "copy"), ("cut", "cut"), ("paste", "paste"),
         ("rename", "rename (also i)"), ("new_dir", "new folder"), ("new_file", "new file"),
         ("trash", "move to trash"), ("delete", "delete permanently"),
@@ -2048,6 +2062,7 @@ class ExplorerView:
             "select_pattern": self.select_pattern,
             "two_pane": lambda: self.app.toggle_two_pane(),
             "menu": self.open_command_menu,
+            "open_with": self.open_with,
             "bookmark": lambda: self.app.open_bookmark_menu(),
             "home": lambda: self.app.go_home(),
             "visited": lambda: self.app.open_visited_menu(),
